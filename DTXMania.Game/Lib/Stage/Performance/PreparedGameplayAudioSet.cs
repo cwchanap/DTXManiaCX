@@ -183,12 +183,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // Each load is dispatched to the thread pool via Task.Run so the
                     // synchronous ManagedSound decode (OGG/MP3/ADPCM-WAV) does not
                     // run on the MonoGame update thread. PrepareAsync is awaited from
-                    // PerformanceStage.InitializeGameplayCoreAsync, which is launched
-                    // from OnActivate on the game thread; when a parsed chart is
-                    // supplied via shared data there is no prior await, so without
-                    // this dispatch the entire default-profile audio set would load
-                    // synchronously on the update thread and freeze render/input
-                    // until preparation completes.
+                    // PerformanceStage.PrepareGameplayCore, which runs on the stage's
+                    // background-work worker thread; when a parsed chart is supplied
+                    // via shared data there is no prior await, so without this dispatch
+                    // the entire default-profile audio set would load synchronously
+                    // inside the worker and delay the update thread only marginally,
+                    // but the dispatch also keeps per-load parallelism for multi-file
+                    // charts.
                     foreach (var sourcePath in allPaths)
                     {
                         cancellationToken.ThrowIfCancellationRequested();

@@ -21,6 +21,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
+using DTXMania.Test.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
@@ -241,22 +242,52 @@ public class PerformanceStageDeterministicTests
         Assert.False(telemetry.PerformanceReady);
     }
 
-    private static Task InvokeGameplayInitialization(PerformanceStage stage)
+    /// <summary>
+    /// Drives the async gameplay initialization through the activation scope: the
+    /// worker only queues its terminal, so the test keeps calling stage.Update (the
+    /// real game-loop drain) with a bounded timeout until the update thread applies it.
+    /// </summary>
+    private static void StartGameplayInitialization(PerformanceStage stage)
     {
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        var generation = ReflectionHelpers.GetPrivateField<int>(stage, "_activationGeneration");
-        return (Task)ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "InitializeGameplayCoreAsync",
-            generation,
-            CancellationToken.None,
-            true)!;
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartGameplayInitialization");
+    }
+
+    private static void RunUpdateLoopUntil(PerformanceStage stage, Func<bool> condition)
+    {
+        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+        var settled = SpinWait.SpinUntil(
+            () =>
+            {
+                stage.Update(0.016);
+                return condition();
+            },
+            TimeSpan.FromSeconds(5));
+        Assert.True(settled, "the gameplay initialization terminal was not applied within the timeout");
+    }
+
+    /// <summary>
+    /// Drains the scope directly (the update-thread apply step) instead of driving
+    /// stage.Update, for cases whose post-apply OnUpdate would touch components the
+    /// reflection-created stage cannot safely initialize.
+    /// </summary>
+    private static void DrainScopeUntil(PerformanceStage stage, Func<bool> condition)
+    {
+        var settled = SpinWait.SpinUntil(
+            () =>
+            {
+                stage.BackgroundWork?.Drain();
+                return condition();
+            },
+            TimeSpan.FromSeconds(5));
+        Assert.True(settled, "the gameplay initialization terminal was not applied within the timeout");
     }
 
     [Fact]
-    public async Task InitializeGameplayCoreAsync_WhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
+    public void StartGameplayInitialization_WhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
     {
         var stage = CreateInspectableStage();
+        stage.InstallTestBackgroundScope();
         var chart = new ParsedChart("silent-clock.dtx");
         chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
         chart.FinalizeChart();
@@ -270,8 +301,8 @@ public class PerformanceStageDeterministicTests
             "_playbackModifiers",
             new PlaybackModifiers(50, 0));
 
-        var initializeTask = InvokeGameplayInitialization(stage);
-        await initializeTask;
+        StartGameplayInitialization(stage);
+        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
         var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
         Assert.NotNull(timer);
@@ -288,40 +319,86 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task InitializeGameplayCoreAsync_WhenBodyThrows_ShouldResetLoadingAndRethrow()
+    public void StartGameplayInitialization_WhenSetBpmThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
     {
-        // Exercises the catch-all in InitializeGameplayAsync: a zero-BPM chart makes
-        // NoteRenderer.SetBpm throw ArgumentException. The catch must reset _isLoading
-        // and rethrow so the stage is not left in a broken half-loaded state.
-        var stage = CreateStage();
-        var chart = new ParsedChart("bad-bpm.dtx");
-        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
-        chart.FinalizeChart();
-        // Force a zero BPM so SetBpm throws downstream.
-        chart.Bpm = 0.0;
+        // Preparation succeeds on the worker; the binding then throws (zero-BPM chart
+        // makes NoteRenderer.SetBpm throw ArgumentException on the update thread). The
+        // onSuccess catch must call FailLoading with the original exception, and since
+        // ownership was already transferred to the stage, the stage — not the finally
+        // block — owns the set: CleanupComponents disposes it exactly once.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateInspectableStage();
+            stage.InstallTestBackgroundScope();
+            var logger = new Mock<ILogger<PerformanceStage>>();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+            var chart = new ParsedChart("bad-bpm.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            // Force a zero BPM so SetBpm throws during the success binding.
+            chart.Bpm = 0.0;
+            // A real loadable WAV makes the prepared set's disposal observable.
+            chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(
+                directory,
+                "bad-bpm-main.wav");
 
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
-        // Null input manager makes InitializeGameplayManagers return early so we reach the
-        // SetBpm call without needing the full manager wiring.
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
-            ReflectionHelpers.CreateUninitialized<NoteRenderer>());
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            // Null input manager makes InitializeGameplayManagers return early so we reach
+            // the SetBpm call without needing the full manager wiring.
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
+                ReflectionHelpers.CreateUninitialized<NoteRenderer>());
+            // Default playback profile: preparation succeeds and the failure really
+            // comes from the update-thread binding (SetBpm), not the variant path.
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-        var initializeTask = InvokeGameplayInitialization(stage);
+            StartGameplayInitialization(stage);
+            DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
 
-        await Assert.ThrowsAsync<ArgumentException>(async () => await initializeTask);
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.Contains(
+                "Audio binding failed",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((state, _) =>
+                        state.ToString()!.Contains("Audio binding failed", StringComparison.Ordinal)),
+                    It.Is<Exception>(failure => failure is ArgumentException),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+
+            // Ownership was transferred before the throw, so the stage owns the set;
+            // it must still be live until CleanupComponents disposes it.
+            var preparedSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            Assert.NotNull(preparedSet);
+            var mainBackground = preparedSet!.MainBackground;
+            Assert.NotNull(mainBackground);
+            Assert.False(mainBackground!.IsDisposed);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+            Assert.True(mainBackground.IsDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
-    public async Task InitializeGameplayCoreAsync_WhenLoadingFailsWithThrowOnFailureFalse_ShouldLogOriginalException()
+    public void StartGameplayInitialization_WhenAudioPreparationFails_ShouldFailLoadingAndLogOriginalException()
     {
-        // The production path runs with throwOnFailure: false, so the catch-all
-        // surfaces the failure via FailLoading. The original exception instance
+        // A worker fault reaches the scope's onError callback on the update thread,
+        // which surfaces the failure via FailLoading. The original exception instance
         // must reach the error log (identity preserved), not just its message.
         var stage = CreateThrowingAudioVariantStage();
+        stage.InstallTestBackgroundScope();
         var logger = new Mock<ILogger<PerformanceStage>>();
         ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
         var chart = new ParsedChart("variant-failure.dtx");
@@ -332,24 +409,18 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        // Non-default profile makes InitializeGameplayCoreAsync call the overridden
+        // Non-default profile makes the worker call the overridden
         // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
 
-        var generation = ReflectionHelpers.GetPrivateField<int>(stage, "_activationGeneration");
-        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "InitializeGameplayCoreAsync",
-            generation,
-            CancellationToken.None,
-            false)!;
-        await initializeTask;
+        StartGameplayInitialization(stage);
+        DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.Contains(
             "Audio preparation failed",
             ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
         logger.Verify(
             l => l.Log(
                 LogLevel.Error,
@@ -359,6 +430,169 @@ public class PerformanceStageDeterministicTests
                 stage.Failure,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenResultQueuedBeforeDeactivation_ShouldDropItAndDisposeThePreparedSetExactlyOnce()
+    {
+        // The worker finished and its terminal sat in the scope queue when the stage
+        // deactivated: BaseStage.Deactivate retires the scope synchronously BEFORE
+        // OnDeactivate's teardown, so the stale never-applied result is dropped via
+        // onDropped — its prepared audio set is disposed there, never applied.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateInspectableStage();
+            var scope = stage.InstallTestBackgroundScope();
+            var chart = new ParsedChart("late-drop.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            // A real loadable WAV makes the prepared set's disposal observable even
+            // though the result is never applied to the stage.
+            chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory, "late-drop-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+
+            StartGameplayInitialization(stage);
+
+            PreparedGameplayAudioSet? preparedSet = null;
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => (preparedSet = FindQueuedAudioSet(scope)) != null,
+                    TimeSpan.FromSeconds(5)),
+                "the prepared result was never queued");
+            var mainBackground = preparedSet!.MainBackground;
+            Assert.NotNull(mainBackground);
+            Assert.False(mainBackground!.IsDisposed);
+            // The result is queued but never applied.
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            stage.Deactivate();
+
+            Assert.True(
+                SpinWait.SpinUntil(() => mainBackground.IsDisposed, TimeSpan.FromSeconds(5)),
+                "the dropped prepared set was not disposed");
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenPreparationIsCanceledMidFlight_ShouldLeaveLoadingStateUntouched()
+    {
+        // Retirement cancels the scope token while the worker is parked inside the
+        // variant processor. The canceled preparation must neither fail the stage nor
+        // leave a half-owned audio set behind.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateGatedVariantStage();
+            stage.InstallTestBackgroundScope();
+            var chart = new ParsedChart("canceled-prep.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            // An existing source makes the variant path engage the gated processor.
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "canceled-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+
+            StartGameplayInitialization(stage);
+            Assert.True(
+                SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
+                "the worker never reached the variant processor");
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            stage.Deactivate();
+            stage.ReleaseProcessor.TrySetResult();
+
+            Assert.True(
+                SpinWait.SpinUntil(() => stage.ProcessorFinished.Task.IsCompleted, TimeSpan.FromSeconds(5)),
+                "the gated processor never unwound");
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_ShouldPublishAudioProgressThroughTheScopeAndApplyItBeforeReady()
+    {
+        // Audio preparation progress flows through a Latest reporter: the mid-flight
+        // report applies on the update-thread drain before the terminal does, and the
+        // final report lands with the ready state.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateGatedVariantStage();
+            stage.InstallTestBackgroundScope();
+            var chart = new ParsedChart("progress-prep.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "progress-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+
+            StartGameplayInitialization(stage);
+            Assert.True(
+                SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
+                "the worker never reached the variant processor");
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            AudioPreparationProgress? midFlight = null;
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.Update(0.016);
+                        midFlight = ReflectionHelpers.GetPrivateField<AudioPreparationProgress>(stage, "_audioPreparationProgress");
+                        return midFlight != null;
+                    },
+                    TimeSpan.FromSeconds(5)),
+                "the mid-flight progress report was never applied");
+            Assert.Equal(0, midFlight!.CompletedCount);
+            Assert.Equal(1, midFlight.TotalCount);
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+            stage.ReleaseProcessor.TrySetResult();
+            RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+            var finalProgress = ReflectionHelpers.GetPrivateField<AudioPreparationProgress>(stage, "_audioPreparationProgress");
+            Assert.NotNull(finalProgress);
+            Assert.Equal(1, finalProgress!.CompletedCount);
+            Assert.Equal(1, finalProgress.TotalCount);
+            var preparedSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            Assert.NotNull(preparedSet);
+            var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
+            Assert.NotNull(timer);
+            Assert.Equal(preparedSet!.RuntimePitch, timer!.Pitch);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -737,166 +971,99 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TabLifecycle_WithDefaultConfig_ShouldNeverStagePendingChartAndKeepEffectiveLanes()
+    public void StartGameplayInitialization_WhenLanesRequested_ShouldKeepLanesWithoutNotation()
     {
-        var stage = CreateStage();
+        var stage = CreateStageWithConfig(new ConfigData());
+        stage.InstallTestBackgroundScope();
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, CancellationToken.None);
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        StartGameplayInitialization(stage);
+        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
-        Assert.Null(GetPendingNotationChart(stage));
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
     }
 
     [Fact]
-    public void TryStageNotationChart_WhenTabRequested_ShouldStagePendingChartForCurrentGeneration()
+    public void StartGameplayInitialization_WhenTabRequestedAndFontsReady_ShouldPublishNotationStripOnApply()
     {
         var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        stage.InstallTestBackgroundScope();
         var chart = CreateFinalizedTabChart();
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", CreateNotationResourceManager(completeBravura: true).Object);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, CancellationToken.None);
+        StartGameplayInitialization(stage);
+        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
-        var pending = GetPendingNotationChart(stage);
-        Assert.NotNull(pending);
-        Assert.Equal(
-            0,
-            (int)pending!.GetType().GetProperty("Generation")!.GetValue(pending)!);
-        Assert.Same(
-            chart.MeasureLines,
-            pending.GetType().GetProperty("MeasureLines")!.GetValue(pending));
-        Assert.NotNull(pending.GetType().GetProperty("Chart")!.GetValue(pending));
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
+        Assert.NotNull(strip);
+        Assert.True(strip!.IsReady);
+        // No GraphicsDevice in headless coverage: the HUD attempt reports NotAttempted
+        // and the strip stays published.
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
     }
 
     [Fact]
-    public void TryStageNotationChart_WhenRequestedLanes_ShouldNotStagePendingChart()
-    {
-        var stage = CreateStageWithConfig(new ConfigData());
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, CancellationToken.None);
-
-        Assert.Null(GetPendingNotationChart(stage));
-    }
-
-    [Fact]
-    public void TryStageNotationChart_WhenGenerationIsStale_ShouldNotStagePendingChart()
+    public void StartGameplayInitialization_WhenNotationBuildFails_ShouldStayInLanesAndRemainReady()
     {
         var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 7, CancellationToken.None);
-
-        Assert.Null(GetPendingNotationChart(stage));
-    }
-
-    [Fact]
-    public void TryStageNotationChart_WhenCancelled_ShouldNotStagePendingChart()
-    {
-        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, new CancellationToken(canceled: true));
-
-        Assert.Null(GetPendingNotationChart(stage));
-    }
-
-    [Fact]
-    public void TryStageNotationChart_WhenBuilderRejectsAChannel_ShouldLogAndLeaveNoPendingChart()
-    {
-        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        stage.InstallTestBackgroundScope();
         var chart = new ParsedChart("tab-invalid-channel.dtx");
         chart.MeasureLines.Add(new MeasureLine { Bar = 0, TimeMs = 0 });
         chart.MeasureLines.Add(new MeasureLine { Bar = 1, TimeMs = 2000 });
         chart.Notes.Add(new Note { Channel = 0x99, Bar = 0, Tick = 0 });
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, CancellationToken.None);
+        StartGameplayInitialization(stage);
+        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
-        // The build failure is caught locally: no pending chart, gameplay in Lanes.
-        Assert.Null(GetPendingNotationChart(stage));
+        // The worker-local build failure is caught and logged: gameplay continues in
+        // Lanes with a fully ready stage.
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
     }
 
     [Fact]
-    public void TryConstructNotationStrip_WhenFontsAreReady_ShouldPublishStripAndConsumePendingChart()
+    public void TryConstructNotationStrip_WhenFontsAreReady_ShouldPublishStrip()
     {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        var stage = CreateTabStage(CreateNotationResourceManager(completeBravura: true).Object);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
 
         var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
         Assert.NotNull(strip);
         Assert.True(strip!.IsReady);
-        Assert.Null(GetPendingNotationChart(stage));
     }
 
     [Fact]
     public void TryConstructNotationStrip_WhenBravuraIsIncomplete_ShouldFallBackToLanesForTheSong()
     {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: false).Object);
+        var stage = CreateTabStage(CreateNotationResourceManager(completeBravura: false).Object);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
-
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.Null(GetPendingNotationChart(stage));
-    }
-
-    [Fact]
-    public void TryConstructNotationStrip_WhenActivationGenerationChanged_ShouldDiscardPendingChartWithoutConstructing()
-    {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
-        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
 
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.Null(GetPendingNotationChart(stage));
-    }
-
-    [Fact]
-    public void TryConstructNotationStrip_WhenStaleChartPrecedesCurrentGenerationChart_ShouldStillConstructStrip()
-    {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
-        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1);
-
-        // A chart left over from the previous activation is discarded without
-        // consuming this activation's construction — the song must not be stuck in
-        // Lanes with no log line.
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.Null(GetPendingNotationChart(stage));
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 1, CancellationToken.None);
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
-
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip"));
-    }
-
-    [Fact]
-    public void TryConstructNotationStrip_WhenPendingChartConsumed_ShouldNotRetryAfterFailure()
-    {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: false).Object);
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
-
-        // A later frame stages nothing new; the consumed chart must not re-run.
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
-
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.Null(GetPendingNotationChart(stage));
     }
 
     [Fact]
     public void TryConstructNotationStrip_WhenTabHudCannotAcquireResources_ShouldRollStripBackToLanes()
     {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        var stage = CreateTabStage(CreateNotationResourceManager(completeBravura: true).Object);
         // A stub SpriteBatch returns a non-null but uninitialized GraphicsDevice,
         // so HUD construction is attempted and its font acquisition fails
         // deterministically — no GPU needed.
@@ -905,46 +1072,43 @@ public class PerformanceStageDeterministicTests
             "_spriteBatch",
             CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
 
         // The whole Tab decision rolls back to consistent Lanes — a strip kept
         // without its HUD would draw the Lanes widgets over the strip's hit
-        // marker and key labels. Pending chart stays consumed either way.
+        // marker and key labels.
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
-        Assert.Null(GetPendingNotationChart(stage));
     }
 
     [Fact]
     public void TryConstructNotationStrip_WhenNoGraphicsDevice_ShouldKeepPublishedStrip()
     {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        var stage = CreateTabStage(CreateNotationResourceManager(completeBravura: true).Object);
 
         // No SpriteBatch at all (plain headless path): the HUD cannot even be
         // attempted, which must not unpublish the strip.
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
 
         Assert.NotNull(ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip"));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
-        Assert.Null(GetPendingNotationChart(stage));
     }
 
     [Fact]
-    public void CleanupComponents_WhenTabWasActive_ShouldClearPendingStateAndDisposeStrip()
+    public void CleanupComponents_WhenTabWasActive_ShouldClearNotationAndDisposeStrip()
     {
         // The font's RemoveReference fires inside the renderer's Dispose: sampling the
-        // stage fields there proves pending state and the effective-mode reference are
-        // cleared BEFORE the renderer is disposed, not just by the time cleanup returns.
+        // stage fields there proves the effective-mode reference is cleared BEFORE the
+        // renderer is disposed, not just by the time cleanup returns.
         PerformanceStage? stage = null;
         var clearedBeforeDispose = new List<bool>();
         var resourceManager = CreateNotationResourceManager(
             completeBravura: true,
             onFontRemoveReference: () => clearedBeforeDispose.Add(
                 stage != null &&
-                GetPendingNotationChart(stage) == null &&
                 ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip") == null));
-        stage = CreateTabStageWithPendingChart(resourceManager.Object);
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        stage = CreateTabStage(resourceManager.Object);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
         var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
         Assert.NotNull(strip);
 
@@ -956,16 +1120,10 @@ public class PerformanceStageDeterministicTests
             new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a"));
         Assert.NotNull(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
 
-        // A staged-but-unconsumed chart must also be discarded by cleanup.
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, CancellationToken.None);
-        Assert.NotNull(GetPendingNotationChart(stage));
-
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
         Assert.NotEmpty(clearedBeforeDispose);
         Assert.All(clearedBeforeDispose, Assert.True);
-        Assert.Null(GetPendingNotationChart(stage));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
         // HPA-509: the Tab HUD display (fonts + white primitive) is disposed and
         // released by the same cleanup path used on stop, game-over and fallback.
@@ -1004,7 +1162,8 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay") == null &&
             ReflectionHelpers.GetPrivateField<object>(stage, "_judgementLineRenderer") == null));
 
-        stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        stage = CreateTabStage(CreateNotationResourceManager(completeBravura: true).Object);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
         ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
         ReflectionHelpers.SetPrivateField(stage, "_judgementLineRenderer", judgementLine);
         ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTextureResource", whitePixel);
@@ -1131,17 +1290,18 @@ public class PerformanceStageDeterministicTests
         public void Dispose() => IsDisposed = true;
     }
 
-    private static PerformanceStage CreateTabStageWithPendingChart(IResourceManager resourceManager)
+    private static PerformanceStage CreateTabStage(IResourceManager resourceManager)
     {
         var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "TryStageNotationChart", 0, CancellationToken.None);
-        Assert.NotNull(GetPendingNotationChart(stage));
         return stage;
     }
+
+    private static NotationChart BuildNotationChart() => new(Array.Empty<NotationMeasure>());
+
+    private static IReadOnlyList<MeasureLine> BuildMeasureLines() =>
+        new List<MeasureLine> { new MeasureLine { Bar = 0, TimeMs = 0 } };
 
     private static ParsedChart CreateFinalizedTabChart()
     {
@@ -1167,16 +1327,142 @@ public class PerformanceStageDeterministicTests
         return resourceManager;
     }
 
-    private static object? GetPendingNotationChart(PerformanceStage stage) =>
-        ReflectionHelpers.GetPrivateField<object>(stage, "_pendingNotationChart");
-
     #endregion
 
+    /// <summary>
+    /// Locates the queued-but-unapplied initialization terminal inside the scope's
+    /// queue by inspecting each item's Drop callback closure for a payload carrying a
+    /// PreparedGameplayAudioSet. Returns null while the terminal is still in flight.
+    /// </summary>
+    private static PreparedGameplayAudioSet? FindQueuedAudioSet(StageBackgroundWorkScope scope)
+    {
+        var queue = ReflectionHelpers.GetPrivateField<System.Collections.IList>(scope, "_queue");
+        if (queue == null)
+            return null;
+
+        foreach (var item in queue)
+        {
+            // Drop is an auto-property on the scope's WorkItem; walk the type
+            // hierarchy for the property itself (backing fields are renamed).
+            var type = item!.GetType();
+            Delegate? drop = null;
+            while (type != null && drop == null)
+            {
+                drop = type.GetProperty(
+                    "Drop",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.NonPublic)?
+                    .GetValue(item) as Delegate;
+                type = type.BaseType;
+            }
+
+            if (drop?.Target == null)
+                continue;
+
+            foreach (var field in drop.Target.GetType().GetFields(
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic))
+            {
+                var audioSetProperty = field.FieldType.GetProperty("AudioSet");
+                if (audioSetProperty == null)
+                    continue;
+                var payload = field.GetValue(drop.Target);
+                if (payload == null)
+                    continue;
+                if (audioSetProperty.GetValue(payload) is PreparedGameplayAudioSet set)
+                    return set;
+            }
+        }
+
+        return null;
+    }
+
+    private static string CreateTempDirectory()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "DTXMania_PerformanceStageTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
+    private static string CreatePlaceholderSource(string directory, string name)
+    {
+        var path = Path.Combine(directory, name);
+        File.WriteAllBytes(path, new byte[] { 1 });
+        return Path.GetFullPath(path);
+    }
+
+    private static GatedVariantStage CreateGatedVariantStage()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (GatedVariantStage)FormatterServices.GetUninitializedObject(typeof(GatedVariantStage));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
+        return stage;
+    }
+
+    /// <summary>
+    /// Stage whose variant processor parks on a gate so tests can deterministically
+    /// hold the worker mid-preparation (cancellation and progress coalescing cases).
+    /// Lazy TCS properties because FormatterServices skips property initializers.
+    /// </summary>
+    private sealed class GatedVariantStage : PerformanceStage
+    {
+        private TaskCompletionSource? _processorEntered;
+        private TaskCompletionSource? _releaseProcessor;
+        private TaskCompletionSource? _processorFinished;
+
+        public GatedVariantStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        public TaskCompletionSource ProcessorEntered =>
+            _processorEntered ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseProcessor =>
+            _releaseProcessor ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ProcessorFinished =>
+            _processorFinished ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override IAudioVariantProcessor CreateAudioVariantProcessor() => new GatedProcessor(this);
+
+        protected override PlaybackAudioVariantCache CreateAudioVariantCache() =>
+            new(Path.Combine(
+                Path.GetTempPath(),
+                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N")));
+
+        private sealed class GatedProcessor : IAudioVariantProcessor
+        {
+            private readonly GatedVariantStage _stage;
+
+            public GatedProcessor(GatedVariantStage stage) => _stage = stage;
+
+            public async Task<PreparedAudioArtifact> PrepareAsync(
+                string sourcePath,
+                PlaybackModifiers modifiers,
+                CancellationToken cancellationToken)
+            {
+                _stage.ProcessorEntered.TrySetResult();
+                await _stage.ReleaseProcessor.Task.ConfigureAwait(false);
+                _stage.ProcessorFinished.TrySetResult();
+                cancellationToken.ThrowIfCancellationRequested();
+                return new PreparedAudioArtifact(44100, 1, new byte[8]);
+            }
+        }
+    }
+
     [Fact]
-    public async Task InitializeGameplayCoreAsync_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
+    public void StartGameplayInitialization_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
     {
         // Direct initialization must capture the configured visual gates the same way
-        // OnActivate does; without the freeze in InitializeGameplayAsync the gates stay
+        // OnActivate does; without the freeze before the scope work the gates stay
         // at their all-false defaults and hidden lanes/lines/combo render anyway.
         var config = new ConfigData
         {
@@ -1188,6 +1474,7 @@ public class PerformanceStageDeterministicTests
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
         var stage = CreateStage(game);
+        stage.InstallTestBackgroundScope();
         var chart = new ParsedChart("silent-clock.dtx");
         chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
         chart.FinalizeChart();
@@ -1198,8 +1485,8 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-        var initializeTask = InvokeGameplayInitialization(stage);
-        await initializeTask;
+        StartGameplayInitialization(stage);
+        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
         var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
         Assert.NotNull(visualGates);
