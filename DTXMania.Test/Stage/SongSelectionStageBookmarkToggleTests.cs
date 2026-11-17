@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Input;
+using Microsoft.Extensions.Logging;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
@@ -455,6 +456,13 @@ namespace DTXMania.Test.Stage
                 roots.Clear();
                 roots.Add(node);
 
+                // The fault continuation's first act is the "Bookmark save failed" warning
+                // and its very next statement is the rollback Post; a retired scope drops
+                // the post silently, so the log spy is the observable proof that the
+                // continuation reached its posting point.
+                var faultLog = new FaultContinuationLogSpy();
+                SetPrivateField(stage, "_logger", faultLog);
+
                 // Gate the toggle's write behind a pre-seeded in-flight write for the same
                 // song (the rapid-toggle serialization path) so the fault lands
                 // deterministically AFTER the re-activation below.
@@ -476,10 +484,20 @@ namespace DTXMania.Test.Stage
                 var write = pending[songId];
                 try { await write; } catch { /* expected persist fault */ }
 
-                // Give the fault continuation a bounded window to post its rollback; drain
-                // B each round exactly as the game loop would. The stale rollback must
-                // never apply here: it belongs to A's retired scope.
-                for (var attempt = 0; attempt < 30; attempt++)
+                // Barrier: prove the fault continuation reached its rollback posting point
+                // (faultLog above) before the final drain/assertions. Awaiting the write
+                // alone does not order the separately scheduled continuation, so without
+                // this a broken implementation could pass by simply not having attempted
+                // the stale rollback yet.
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => Volatile.Read(ref faultLog.Warnings) >= 1,
+                        TimeSpan.FromSeconds(5)),
+                    "the fault continuation never reached its rollback posting point");
+
+                // Drain B exactly as the game loop would. The stale rollback must never
+                // apply here: it was posted into A's retired scope and dropped there.
+                for (var attempt = 0; attempt < 5; attempt++)
                 {
                     stage.BackgroundWork?.Drain();
                     Assert.True(nodeEntity.IsBookmarked, "the stale rollback leaked into the new activation");
@@ -495,10 +513,13 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        // Successful serialized bookmark persistence must survive navigation: the committed
-        // write lands in the database even though the activation that toggled it retired,
-        // and the reloaded Bookmarks tab exposes every chart so the non-default difficulty
-        // stays reachable. Real DB end to end — no stubbed success, no test-only hooks.
+        // Successful serialized bookmark persistence must survive navigation: the write is
+        // gated before the toggle, so it demonstrably has not started when the activation
+        // that toggled it retires; releasing the gate afterwards proves the real commit
+        // lands in the database across navigation. The explicitly selected non-default
+        // difficulty (ADVANCED) must survive the update-driven Bookmarks reload and still
+        // resolve to the advanced chart. Real DB end to end — no stubbed success, no
+        // test-only hooks.
         [Fact]
         public async Task ToggleBookmarkForSelectedSong_WhenNavigationCrossesACommittedWrite_ShouldPersistAndPreserveNondefaultDifficulty()
         {
@@ -519,21 +540,49 @@ namespace DTXMania.Test.Stage
                 var stage = CreateStage();
                 var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
+                // Mirror the published difficulty-slot layout (slot 0 = BASIC, slot 1 =
+                // ADVANCED) so the non-default difficulty below is genuinely selectable.
+                node.Scores[0] = new SongScore { Instrument = EInstrumentPart.DRUMS, DifficultyLevel = 30 };
+                node.Scores[1] = new SongScore { Instrument = EInstrumentPart.DRUMS, DifficultyLevel = 55 };
+                node.DifficultyLabels[0] = "BASIC";
+                node.DifficultyLabels[1] = "ADVANCED";
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
                 stage.InstallTestBackgroundScope();
 
+                // Explicitly select the NON-DEFAULT difficulty (ADVANCED) through the
+                // status-panel difficulty path (the real input route): slots [0,1] wrap
+                // 0 -> 1. The write below must not disturb this selection and the
+                // post-navigation reconciliation must preserve it.
+                SetPrivateField(stage, "_selectedSong", node);
+                SetPrivateField(stage, "_isInStatusPanel", true);
+                InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveLeft, 0.0));
+                SetPrivateField(stage, "_isInStatusPanel", false);
+                Assert.Equal(1, display.CurrentDifficulty);
+                Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+
+                // Gate the serialized write BEFORE toggling: the toggle's write chains
+                // behind the pre-seeded gate (the per-song serialization path), so it is
+                // demonstrably still pending — it cannot even start — when navigation
+                // retires the activation scope below.
+                var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
+                var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                pending[songId] = gate.Task;
+
                 InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong"); // optimistic flip to true
                 Assert.True(nodeEntity.IsBookmarked);
+                Assert.False(pending[songId].IsCompleted, "the write must still be pending before navigation");
 
-                // Navigate away before the write may have committed, then come back: the
-                // write itself is never canceled across the deactivation.
+                // Retire/rearm while the write is provably pending: the committed write
+                // itself is never canceled across the deactivation.
                 SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
                 stage.Deactivate();
                 stage.InstallTestBackgroundScope();
+                Assert.False(pending[songId].IsCompleted, "the write must still be pending across navigation");
 
-                var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
+                // Release; the real SetBookmarkAsync runs only now — after navigation.
+                gate.SetResult(true);
                 await pending[songId]; // serialized chain settles across navigation
                 Assert.True(pending[songId].IsCompletedSuccessfully);
 
@@ -542,17 +591,35 @@ namespace DTXMania.Test.Stage
                 Assert.True(persisted.IsBookmarked);
                 Assert.True(nodeEntity.IsBookmarked); // and no rollback ever flipped the node back
 
-                // Reloading the Bookmarks tab (real GetBookmarkedNodesAsync) chains after
-                // the settled write and preserves both charts, so the non-default
-                // difficulty stays reachable.
+                // Reload the Bookmarks tab (real GetBookmarkedNodesAsync; chained after the
+                // settled write) and drive stage.Update so the update thread applies the
+                // load and repopulates the display — the same reconciliation the game loop
+                // runs. The explicitly selected non-default difficulty must survive it.
                 InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.Bookmarks);
-                await DrainUntilAsync(stage,
-                    () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes") is { Count: 1 });
+                SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () =>
+                        {
+                            stage.Update(0.016);
+                            return GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes") is { Count: 1 }
+                                && display.CurrentList.Count == 1;
+                        },
+                        TimeSpan.FromSeconds(5)),
+                    "the post-navigation Bookmarks reload was not applied on the update thread");
 
                 var reloaded = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")!.Single();
                 Assert.Equal(songId, reloaded.DatabaseSongId);
                 Assert.False(string.IsNullOrEmpty(reloaded.DifficultyLabels[0]));
                 Assert.False(string.IsNullOrEmpty(reloaded.DifficultyLabels[1]));
+
+                // Selection preserved: still the reloaded row, still the non-default
+                // difficulty, and that difficulty still resolves to the ADVANCED chart
+                // (identity by FilePath).
+                Assert.Same(reloaded, display.CurrentList[0]);
+                Assert.Equal(1, display.CurrentDifficulty);
+                Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+                Assert.Equal(advanced.FilePath, display.SelectedSong!.GetCurrentDifficultyChart(1)?.FilePath);
             }
             finally
             {
@@ -770,6 +837,30 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "ApplyBookmarkRevert", 7, false, 1);
 
             Assert.True(recentSong.IsBookmarked); // newer toggle's flag preserved
+        }
+
+        // Counts warning-level log calls on the stage logger. The bookmark fault
+        // continuation logs the "Bookmark save failed" warning immediately before it
+        // posts the rollback, so observing the warning proves the continuation reached
+        // its posting point.
+        private sealed class FaultContinuationLogSpy : ILogger
+        {
+            public int Warnings;
+
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel == LogLevel.Warning)
+                    Interlocked.Increment(ref Warnings);
+            }
         }
 
         // Reports the B key as pressed exactly once.
