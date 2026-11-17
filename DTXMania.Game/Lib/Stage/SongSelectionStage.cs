@@ -128,9 +128,6 @@ namespace DTXMania.Game.Lib.Stage
         private HashSet<string>? _appliedLibraryScoreIdentities;
         private long _appliedLibraryPublicationVersion;
         private EventHandler<SongLibraryPublishedEventArgs>? _libraryPublicationHandler;
-        // Reporter bound to the current activation scope; null while unsubscribed. The
-        // publisher thread invokes it with the published version and nothing else.
-        private Action<long>? _libraryPublicationReporter;
         private SongLibraryEmptyState _libraryEmptyState = SongLibraryEmptyState.HasSongs;
 
         // UI Components - Enhanced DTXManiaNX style
@@ -858,8 +855,13 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            _libraryPublicationReporter = reporter;
-            _libraryPublicationHandler = OnSongLibraryPublished;
+            // The registered delegate closes over THIS activation's reporter. A publisher
+            // that retains the handler past deactivation can then only reach the retired
+            // scope, which drops the signal — it can never enqueue into a later
+            // activation's scope.
+            void PublishToActivationScope(object? sender, SongLibraryPublishedEventArgs e) =>
+                reporter(e.Snapshot.Version);
+            _libraryPublicationHandler = PublishToActivationScope;
             SongManager.Instance.SongLibraryPublished += _libraryPublicationHandler;
         }
 
@@ -867,18 +869,9 @@ namespace DTXMania.Game.Lib.Stage
         {
             var handler = _libraryPublicationHandler;
             _libraryPublicationHandler = null;
-            _libraryPublicationReporter = null;
 
             if (handler != null)
                 SongManager.Instance.SongLibraryPublished -= handler;
-        }
-
-        private void OnSongLibraryPublished(object? sender, SongLibraryPublishedEventArgs e)
-        {
-            // Publisher threads only record the newest signal here. A report after the
-            // scope retired (deactivation) drops directly, so a retained delegate from an
-            // earlier activation can never reach torn-down UI state.
-            _libraryPublicationReporter?.Invoke(e.Snapshot.Version);
         }
 
         /// <summary>
@@ -3466,9 +3459,10 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Loads bookmark nodes on the activation scope. Its worker only queues a completion;
-        /// the update thread applies it only while this load is still the newest
-        /// same-activation load (HPA-799).
+        /// Loads bookmark nodes on the activation scope. The DB query itself starts inside
+        /// the scope worker (it may execute synchronously and must never stall the update
+        /// thread); the worker only queues a completion, and the update thread applies it
+        /// only while this load is still the newest same-activation load (HPA-799).
         /// </summary>
         private void BeginBookmarksLoad()
         {
@@ -3476,23 +3470,21 @@ namespace DTXMania.Game.Lib.Stage
             if (scope == null)
                 return;
 
-            // Assign a monotonic per-load id so an older same-activation load (e.g., the
-            // activation-time warm load still in flight when the user bookmarks a song and
-            // switches to the Bookmarks tab) can detect it has been superseded by a newer
-            // load and discard its stale result.
+            // Assign a monotonic per-load id on the update thread so an older
+            // same-activation load (e.g., the activation-time warm load still in flight when
+            // the user bookmarks a song and switches to the Bookmarks tab) can detect it has
+            // been superseded by a newer load and discard its stale result.
             int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
             var loadBookmarkedNodesAsync = _loadBookmarkedNodesAsync;
-            // Start the load on the update thread so query construction stays ordered with
-            // tab state and bookmark toggles; the scope worker below only waits for it and
-            // queues the result (HPA-799).
-            var loadTask = loadBookmarkedNodesAsync();
             scope.Run<IReadOnlyList<SongListNode>>(
                 token =>
                 {
                     try
                     {
                         token.ThrowIfCancellationRequested();
-                        return CopyTabLoadNodes(loadTask.GetAwaiter().GetResult());
+                        // Invoke the loader here, on the worker: reaching the DB (which may
+                        // run synchronously) must never happen on the update thread.
+                        return CopyTabLoadNodes(loadBookmarkedNodesAsync().GetAwaiter().GetResult());
                     }
                     catch (OperationCanceledException) when (!token.IsCancellationRequested)
                     {
@@ -3570,6 +3562,13 @@ namespace DTXMania.Game.Lib.Stage
             // Each write chains after the previous in-flight write for the same song; without
             // this, two overlapping fire-and-forget calls could complete out of order and leave
             // the DB divergent from the in-memory flag.
+            // Capture THIS activation's scope now, when the toggle happens: the fault
+            // continuation below must post its rollback here, into the scope that owned the
+            // toggle. Reading BackgroundWork at fault time could land the rollback in a
+            // LATER activation's scope, where the generation check still matches (no
+            // intervening toggle) and the stale revert would mutate the new activation's
+            // lists and start another bookmark load. A retired scope drops the rollback.
+            var originScope = BackgroundWork;
             var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
             var write = prior.ContinueWith(
                 _ => SongManager.Instance.SetBookmarkAsync(songId, newState),
@@ -3593,7 +3592,7 @@ namespace DTXMania.Game.Lib.Stage
                         "Bookmark save failed for song {SongId} (target state {Bookmarked}); reverting",
                         songId,
                         newState);
-                    BackgroundWork?.Post(() => ApplyBookmarkRevert(songId, !newState, toggleVersion));
+                    originScope?.Post(() => ApplyBookmarkRevert(songId, !newState, toggleVersion));
                 }
             }, TaskScheduler.Default);
 

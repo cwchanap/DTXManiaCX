@@ -284,8 +284,26 @@ namespace DTXMania.Test.Stage
             Assert.Equal(2, cached.Count);
         }
 
+        // Raises the library-published event through the stage's REGISTERED handler —
+        // the delegate bound to the current activation's reporter — exactly as the
+        // publisher thread would.
+        private static void PublishThroughRegisteredHandler(
+            SongSelectionStage stage, SongLibraryPublishedEventArgs e) =>
+            GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
+                stage, "_libraryPublicationHandler")!.Invoke(null!, e);
+
+        // Read-only probe of the scope's pending terminal queue, so tests can prove no
+        // stale publication was ever enqueued (same pattern as StageBackgroundWorkScopeTests).
+        private static int PendingQueueCount(StageBackgroundWorkScope scope)
+        {
+            var queue = typeof(StageBackgroundWorkScope)
+                .GetField("_queue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(scope) as System.Collections.ICollection;
+            return queue?.Count ?? 0;
+        }
+
         [Fact]
-        public void OnSongLibraryPublished_WhenVersionsArriveOutOfOrder_ShouldApplyOnlyTheNewestOnDrain()
+        public void SongLibraryPublished_WhenVersionsArriveOutOfOrder_ShouldApplyOnlyTheNewestOnDrain()
         {
             var songManager = SongManager.Instance;
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
@@ -310,9 +328,9 @@ namespace DTXMania.Test.Stage
 
                 // Out-of-order publications coalesce into one pending Latest signal on the
                 // stage scope; nothing applies from the publisher thread.
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(20, Array.Empty<SongListNode>(), Array.Empty<string>())));
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(22, Array.Empty<SongListNode>(), Array.Empty<string>())));
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(21, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                PublishThroughRegisteredHandler(stage, new SongLibraryPublishedEventArgs(Snapshot(20, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                PublishThroughRegisteredHandler(stage, new SongLibraryPublishedEventArgs(Snapshot(22, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                PublishThroughRegisteredHandler(stage, new SongLibraryPublishedEventArgs(Snapshot(21, Array.Empty<SongListNode>(), Array.Empty<string>())));
 
                 Assert.Same(before, display.CurrentList);
                 Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
@@ -350,9 +368,12 @@ namespace DTXMania.Test.Stage
                 SetPrivateField(songManager, "SongLibraryPublished", null);
                 stage.InstallTestBackgroundScope();
                 InvokePrivateMethod(stage, "SubscribeLibraryPublications");
+                // The publisher may retain the handler it captured for activation A.
+                var handlerA = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
+                    stage, "_libraryPublicationHandler")!;
 
                 // While active, a coalesced signal applies the snapshot on drain.
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(73, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                PublishThroughRegisteredHandler(stage, new SongLibraryPublishedEventArgs(Snapshot(73, Array.Empty<SongListNode>(), Array.Empty<string>())));
                 stage.BackgroundWork!.Drain();
                 Assert.Equal(73L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
 
@@ -361,16 +382,23 @@ namespace DTXMania.Test.Stage
                 // drops into the retired scope instead of reaching torn-down UI state.
                 SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
                 stage.Deactivate();
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(74, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                handlerA.Invoke(null!, new SongLibraryPublishedEventArgs(Snapshot(74, Array.Empty<SongListNode>(), Array.Empty<string>())));
                 Assert.Equal(73L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
 
                 // A new activation installs a fresh scope and re-arms the subscription:
                 // only the new scope receives and applies new signals.
                 stage.InstallTestBackgroundScope();
                 InvokePrivateMethod(stage, "SubscribeLibraryPublications");
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(75, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                PublishThroughRegisteredHandler(stage, new SongLibraryPublishedEventArgs(Snapshot(75, Array.Empty<SongListNode>(), Array.Empty<string>())));
                 stage.BackgroundWork!.Drain();
                 Assert.Equal(75L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+
+                // Regression: the retained A-handler fires AFTER re-arming. It must reach
+                // only A's retired reporter and drop — never enqueue a stale apply into
+                // the new activation's scope.
+                handlerA.Invoke(null!, new SongLibraryPublishedEventArgs(Snapshot(74, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                Assert.Equal(75L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.Equal(0, PendingQueueCount(stage.BackgroundWork!));
             }
             finally
             {
@@ -712,24 +740,28 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnSongLibraryPublished_WhenNoActiveScopeOrSubscription_ShouldIgnoreTheNotification()
+        public void SubscribeLibraryPublications_WhenNoActiveScope_ShouldNotSubscribe()
         {
             var stage = CreateStage();
 
-            // No activation scope and no subscription: a stray notification must be
-            // ignored entirely.
-            InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(23, Array.Empty<SongListNode>(), Array.Empty<string>())));
+            // No activation scope: nothing could apply a publication, so the stage must
+            // not register a handler at all.
+            InvokePrivateMethod(stage, "SubscribeLibraryPublications");
 
+            Assert.Null(GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
+                stage, "_libraryPublicationHandler"));
             Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
         }
 
         [Fact]
-        public void OnSongLibraryPublished_WhenReporterIsBoundToARetiredScope_ShouldDropTheSignal()
+        public void SongLibraryPublished_WhenReporterIsBoundToARetiredScope_ShouldDropTheSignal()
         {
             var stage = CreateStage();
             AttachCoreUi(stage);
             var scope = stage.InstallTestBackgroundScope();
             InvokePrivateMethod(stage, "SubscribeLibraryPublications");
+            var handler = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
+                stage, "_libraryPublicationHandler")!;
 
             try
             {
@@ -738,7 +770,7 @@ namespace DTXMania.Test.Stage
                 // A publisher thread that already captured the old handler can still call
                 // it after retirement: the reporter is bound to the retired scope, so the
                 // signal drops directly instead of reaching torn-down UI state.
-                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(45, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                handler.Invoke(null!, new SongLibraryPublishedEventArgs(Snapshot(45, Array.Empty<SongListNode>(), Array.Empty<string>())));
 
                 Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
                 Assert.Null(GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
