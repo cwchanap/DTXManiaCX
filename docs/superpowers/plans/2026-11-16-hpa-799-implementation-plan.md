@@ -1,83 +1,89 @@
-# HPA-799 — Implementation plan (one PR; <=3 engineer days)
+# HPA-799 — Reviewed implementation plan (one PR; <=3 engineer days)
 
-**Design:** [HPA-799 design](../../proposals/2026-11-16-hpa-799-design.md)  
+**Design:** [reviewed HPA-799 design](../../proposals/2026-11-16-hpa-799-design.md)  
+**Review addressed:** https://github.com/cwchanap/DTXManiaCX/pull/250#pullrequestreview-5941857470  
 **Linear:** https://linear.app/cwchanap/issue/HPA-799/architecture-one-shared-helper-for-background-work-applied-on-the  
 **Branch:** plan/hpa-799-stage-background-work  
 **Baseline:** main d8a0b5ef3b4555012a2861c8dd302b0fe01914d9; prerequisites HPA-796/HPA-797 merged.  
-**Status:** Docs-only planning PR. No production change, test execution or screenshots have been made on this branch.
+**Status:** Reviewed docs-only planning PR. No production change, test execution or screenshots have been made on this branch.
 
 ## Agent contract and scope
 
-Implement **on this exact branch and PR**. One Linear ticket = **one PR**; target ~2.5–3 engineer days maximum. Prefer KISS: reuse BaseGame's current action queue and BaseStage lifecycle; no scheduler framework, dependency injection, platform branching or compatibility layers. Do not implement HPA-800/801/802 or alter gameplay design, art, assets, scores or audio timing. Code is authoritative over these example file names/line references. If a stage has independent same-activation request versions, preserve that behavior instead of replacing it with only an activation scope.
+Implement on **this exact branch and PR**. One Linear ticket = **one PR**; total budget **~2.9 engineer days including test rewrites**, hard limit <=3. Prefer KISS: a stage-local activation scope drained at the top of BaseStage.Update. The existing BaseGame Game API action queue drains after StageManager.Update and is **not** suitable for stage state-before-input semantics or current headless tests. Do not edit Game1/IStageGame, add a scheduler, new public test seam, production E2E delay hook, DI or compatibility layer. Do not refactor HPA-800/801/802 or change gameplay, art, assets, scores or audio timing.
 
-### Step 0 — Baseline and controllable race cases (~0.2 day)
+Keep independent per-request versions and operation leases where two requests can race within one activation. Rewrite tests referencing deleted stage internals instead of retaining obsolete production fields. Document real test results, not expectations.
 
-- Recheck main SHA/PR conflicts, unit build and the exact pending-work entrypoints in StartupStage, SongSelectionStage, ConfigStage and PerformanceStage. Record pre-existing errors rather than attributing them to this PR.
-- Capture baseline bundled CX Neon E2E screenshots using the existing HPA-797 stage tour (or reuse its verified artifacts): Title, Config, SongSelect, Lanes, Tab, Result. Record the actual baseline fixture and screenshot paths.
-- Write a tiny test matrix: old worker completes after Deactivate, old worker completes after new Activate, two requests within one active stage (latest wins), fault, cancellation and owned-result disposal.
+### Step 0 — Baseline and existing test inventory (~0.15 day)
 
-**Exit:** scope matrix and baseline evidence in PR; no production code change yet.
+- Recheck main SHA, builds, unit test and CI status. Reuse the current HPA-797 seven-stage screenshot tour artifacts; do not generate a new before/after pixel baseline.
+- Inventory worker/progress/terminal entry points in StartupStage, SongSelectionStage, PerformanceStage, ConfigStage and Config/SongFolderPanel.
+- Reserve time to update approximately **60 private-field/queue references** in SongSelectionStageTabTests (~22), SongSelectionPublicationTests (~17), StartupStageLogicTests (~7), SongSelectionStageBookmarkToggleTests (~6), PerformanceStageDeterministicTests (~4), ConfigStageLogicTests (~4). Recount on current main. PerformanceStageDeterministicTests and PerformanceStageFontLifecycleTests also use GetUninitializedObject; async-path tests must use actual stage activation or a minimal internal test scope, not a magic nullable scope.
 
-### Step 1 — Tiny shared scope and main-thread post seam (~0.45 day)
+**Exit:** baseline and test-impact inventory attached to PR.
 
-Files: DTXMania.Game/Game1.cs, Lib/Stage/IStageGame.cs, Lib/Stage/BaseStage.cs, new Lib/Stage/StageBackgroundWorkScope.cs, focused DTXMania.Test stage/queue tests.
+### Step 1 — One tiny helper and BaseStage drain (~0.45 day including tests)
 
-1. Forward one IStageGame post/queue method to **BaseGame._mainThreadActions**, the existing IGameContext queue. Keep DrainMainThreadActions's 64-per-frame cap and its position after StageManager.Update, before Draw. Generalize the action-failure log's misleading Game API label.
-2. BaseStage makes a new scope at Activate, retires it **before OnDeactivate**, cancels work non-blockingly, and does not let callbacks from that scope apply after Deactivate or re-Activate. Capture the scope by object identity, not a long-lived IsActive boolean or per-stage generation number.
-3. Keep the helper API limited to background work with guarded success/error publication and guarded Post for progress/events. Observe exceptions, distinguish cancellation, and provide optional dropped-result cleanup for IDisposable data. Scope disposal must not race worker token usage.
-4. Add headless deterministic tests using a fake action queue that drains on demand. Include completion-after-leave, callback-queued-before-leave, leave/re-enter, exception observation, owned-result disposal and the game queue budget.
+Files: Lib/Stage/BaseStage.cs, a new Lib/Stage/StageBackgroundWorkScope.cs, and focused stage tests. **No IStageGame or Game1 edits.**
 
-**Exit:** helper tests green; no new work queue or thread; commit on the same branch.
+1. Create a new scope per successful BaseStage.Activate, retire it **before OnDeactivate**, and drain at the **start of BaseStage.Update**, before OnFirstUpdate and OnUpdate. The scope owns one ConcurrentQueue<Action>; cap its drain at **64 actions/frame**. The separate existing Game API queue is unchanged.
+2. Expose only Token, Post(Action), Latest<T>(Action<T>) as an IProgress<T>, Run<T>(worker, success, error, optional onDropped), Drain and Retire. Latest holds the newest value and queues **at most one pending callback per reporter**. Success/error/terminal callbacks are FIFO and **never coalesced**.
+3. Run observes worker exceptions and expected cancellation without unobserved faulted tasks. Scope identity blocks late and queued callbacks after leave/re-entry. Retire cancels non-blockingly. Call onDropped **exactly once** for owned data queued-before-retire or returned-after-retire. A simple per-scope CTS with no timers, linked tokens or WaitHandle can be canceled without deferred disposal boilerplate; this does **not** excuse disposing other operation/picker CTS, leases or audio.
+4. Deterministic tests use stage.Update to drain: apply-before-input, one terminal result, 10,000 progress events -> one pending update, 64-action budget, current error/cancellation, late Post, queued-before-retire and completed-after-retire resource disposal, and leave/re-enter. Do not use BaseGame's private drain or a second fake scheduler.
 
-### Step 2 — StartupStage and ConfigStage (~0.55 day)
+**Exit:** focused helper tests green; stage can be tested via stage.Update. Commit on this PR.
 
-Files: StartupStage.cs, ConfigStage.cs and their existing tests.
+### Step 2 — Startup, Config and SongFolderPanel (~0.6 day including test rewrites)
 
-1. Use the stage scope for Startup async song-load/cache paths and progress callbacks. Worker-owned values are returned or posted; only update-thread callbacks change stage progress, phase/fallback UI or request stage transitions. Preserve empty-root behavior, cache fallback and cancel-on-leave. Remove the obsolete activation gate/generation and task-observation boilerplate when fully covered.
-2. Use guarded posts for Config song-folder reload / NX import progress and final status. Preserve the per-operation lease, only-current-operation terminal handling, error status and CTS disposal; operation ordering is not the same as activation validity. Remove the redundant per-activation queue and generation.
-3. Exercise fallback errors, progress after cancellation, late terminal status, and Config -> Title -> Config while a worker is still active. Do not make database and filesystem operations run on the update thread.
+Files: StartupStage.cs, ConfigStage.cs, Config/SongFolderPanel.cs and existing tests.
 
-**Exit:** focused stage/unit tests green; no stuck spinner or stale status; commit on this PR.
+1. Startup runs its enumeration/cache/fallback **multi-step chain using worker-local intermediate decisions**, including the former _cacheLoadPathSelected choice. Do not post a value mid-chain that the worker must then read on a later frame. Publish one terminal result and coalesced Latest progress. Remove activation generation, gate and old task observers once covered. SongManager's library threading is out of scope.
+2. Config uses Latest for reload/import status and FIFO Post for **terminal** status. Keep ConfigSongOperationLease, mutual exclusion and per-operation CTS. Require current lease/operation identity before applying progress; a late progress report must not overwrite a terminal status. Remove _songOperationUpdates and activation generation, not domain ownership.
+3. **SongFolderPanel is an additional caller.** Pass the parent Config scope to its picker completion. Remove _pickerCompletions and the panel generation counter, but keep IsActive and a **captured picker CTS identity check**: the panel can close/reopen without Config leaving. Dispose picker CTS on delivered and dropped completions; cancellation is non-blocking.
+4. Rewrite affected reflection tests to assert stage/panel behavior and drive stage.Update for async callbacks. Cover empty roots, cache fallback failure, progress flood, Config terminal/canceled import, panel close/reopen, and old picker completing after a newer open.
 
-### Step 3 — SongSelectionStage (~0.65 day)
+**Exit:** Startup, Config and panel suites green, no stale UI update. Commit on this PR.
 
-Files: SongSelectionStage.cs and its current song initialization, library publication, bookmarks and tab tests.
+### Step 3 — SongSelectionStage (~0.6 day including ~45 test-reference rewrites)
 
-1. Replace the activation-tagged initializer and progress/completion queues with scope-guarded update-thread callbacks. Preserve current coherent library snapshot reconciliation (a newer publication must win over an older async initializer).
-2. Route recent/bookmark tab load results and failed bookmark persist rollbacks via the scope. Keep per-song queued DB writes across navigation, the bookmark toggle version, latest-request-wins for tab/bookmark loads and filters. Retire only lifecycle-specific version counters and unnecessary queue/lock code; leave domain ordering controls in place.
-3. Use tests that deliberately finish old activations late and interleave bookmark toggles, tab loads and library publication. Verify no BackBox/stale roots overwrite, no reverted newer bookmark, and no dropped intended DB write.
+Files: SongSelectionStage.cs and existing initialization, publication, tab and bookmark tests.
 
-**Exit:** SongSelect test suite and relevant prepared-chart / SongSelect E2E pass; commit on this PR.
+1. Replace activation-tagged initializer, tab-load, bookmark rollback and library notification queues with scope-guarded callbacks. Use Latest for library publication version; on update fetch the **newest coherent snapshot**, never overwrite it with an older initializer result.
+2. Retain same-activation versions for tab/bookmark load requests, per-song bookmark toggle generations and DB-write serialization. A committed bookmark persistence task may outlive navigation; cancel/drop only stale UI rollback, not user intent. Remove the activation-only counters and queue gates.
+3. Refactor tests referencing removed private queues/generations; tests of async completion drive stage.Update. Verify leave/re-enter, newest snapshot over slow initializer, rapid bookmarks, tab loads, filters and selected/prepared chart behavior. Avoid compatibility fields/test-only production API.
 
-### Step 4 — PerformanceStage (~0.70 day)
+**Exit:** focused SongSelect/Tab/bookmark/publication tests green. Commit on this PR.
 
-Files: PerformanceStage.cs and relevant PerformanceStage / audio/notation tests.
+### Step 4 — PerformanceStage (~0.7 day including tests)
 
-1. Keep chart parsing and sound file preparation off-thread. Return a small prepared result (parsed chart, prepared sounds and pure notation as required) for update-thread publication; initialize/bind stage-owned playback, BGM and UI/graphics state on the update thread. Avoid extracting an HPA-800 session loader or new playfield abstraction.
-2. Retire the scope on stage exit before teardown. A stale prepared audio result must be disposed **without** stage mutation. Preserve Lanes fallback on notation/font failure, prepared-chart path, runtime pitch/speed, audio timer and scheduled BGM order. Ensure current failure paths still surface load errors rather than hanging in loading.
-3. Once publication and teardown are both update-thread owned, remove redundant _activationGeneration, pending notation transfer, CTS/continuation boilerplate and only proven-redundant AudioLifecycleGate sections. Keep other audio synchronization if it protects independent workers or callbacks.
-4. Test cancellation and re-entry during parse/preparation, audio failures, stale result disposal, initial successful start and Tab fallback. No GPU creation from a worker.
+Files: PerformanceStage.cs and existing audio, notation and Performance tests.
 
-**Exit:** focused Performance and audio tests green; no late binding/leak, changed audio behavior or readiness regression; commit on this PR.
+1. Keep chart parse and audio **file preparation** on worker. Return parsed chart + prepared audio as worker locals; never publish _chartManager, InitializeGameplayManagers, audio bindings or _isReady from the worker. On the update-thread terminal callback, initialize ChartManager/gameplay managers, notation resources, sound/cache bindings, BGM schedule, SongTimer, metronome, readiness and failure state.
+2. Use Latest for audio preparation progress. Dispose stale PreparedGameplayAudioSet via onDropped **exactly once** (queued before retire or completed afterward). Prevent old callbacks from mutating a newly reactivated stage. Retain prepared-chart reuse, pitch/speed, audio timing, Tab fallback, and no-audio behavior.
+3. Remove redundant _activationGeneration, pending notation handoff and CTS-observation scaffolding, and only AudioLifecycleGate sections proven redundant after update-thread serialization. Keep independent audio-internal synchronization.
+4. Rewrite reflection-based async tests to construct/activate a stage or attach a narrowly scoped test fixture; pure helper tests do not need GPU activation. Test canceled/failed/late parse and preparation, readiness, Lanes/Tab and exact-once audio cleanup.
 
-### Step 5 — Full automated acceptance and visual evidence (~0.45 day)
+**Exit:** Performance/audio/Tab tests green, no worker-owned stage mutation. Commit on this PR.
 
-- Build **both** game projects: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj and dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj (use matching OS agents/CI as necessary). Run dotnet test DTXMania.Test/DTXMania.Test.csproj on each platform; do not rely on silently skipped graphics tests for visual acceptance.
-- Run existing DTXMania.E2E Category=E2E smoke on at least one supported desktop platform. Additionally **drive a live game using MCP** (see MCP/README.md; actual registered tools are authoritative): use game_get_state and game_send_key/game_click for Startup/Title/SongSelect/Config and both modes. Use existing E2E fixture controls to force a slow background completion, switch away, re-enter and confirm that stale completions never change the new stage. Test Config canceled reload/import and Performance initialization interruption. Validate stage telemetry, chart/score preservation, one-shot completion and error logs; **MCP is required**, not a substitute in-process test.
-- Capture after screenshots through the current screenshot/E2E tooling, with the same bundled CX Neon fixture as baseline. Compare Title, Config, SongSelect, Lanes, Tab, Result **stable panel/layout regions** against pre-change PNGs. Use a one-off pixel/region diff and agent visual inspection; ignore changing timers, notes and judgement animation only after identifying those regions. No UI mockup exists for HPA-799; a screenshot-based visual check is the criterion.
-- Attach CLI/CI logs and MCP observations, before/after images and differences to this PR. Do not report any test as passed if not executed. Keep this same draft PR until the implementation and evidence exist.
+### Step 5 — Automated E2E + screenshot check (~0.45 day)
+
+- Build the Windows and macOS game projects on matching CI/agents; run the canonical DTXMania.Test unit suite on both. Run existing gameplay Category=E2E smoke on at least one desktop platform.
+- On **one** platform, use the live MCP bridge to navigate Startup/Title -> SongSelect -> Lanes -> Result -> SongSelect -> Tab -> Result -> Config and folder panel. Verify stage telemetry, game readiness, chart/score/audio behavior and absence of unexpected errors. MCP journey is required; unit E2E alone is not sufficient.
+- Prove **forced late completion races with deterministic unit tests**, **not** injected delays in production, fake MCP conditions or new E2E fixture hooks. The ordinary live tour is not claimed to prove those races.
+- Reuse the **bundled CX Neon HPA-797 seven-stage screenshot tour** (Title, Config, DrumConfig, SongSelect, Lanes, Tab, Result). Assert captured PNG files are valid and agent-visually inspect correct stage, clipping, missing UI and readability. No HPA-799 UI mockup exists; no new pixel diff/screenshot framework and no human sign-off.
+- Attach actual command logs, live MCP observations and screenshot artifacts/agent observations. Record unverified items explicitly. Keep this one PR as draft until implementation/acceptance evidence exists.
 
 ## Required acceptance checklist
 
-- [ ] Exactly one reused BaseGame main-thread action queue, still capped at 64 actions/frame
-- [ ] BaseStage activation-scoped helper; old callbacks dropped through leave/re-entry; cancellation never blocks Deactivate
-- [ ] All four stages use guarded update-thread publication; no redundant per-stage activation generations/queues for that work
-- [ ] Same-activation request/operation ordering, library snapshot coherency and bookmark DB writes preserved
-- [ ] Stale Performance prepared audio disposed; no cross-thread graphics/audio binding, startup/audio/Tab fallback preserved
-- [ ] Deterministic unit tests pass for late success, error, cancellation, stale disposal, overlapping requests and reactivation
-- [ ] Windows and macOS game builds and canonical unit tests pass; existing gameplay E2E passes
-- [ ] **MCP-driven** end-to-end stage journey with forced late async completions passes on at least one platform
-- [ ] Before/after bundled CX Neon screenshots compared for stable visual regions, with observed findings recorded; no unintended UI change
-- [ ] Entire feature, tests and evidence remain in this **single PR**, with no human approval gate, art/SFX or unrelated refactor
+- [ ] Stage-local queue is drained by BaseStage.Update **before input**, capped at 64 callbacks/frame; BaseGame Game API queue remains untouched
+- [ ] Latest coalesces progress (at most one queued update per reporter); terminal results are FIFO and not lost behind bulk progress
+- [ ] Activation identity invalidates queued/late results; non-blocking Deactivate, expected cancellation and exactly-once owned-result disposal are tested
+- [ ] Startup, SongSelection, Performance, Config and SongFolderPanel migrate without duplicated lifecycle counters/queues; same-activation domain order and picker CTS identity preserved
+- [ ] Startup worker decisions are local and published once; Config lease/final status and SongSelect snapshot/bookmark persistence stay correct
+- [ ] Performance chart/managers/renderer/audio binding & ready/error state are update-thread-only; stale prepared audio disposed, gameplay unchanged
+- [ ] Existing reflection-based tests affected by deleted implementation details are updated on this PR; no unnecessary production compatibility API
+- [ ] Both platform game builds and canonical unit suites pass; existing gameplay E2E passes
+- [ ] MCP-driven **ordinary** end-to-end stage tour passes on one desktop platform; forced async races tested deterministically in unit tests
+- [ ] Seven bundled CX Neon E2E screenshots verified and visually checked by the agent (no pixel diff gate, no manual sign-off)
+- [ ] Exactly **one PR**, <=3 engineer days, no new art/SFX or unrelated refactor
 
 **Planning-only note:** This file defines acceptance for future implementation; nothing here asserts that implementation or any checks have already run.
