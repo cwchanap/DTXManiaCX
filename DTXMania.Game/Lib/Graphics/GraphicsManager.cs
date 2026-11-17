@@ -22,6 +22,7 @@ namespace DTXMania.Game.Lib.Graphics
         private readonly Microsoft.Xna.Framework.Game _game;
         private readonly GraphicsDeviceManager _deviceManager;
         private readonly ILogger<GraphicsManager> _logger;
+        private readonly ILoggerFactory? _loggerFactory;
         private GraphicsSettings _currentSettings;
         private RenderTargetManager _renderTargetManager = null!;
         private bool _disposed = false;
@@ -39,11 +40,12 @@ namespace DTXMania.Game.Lib.Graphics
         /// </summary>
         public RenderTargetManager RenderTargetManager => _renderTargetManager;
 
-        public GraphicsManager(Microsoft.Xna.Framework.Game game, GraphicsDeviceManager deviceManager, ILogger<GraphicsManager>? logger = null)
+        public GraphicsManager(Microsoft.Xna.Framework.Game game, GraphicsDeviceManager deviceManager, ILogger<GraphicsManager>? logger = null, ILoggerFactory? loggerFactory = null)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
             _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
             _logger = logger ?? NullLogger<GraphicsManager>.Instance;
+            _loggerFactory = loggerFactory;
             
             // Initialize with current device manager settings
             _currentSettings = new GraphicsSettings
@@ -63,7 +65,9 @@ namespace DTXMania.Game.Lib.Graphics
         {
             if (GraphicsDevice != null)
             {
-                _renderTargetManager = new RenderTargetManager(GraphicsDevice);
+                _renderTargetManager = new RenderTargetManager(
+                    GraphicsDevice,
+                    _loggerFactory?.CreateLogger<RenderTargetManager>());
             }
         }
 

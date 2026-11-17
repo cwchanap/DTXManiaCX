@@ -1,6 +1,8 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Content;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -68,6 +70,24 @@ namespace DTXMania.Game.Lib.Resources
         private static SpriteFont _defaultFont;
         private static readonly Dictionary<string, SpriteFont> _loadedFonts = new Dictionary<string, SpriteFont>();
 
+        // Wired once from Game1.CreateLoadContentServices via ConfigureLogger;
+        // defaults to a null logger so independent tests stay silent.
+        private static ILogger<ManagedFont> _logger = NullLogger<ManagedFont>.Instance;
+
+        // Asset names whose load failure was already reported, so repeated
+        // CreateFont calls for a missing asset log once (guarded by
+        // _fontFactoryLock like the rest of the factory state).
+        private static readonly HashSet<string> _reportedFontFailures = new HashSet<string>();
+
+        /// <summary>
+        /// Supplies the font factory's logger (static factory: no constructor
+        /// injection seam). Null restores the null logger used by independent tests.
+        /// </summary>
+        internal static void ConfigureLogger(ILogger<ManagedFont> logger)
+        {
+            _logger = logger ?? NullLogger<ManagedFont>.Instance;
+        }
+
         /// <summary>
         /// Initialize the font factory with a ContentManager
         /// This should be called during application initialization
@@ -113,9 +133,8 @@ namespace DTXMania.Game.Lib.Resources
                     spriteFont = _contentManager.Load<SpriteFont>(assetName);
                     _loadedFonts[assetName] = spriteFont;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-
                     if (_defaultFont == null)
                     {
                         try
@@ -125,10 +144,27 @@ namespace DTXMania.Game.Lib.Resources
                         }
                         catch (Exception defaultEx)
                         {
+                            // Requested asset and default font both failed:
+                            // font creation is unavailable — report once.
+                            if (_reportedFontFailures.Add("NotoSerifJP"))
+                            {
+                                _logger.LogError(defaultEx,
+                                    "Failed to load default SpriteFont 'NotoSerifJP'; font creation is unavailable");
+                            }
                             throw new NotSupportedException(
                                 "Cannot create font - failed to load any SpriteFont. " +
                                 "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + defaultEx.Message);
                         }
+                    }
+
+                    // Direct font creation bypasses ResourceManager failure
+                    // reporting, so log the silent fallback once per asset —
+                    // callers only see a successfully created font.
+                    if (_reportedFontFailures.Add(assetName))
+                    {
+                        _logger.LogWarning(ex,
+                            "SpriteFont '{AssetName}' failed to load; falling back to the default font",
+                            assetName);
                     }
                     spriteFont = _defaultFont;
                 }

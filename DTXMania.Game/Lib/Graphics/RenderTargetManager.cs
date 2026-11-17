@@ -1,5 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Generic;
 
@@ -12,11 +14,13 @@ namespace DTXMania.Game.Lib.Graphics
     {
         private readonly GraphicsDevice _graphicsDevice;
         private readonly Dictionary<string, RenderTargetInfo> _renderTargets;
+        private readonly ILogger<RenderTargetManager> _logger;
         private bool _disposed = false;
 
-        public RenderTargetManager(GraphicsDevice graphicsDevice)
+        public RenderTargetManager(GraphicsDevice graphicsDevice, ILogger<RenderTargetManager> logger = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
+            _logger = logger ?? NullLogger<RenderTargetManager>.Instance;
             _renderTargets = new Dictionary<string, RenderTargetInfo>();
         }
 
@@ -129,8 +133,11 @@ namespace DTXMania.Game.Lib.Graphics
                         info.DepthFormat,
                         info.MultiSampleCount);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    _logger.LogWarning(ex,
+                        "Failed to recreate render target '{Name}' ({Width}x{Height})",
+                        name, info.Width, info.Height);
                 }
 
                 _renderTargets[name] = info;

@@ -7,6 +7,8 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Update;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -64,6 +66,7 @@ namespace DTXMania.Game.Lib.Stage
         // Services for actual functionality
         private readonly SongManager _songManager;
         private readonly IConfigManager _configManager;
+        private readonly ILogger<StartupStage> _logger;
 
         // Task tracking for async operations
         private readonly object _activationGate = new();
@@ -265,6 +268,8 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize services - use singleton for SongManager
             _songManager = SongManager.Instance;
             _configManager = _game.ConfigManager;
+            _logger = game.LoggerFactory?.CreateLogger<StartupStage>()
+                ?? NullLogger<StartupStage>.Instance;
 
             // Initialize cancellation token source for async operations
             _cancellationTokenSource = new CancellationTokenSource();
@@ -865,8 +870,9 @@ namespace DTXMania.Game.Lib.Stage
                         databasePath)
                     .ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Database service initialization failed");
             }
         }
 

@@ -469,9 +469,6 @@ namespace DTXMania.Game.Lib.Song
             {
                 bpmDefinitions[referenceId] = bpm;
             }
-            else
-            {
-            }
 
             return true;
         }
@@ -645,9 +642,6 @@ namespace DTXMania.Game.Lib.Song
                 {
                     chart.TimingMap.SetMeasureLength(measure, multiplier);
                 }
-                else
-                {
-                }
 
                 return;
             }
@@ -726,10 +720,6 @@ namespace DTXMania.Game.Lib.Song
                 return;
             }
 
-            if (noteData.Length % 2 != 0)
-            {
-            }
-
             for (var i = 0; i < pairCount; i++)
             {
                 var pair = noteData.Substring(i * 2, 2).ToUpperInvariant();
@@ -749,9 +739,6 @@ namespace DTXMania.Game.Lib.Song
                             Kind = PendingTempoKind.DirectBpm,
                             DirectBpm = directBpm
                         });
-                    }
-                    else
-                    {
                     }
                 }
                 else

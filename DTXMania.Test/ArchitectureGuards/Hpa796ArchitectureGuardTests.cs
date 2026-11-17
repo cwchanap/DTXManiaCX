@@ -205,6 +205,59 @@ public sealed class Hpa796ArchitectureGuardTests
         Assert.Contains("var kept = 1;", stripped);
     }
 
+    [Fact]
+    public void StripCommentsAndLiteralContents_AtDollarVerbatimString_ShouldNotHideFollowingCode()
+    {
+        // @$"…" is verbatim like $@"…": a backslash does not escape the
+        // closing quote, so the literal must not extend over the statement
+        // that follows it.
+        var source = string.Join(
+            "\n",
+            "var path = @$\"C:\\\";",
+            "Debug.WriteLine(\"violation\");");
+
+        var stripped = StripCommentsAndLiteralContents(source);
+
+        Assert.Contains("Debug", stripped);
+        Assert.Contains("WriteLine", stripped);
+    }
+
+    [Fact]
+    public void FindRawOneByOneTextureInstantiationLines_PositionalDimensions_ShouldFlagOneByOne()
+    {
+        var offenders = FindRawOneByOneTextureInstantiationLines(
+            "new Texture2D(device, 1, 1);");
+
+        Assert.Single(offenders);
+    }
+
+    [Fact]
+    public void FindRawOneByOneTextureInstantiationLines_NamedDimensionsInEitherOrder_ShouldFlagOneByOne()
+    {
+        Assert.Single(FindRawOneByOneTextureInstantiationLines(
+            "new Texture2D(device, width: 1, height: 1);"));
+        Assert.Single(FindRawOneByOneTextureInstantiationLines(
+            "new Texture2D(device, height: 1, width: 1);"));
+    }
+
+    [Fact]
+    public void FindRawOneByOneTextureInstantiationLines_MixedPositionalAndNamed_ShouldFlagOneByOne()
+    {
+        var offenders = FindRawOneByOneTextureInstantiationLines(
+            "new Texture2D(device, 1, height: 1);");
+
+        Assert.Single(offenders);
+    }
+
+    [Fact]
+    public void FindRawOneByOneTextureInstantiationLines_NamedDimensionsNotOneByOne_ShouldNotFlag()
+    {
+        Assert.Empty(FindRawOneByOneTextureInstantiationLines(
+            "new Texture2D(device, width: 1, height: 2);"));
+        Assert.Empty(FindRawOneByOneTextureInstantiationLines(
+            "new Texture2D(device, width: 2, height: 2);"));
+    }
+
     internal static string StripCommentsAndLiteralContents(string source)
     {
         var output = source.ToCharArray();
@@ -275,6 +328,13 @@ public sealed class Hpa796ArchitectureGuardTests
             else if (c == '\'')
             {
                 position = BlankQuotedLiteral(source, output, position, 1, isVerbatim: false);
+            }
+            else if (c == '@' && Peek(source, position + 1) == '$' && Peek(source, position + 2) == '"')
+            {
+                // @$"…" — verbatim interpolated with the reversed prefix order;
+                // the quote branch alone would miss the '@' and lose verbatim mode.
+                position = BlankInterpolatedStringContents(
+                    source, output, position + 2, 1, isVerbatim: true);
             }
             else if (c == '@' && Peek(source, position + 1) == '"')
             {
@@ -419,9 +479,30 @@ public sealed class Hpa796ArchitectureGuardTests
                 if (--depth == 0)
                 {
                     arguments.Add(current.ToString());
-                    return arguments.Count >= 3
-                        && arguments[1].Trim() == "1"
-                        && arguments[2].Trim() == "1";
+                    if (arguments.Count < 3)
+                        return false;
+
+                    // Positional arguments fix width/height to slots 1 and 2;
+                    // named arguments ("width: 1") name their target and may
+                    // appear in either order or past unrelated named arguments.
+                    string? width = null, height = null;
+                    for (var i = 1; i < arguments.Count; i++)
+                    {
+                        var (name, value) = SplitArgumentName(arguments[i]);
+                        if (name == "width")
+                            width = value;
+                        else if (name == "height")
+                            height = value;
+                        else if (name == null)
+                        {
+                            if (i == 1)
+                                width = value;
+                            else if (i == 2)
+                                height = value;
+                        }
+                    }
+
+                    return width == "1" && height == "1";
                 }
             }
             else if (c == ',' && depth == 1)
@@ -436,6 +517,31 @@ public sealed class Hpa796ArchitectureGuardTests
         }
 
         return false; // unterminated constructor call
+    }
+
+    // Splits a "name: value" named argument into its parts; a positional
+    // argument yields Name == null. "::" (alias qualifier) and ternary ":"
+    // are not name prefixes.
+    private static (string? Name, string Value) SplitArgumentName(string argument)
+    {
+        var trimmed = argument.Trim();
+        var colonIndex = trimmed.IndexOf(':');
+        if (colonIndex <= 0
+            || colonIndex + 1 >= trimmed.Length
+            || trimmed[colonIndex + 1] == ':')
+        {
+            return (null, trimmed);
+        }
+
+        var candidate = trimmed.Substring(0, colonIndex).TrimEnd();
+        if (candidate.Length == 0
+            || !(char.IsLetter(candidate[0]) || candidate[0] == '_')
+            || candidate.Skip(1).Any(c => !(char.IsLetterOrDigit(c) || c == '_')))
+        {
+            return (null, trimmed);
+        }
+
+        return (candidate, trimmed.Substring(colonIndex + 1).Trim());
     }
 
     private static char Peek(string source, int index) =>

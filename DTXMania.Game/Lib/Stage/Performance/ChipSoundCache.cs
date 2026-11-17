@@ -3,6 +3,8 @@
 using System;
 using System.Collections.Generic;
 using DTXMania.Game.Lib.Resources;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework.Audio;
 
 namespace DTXMania.Game.Lib.Stage.Performance
@@ -16,6 +18,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private readonly Dictionary<string, ISound> _sounds = new Dictionary<string, ISound>();
         private readonly List<SoundEffectInstance> _activeInstances = new List<SoundEffectInstance>();
+        private readonly ILogger<ChipSoundCache> _logger;
+
+        // WAV ids whose playback failure was already reported — playback runs on
+        // the per-note hot path, so a persistent failure must not flood the log.
+        private readonly HashSet<string> _playFailureReported = new HashSet<string>();
         private bool _disposed;
 
         /// <summary>
@@ -27,8 +34,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Creates a cache over sounds owned by PreparedGameplayAudioSet.
         /// </summary>
-        public ChipSoundCache(IReadOnlyDictionary<string, ISound>? borrowedSoundsByWavId = null)
+        public ChipSoundCache(
+            IReadOnlyDictionary<string, ISound>? borrowedSoundsByWavId = null,
+            ILogger<ChipSoundCache>? logger = null)
         {
+            _logger = logger ?? NullLogger<ChipSoundCache>.Instance;
             if (borrowedSoundsByWavId == null)
                 return;
 
@@ -92,8 +102,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     CleanupStoppedInstances();
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                if (_playFailureReported.Add(wavId))
+                {
+                    _logger.LogWarning(ex, "Chip sound playback failed for WAV id '{WavId}'", wavId);
+                }
             }
         }
 
