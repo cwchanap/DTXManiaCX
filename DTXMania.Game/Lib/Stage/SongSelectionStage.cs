@@ -3586,13 +3586,16 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (task.IsFaulted || task.IsCanceled)
                 {
-                    // Observe the exception so the failed persist is reported, not just reverted.
+                    // Hand the revert to the origin scope first, then log: the warning says
+                    // "reverting", so it must describe a hand-off that already happened
+                    // (do-then-log); this order also makes the warning a post-posting signal
+                    // for observers of the log stream.
+                    originScope?.Post(() => ApplyBookmarkRevert(songId, !newState, toggleVersion));
                     Logger.LogWarning(
                         task.Exception?.GetBaseException(),
                         "Bookmark save failed for song {SongId} (target state {Bookmarked}); reverting",
                         songId,
                         newState);
-                    originScope?.Post(() => ApplyBookmarkRevert(songId, !newState, toggleVersion));
                 }
             }, TaskScheduler.Default);
 

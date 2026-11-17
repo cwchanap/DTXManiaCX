@@ -456,10 +456,13 @@ namespace DTXMania.Test.Stage
                 roots.Clear();
                 roots.Add(node);
 
-                // The fault continuation's first act is the "Bookmark save failed" warning
-                // and its very next statement is the rollback Post; a retired scope drops
-                // the post silently, so the log spy is the observable proof that the
-                // continuation reached its posting point.
+                // The fault continuation posts the rollback into the origin scope FIRST and
+                // logs the "Bookmark save failed" warning immediately after, on the same
+                // thread. Observing the warning therefore proves the posting attempt already
+                // completed — so if a broken implementation posted into the NEW activation
+                // instead, the rollback is queued before the drains below and cannot slip
+                // past them. A retired scope drops the post silently, so the log spy is the
+                // only implementation-independent observable of the hand-off.
                 var faultLog = new FaultContinuationLogSpy();
                 SetPrivateField(stage, "_logger", faultLog);
 
@@ -840,9 +843,9 @@ namespace DTXMania.Test.Stage
         }
 
         // Counts warning-level log calls on the stage logger. The bookmark fault
-        // continuation logs the "Bookmark save failed" warning immediately before it
-        // posts the rollback, so observing the warning proves the continuation reached
-        // its posting point.
+        // continuation posts the rollback first and logs the "Bookmark save failed"
+        // warning immediately after on the same thread, so observing the warning proves
+        // the rollback posting attempt already happened.
         private sealed class FaultContinuationLogSpy : ILogger
         {
             public int Warnings;
