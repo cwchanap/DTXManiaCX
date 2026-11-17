@@ -889,7 +889,13 @@ namespace DTXMania.Test.Stage
             var stage = CreateControlledStage();
             var completion = new TaskCompletionSource<SongEnumerationResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.NextEnumerationTask = completion.Task;
+            var faultObserved = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            // The chain awaits this wrapper (not completion.Task directly), so its
+            // continuation runs only once the worker actually consumed the fault;
+            // waiting on it below synchronizes with the real worker unwind.
+            stage.NextEnumerationTask =
+                ObserveEnumerationOutcomeAsync(completion.Task, faultObserved);
             var scope = stage.InstallTestBackgroundScope();
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
@@ -909,10 +915,15 @@ namespace DTXMania.Test.Stage
 
             // The chain faults after disposal; the retired scope drops the result.
             completion.SetException(new InvalidOperationException("boom"));
-            // Synchronize the unwind: the parked chain consumes the fault and its
-            // canceled-token guard makes it rethrow without touching the stage;
-            // give the worker a moment before asserting.
-            await Task.Delay(100);
+            // Deterministic unwind: wait until the worker actually consumed the
+            // fault. Past that point the fallback guard's inputs are frozen (the
+            // scope token was already canceled by disposal), so no fallback can
+            // run after the signal — the assertion below cannot pass vacuously.
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => faultObserved.Task.IsCompleted,
+                    TimeSpan.FromSeconds(5)),
+                "the worker did not consume the enumeration fault");
             Assert.Equal(0, stage.BuildHierarchyCalls);
         }
 
@@ -1298,6 +1309,27 @@ namespace DTXMania.Test.Stage
                 TimeSpan.FromSeconds(5));
             Assert.True(started, "the enumeration chain did not start");
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Wraps an enumeration completion task so a test can observe the moment
+        /// the worker actually consumed its outcome: the wrapper's continuation
+        /// runs only after the wrapped task settled. Waiting on
+        /// <paramref name="outcome"/> is a deterministic unwind signal, unlike a
+        /// grace delay which can assert before the worker resumed.
+        /// </summary>
+        private static async Task<SongEnumerationResult> ObserveEnumerationOutcomeAsync(
+            Task<SongEnumerationResult> enumeration,
+            TaskCompletionSource outcome)
+        {
+            try
+            {
+                return await enumeration.ConfigureAwait(false);
+            }
+            finally
+            {
+                outcome.TrySetResult();
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
