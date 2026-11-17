@@ -199,11 +199,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 {
                     try
                     {
-                        _padSpriteSheet = _resourceManager.LoadTexture(path);
-                        if (_padSpriteSheet != null)
+                        if (_resourceManager.TryLoadTexture(path, out _padSpriteSheet) && _padSpriteSheet != null)
                         {
                             break;
                         }
+                        // A miss leaves the uncached 1x1 fallback in the out
+                        // parameter — dispose it so its GPU texture isn't
+                        // leaked, then try the next candidate path.
+                        _padSpriteSheet?.Dispose();
+                        _padSpriteSheet = null;
                     }
                     catch (Exception)
                     {

@@ -342,7 +342,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             try
             {
-                _comboTexture = _resourceManager.LoadTexture(TexturePath.ComboDisplay);
+                _resourceManager.TryLoadTexture(TexturePath.ComboDisplay, out var comboTexture);
+                _comboTexture = comboTexture;
             }
             catch (Exception)
             {
@@ -351,7 +352,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                _comboTextureAlt = _resourceManager.LoadTexture(TexturePath.ComboDisplayAlt);
+                _resourceManager.TryLoadTexture(TexturePath.ComboDisplayAlt, out var comboTextureAlt);
+                _comboTextureAlt = comboTextureAlt;
             }
             catch (Exception)
             {

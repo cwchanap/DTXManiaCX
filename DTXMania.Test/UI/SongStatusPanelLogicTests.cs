@@ -121,13 +121,13 @@ public class SongStatusPanelLogicTests
         var panel = new SongStatusPanel();
         var rm = new Mock<IResourceManager>();
 
-        rm.Setup(x => x.LoadTexture(It.IsAny<string>())).Throws(new Exception("load-failed"));
+        rm.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny)).Throws(new Exception("load-failed"));
 
         var ex = Record.Exception(() => panel.InitializeAuthenticGraphics(rm.Object));
 
         Assert.Null(ex);
         Assert.Same(rm.Object, GetField<IResourceManager>(panel, "_resourceManager"));
-        rm.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.AtLeastOnce);
+        rm.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.AtLeastOnce);
     }
 
     [Fact]

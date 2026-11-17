@@ -101,14 +101,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _font = null;
             }
 
-            try
-            {
-                _maxBadgeTexture = resourceManager.LoadTexture(TexturePath.SkillMax);
-            }
-            catch (Exception)
-            {
-                _maxBadgeTexture = null;
-            }
+            _maxBadgeTexture = TryLoadTexture(resourceManager, TexturePath.SkillMax, "skill max badge");
 
             _smallRateNumbersTexture = TryLoadTexture(resourceManager, TexturePath.RateNumbersSmall, "small rate numbers");
             _largeRateNumbersTexture = TryLoadTexture(resourceManager, TexturePath.RateNumbersLarge, "large rate numbers");
@@ -348,7 +341,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             try
             {
-                return resourceManager.LoadTexture(path);
+                resourceManager.TryLoadTexture(path, out var texture);
+                return texture;
             }
             catch (Exception)
             {

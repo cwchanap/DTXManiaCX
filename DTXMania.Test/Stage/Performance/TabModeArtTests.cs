@@ -48,7 +48,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Load_WhenLoadTextureReturnsNull_ShouldLeaveSlotEmpty()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns((ITexture)null);
+            ITexture missing = null;
+            resourceManager.Setup(r => r.TryLoadTexture(It.IsAny<string>(), out missing)).Returns(false);
 
             var art = TabModeArt.Load(resourceManager.Object, ThemeWithAllArt());
 
@@ -64,9 +65,12 @@ namespace DTXMania.Test.Stage.Performance
             var panel = Texture(128, 128);
             var hitLine = Texture(64, 290);
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_strip.png")).Returns(strip.Object);
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_panel.png")).Returns(panel.Object);
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_hitline.png")).Returns(hitLine.Object);
+            var stripResult = strip.Object;
+            var panelResult = panel.Object;
+            var hitLineResult = hitLine.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_strip.png", out stripResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_panel.png", out panelResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_hitline.png", out hitLineResult)).Returns(true);
 
             var art = TabModeArt.Load(resourceManager.Object, ThemeWithAllArt());
 
@@ -81,9 +85,11 @@ namespace DTXMania.Test.Stage.Performance
             var fallback = Texture(1, 1);
             var panel = Texture(128, 128);
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_strip.png")).Returns(fallback.Object);
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_panel.png")).Returns(panel.Object);
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_hitline.png")).Throws(new InvalidOperationException("missing"));
+            var fallbackResult = fallback.Object;
+            var panelResult = panel.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_strip.png", out fallbackResult)).Returns(false);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_panel.png", out panelResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_hitline.png", out It.Ref<ITexture>.IsAny)).Throws(new InvalidOperationException("missing"));
 
             var art = TabModeArt.Load(resourceManager.Object, ThemeWithAllArt());
 
@@ -100,7 +106,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             var thinLine = Texture(width, height);
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_hitline.png")).Returns(thinLine.Object);
+            var thinLineResult = thinLine.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_hitline.png", out thinLineResult)).Returns(true);
 
             var art = TabModeArt.Load(resourceManager.Object, SkinTheme.Parse(new[]
             {
@@ -117,7 +124,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             var panel = Texture(128, 128);
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_panel.png")).Returns(panel.Object);
+            var panelResult = panel.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_panel.png", out panelResult)).Returns(true);
             var art = TabModeArt.Load(resourceManager.Object, SkinTheme.Parse(new[]
             {
                 "Tab.PanelTexture=Graphics/7_Tab_panel.png",
@@ -136,9 +144,12 @@ namespace DTXMania.Test.Stage.Performance
             var panel = Texture(128, 128);
             var hitLine = Texture(64, 290);
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_strip.png")).Returns(strip.Object);
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_panel.png")).Returns(panel.Object);
-            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_hitline.png")).Returns(hitLine.Object);
+            var stripResult = strip.Object;
+            var panelResult = panel.Object;
+            var hitLineResult = hitLine.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_strip.png", out stripResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_panel.png", out panelResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_hitline.png", out hitLineResult)).Returns(true);
             var art = TabModeArt.Load(resourceManager.Object, ThemeWithAllArt());
 
             art.Release();

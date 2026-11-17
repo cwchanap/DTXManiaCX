@@ -264,7 +264,8 @@ namespace DTXMania.Game.Lib.Stage
                 var texturePath = GetBackgroundTexturePath();
                 if (!string.IsNullOrEmpty(texturePath))
                 {
-                    _stageBackgroundTexture = _game.ResourceManager.LoadTexture(texturePath);
+                    _game.ResourceManager.TryLoadTexture(texturePath, out var texture);
+                    _stageBackgroundTexture = texture;
                 }
             }
             catch (Exception)

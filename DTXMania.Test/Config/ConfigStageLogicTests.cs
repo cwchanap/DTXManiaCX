@@ -1991,7 +1991,8 @@ public class ConfigStageLogicTests
             fallbackTexture.SetupGet(t => t.Height).Returns(1);
 
             var mockResources = new Mock<IResourceManager>();
-            mockResources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(fallbackTexture.Object);
+            var fallbackResult = fallbackTexture.Object;
+            mockResources.Setup(r => r.TryLoadTexture(It.IsAny<string>(), out fallbackResult)).Returns(false);
             ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResources.Object);
 
             var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", TexturePath.ConfigBackground);
@@ -2016,7 +2017,8 @@ public class ConfigStageLogicTests
             realTexture.SetupGet(t => t.Height).Returns(128);
 
             var mockResources = new Mock<IResourceManager>();
-            mockResources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(realTexture.Object);
+            var realResult = realTexture.Object;
+            mockResources.Setup(r => r.TryLoadTexture(It.IsAny<string>(), out realResult)).Returns(true);
             ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResources.Object);
 
             var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", TexturePath.ConfigBackground);
@@ -2035,7 +2037,7 @@ public class ConfigStageLogicTests
             stage.InitializeDrawingState();
 
             var mockResources = new Mock<IResourceManager>();
-            mockResources.Setup(r => r.LoadTexture(It.IsAny<string>()))
+            mockResources.Setup(r => r.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny))
                 .Throws(new InvalidOperationException("boom"));
             ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResources.Object);
 

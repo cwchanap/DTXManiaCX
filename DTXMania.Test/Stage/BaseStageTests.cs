@@ -24,7 +24,8 @@ namespace DTXMania.Test.Stage
         {
             var resourceManager = new Mock<IResourceManager>();
             var backgroundTexture = new Mock<ITexture>();
-            resourceManager.Setup(x => x.LoadTexture(TexturePath.TitleBackground)).Returns(backgroundTexture.Object);
+            var backgroundTextureObj = backgroundTexture.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(TexturePath.TitleBackground, out backgroundTextureObj)).Returns(true);
 
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
             var payload = new SongPlayRequest(new SongListNode { Title = "Song" }, 2);
@@ -36,28 +37,29 @@ namespace DTXMania.Test.Stage
             Assert.Equal(1, stage.ActivateCalls);
             Assert.True(stage.BackgroundReady);
             Assert.Same(payload, stage.LastPayload);
-            resourceManager.Verify(x => x.LoadTexture(TexturePath.TitleBackground), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(TexturePath.TitleBackground, out It.Ref<ITexture>.IsAny), Times.Once);
         }
 
         [Fact]
         public void Activate_WhenAlreadyActive_ShouldIgnoreSecondActivation()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var anyTexture = new Mock<ITexture>().Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out anyTexture)).Returns(true);
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
 
             stage.Activate();
             stage.Activate();
 
             Assert.Equal(1, stage.ActivateCalls);
-            resourceManager.Verify(x => x.LoadTexture(TexturePath.TitleBackground), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(TexturePath.TitleBackground, out It.Ref<ITexture>.IsAny), Times.Once);
         }
 
         [Fact]
         public void Activate_WhenBackgroundLoadFails_ShouldStillInvokeActivationHook()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Throws(new InvalidOperationException("boom"));
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny)).Throws(new InvalidOperationException("boom"));
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
 
             stage.Activate();
@@ -71,7 +73,8 @@ namespace DTXMania.Test.Stage
         public void Update_ShouldInvokeFirstUpdateOnlyOnceAndCallUpdateEachFrame()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var anyTexture = new Mock<ITexture>().Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out anyTexture)).Returns(true);
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
             stage.Activate();
 
@@ -97,7 +100,8 @@ namespace DTXMania.Test.Stage
         {
             var resourceManager = new Mock<IResourceManager>();
             var backgroundTexture = new Mock<ITexture>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(backgroundTexture.Object);
+            var backgroundTextureObj = backgroundTexture.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out backgroundTextureObj)).Returns(true);
 
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
             stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0));
@@ -217,21 +221,23 @@ namespace DTXMania.Test.Stage
         public void Activate_AfterDeactivate_ShouldReloadBackground()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var anyTexture = new Mock<ITexture>().Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out anyTexture)).Returns(true);
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
 
             stage.Activate();
             stage.Deactivate();
             stage.Activate();
 
-            resourceManager.Verify(x => x.LoadTexture(TexturePath.TitleBackground), Times.Exactly(2));
+            resourceManager.Verify(x => x.TryLoadTexture(TexturePath.TitleBackground, out It.Ref<ITexture>.IsAny), Times.Exactly(2));
         }
 
         [Fact]
         public void Dispose_WhenActive_ShouldDeactivateAndSuppressPhase()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var anyTexture = new Mock<ITexture>().Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out anyTexture)).Returns(true);
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, null);
             stage.Activate();
 
@@ -262,13 +268,14 @@ namespace DTXMania.Test.Stage
         public void GetBackgroundTexturePath_BaseSwitch_ShouldLoadCorrectTexture(StageType stageType, string expectedPath)
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(expectedPath)).Returns(new Mock<ITexture>().Object);
+            var expectedTexture = new Mock<ITexture>().Object;
+            resourceManager.Setup(x => x.TryLoadTexture(expectedPath, out expectedTexture)).Returns(true);
             // PassiveStage does not override GetBackgroundTexturePath, exercising the base switch
             var stage = new PassiveStage(ReflectionHelpers.CreateGame(resourceManager.Object), stageType);
 
             stage.Activate();
 
-            resourceManager.Verify(x => x.LoadTexture(expectedPath), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(expectedPath, out It.Ref<ITexture>.IsAny), Times.Once);
         }
 
         [Fact]
@@ -279,14 +286,15 @@ namespace DTXMania.Test.Stage
 
             stage.Activate();
 
-            resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+            resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.Never);
         }
 
         [Fact]
         public void FullLifecycle_WithBaseNoOpHooks_ShouldNotThrow()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var anyTexture = new Mock<ITexture>().Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out anyTexture)).Returns(true);
             // PassiveStage exercises all base-class virtual no-op hooks
             var stage = new PassiveStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title);
 

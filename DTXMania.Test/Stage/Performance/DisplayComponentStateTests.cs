@@ -116,9 +116,10 @@ namespace DTXMania.Test.Stage.Performance
             // loads successfully, a font-load failure must not abort construction because Draw()
             // takes the bitmap render path and never touches the font.
             var resourceManager = new Mock<IResourceManager>();
+            var scoreNumbers = new Mock<ITexture>().Object;
             resourceManager
-                .Setup(r => r.LoadTexture(TexturePath.ScoreNumbers))
-                .Returns(new Mock<ITexture>().Object);
+                .Setup(r => r.TryLoadTexture(TexturePath.ScoreNumbers, out scoreNumbers))
+                .Returns(true);
 
             using var display = TestFontFactory.WithManagedFontUnavailable(() =>
                 new ScoreDisplay(resourceManager.Object, CreateGraphicsDeviceStub()));

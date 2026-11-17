@@ -133,8 +133,8 @@ namespace DTXMania.Test.Stage.Performance
             var rm = new Mock<IResourceManager>();
             var backgroundTexture = new Mock<ITexture>().Object;
             var gaugeTexture = new Mock<ITexture>().Object;
-            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphMain)).Returns(backgroundTexture);
-            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphGauge)).Returns(gaugeTexture);
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphMain, out backgroundTexture)).Returns(true);
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphGauge, out gaugeTexture)).Returns(true);
 
             var display = WithManagedFontUnavailable(() =>
                 new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
@@ -150,8 +150,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             var rm = new Mock<IResourceManager>();
             var gaugeTexture = new Mock<ITexture>().Object;
-            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphMain)).Throws(new Exception("background failed"));
-            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphGauge)).Returns(gaugeTexture);
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphMain, out It.Ref<ITexture>.IsAny)).Throws(new Exception("background failed"));
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphGauge, out gaugeTexture)).Returns(true);
 
             var display = WithManagedFontUnavailable(() =>
                 new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
@@ -166,8 +166,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             var rm = new Mock<IResourceManager>();
             var backgroundTexture = new Mock<ITexture>().Object;
-            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphMain)).Returns(backgroundTexture);
-            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphGauge)).Throws(new Exception("gauge failed"));
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphMain, out backgroundTexture)).Returns(true);
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphGauge, out It.Ref<ITexture>.IsAny)).Throws(new Exception("gauge failed"));
 
             var display = WithManagedFontUnavailable(() =>
                 new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
@@ -181,7 +181,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Constructor_TextureLoadFails_ShouldSetBackgroundTextureNull()
         {
             var rm = new Mock<IResourceManager>();
-            rm.Setup(x => x.LoadTexture(It.IsAny<string>())).Throws(new Exception("load failed"));
+            rm.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny)).Throws(new Exception("load failed"));
 
             var display = WithManagedFontUnavailable(() =>
                 new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
@@ -196,15 +196,9 @@ namespace DTXMania.Test.Stage.Performance
         {
             var rm = new Mock<IResourceManager>();
             var gaugeTexture = new Mock<ITexture>().Object;
-            int callCount = 0;
-            rm.Setup(x => x.LoadTexture(It.IsAny<string>()))
-              .Returns<string>(path =>
-              {
-                  callCount++;
-                  if (callCount == 1)
-                      throw new Exception("bg failed");
-                  return gaugeTexture;
-              });
+            ITexture missing = null;
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphMain, out missing)).Returns(false);
+            rm.Setup(x => x.TryLoadTexture(TexturePath.PerfGraphGauge, out gaugeTexture)).Returns(true);
 
             var display = WithManagedFontUnavailable(() =>
                 new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));

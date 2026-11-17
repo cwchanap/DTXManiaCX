@@ -181,8 +181,9 @@ public sealed class QuickSettingsPopupTests
         background.SetupGet(x => x.Width).Returns(360);
         background.SetupGet(x => x.Height).Returns(460);
         var resources = new Mock<IResourceManager>();
-        resources.Setup(x => x.LoadTexture(TexturePath.QuickSettingsBackground)).Returns(background.Object);
-        resources.Setup(x => x.LoadTexture(TexturePath.QuickSettingsCursor)).Throws(new System.IO.FileNotFoundException("missing"));
+        var backgroundResult = background.Object;
+        resources.Setup(x => x.TryLoadTexture(TexturePath.QuickSettingsBackground, out backgroundResult)).Returns(true);
+        resources.Setup(x => x.TryLoadTexture(TexturePath.QuickSettingsCursor, out It.Ref<ITexture>.IsAny)).Throws(new System.IO.FileNotFoundException("missing"));
         var popup = new QuickSettingsPopup();
 
         popup.Initialize(null);
@@ -199,7 +200,8 @@ public sealed class QuickSettingsPopupTests
         placeholder.SetupGet(x => x.Width).Returns(1);
         placeholder.SetupGet(x => x.Height).Returns(1);
         var resources = new Mock<IResourceManager>();
-        resources.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(placeholder.Object);
+        var placeholderResult = placeholder.Object;
+        resources.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out placeholderResult)).Returns(false);
         var popup = new QuickSettingsPopup();
 
         popup.Initialize(resources.Object);

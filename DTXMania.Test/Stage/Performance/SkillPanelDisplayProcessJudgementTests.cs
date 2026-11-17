@@ -401,9 +401,10 @@ namespace DTXMania.Test.Stage.Performance
         {
             var mockTexture = new Mock<ITexture>();
             var mockResourceManager = new Mock<IResourceManager>();
+            var textureResult = mockTexture.Object;
             mockResourceManager
-                .Setup(rm => rm.LoadTexture("some/path"))
-                .Returns(mockTexture.Object);
+                .Setup(rm => rm.TryLoadTexture("some/path", out textureResult))
+                .Returns(true);
 
             var result = InvokeStatic<ITexture?>("TryLoadTexture", mockResourceManager.Object, "some/path", "test");
 
@@ -416,7 +417,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var mockResourceManager = new Mock<IResourceManager>();
             mockResourceManager
-                .Setup(rm => rm.LoadTexture(It.IsAny<string>()))
+                .Setup(rm => rm.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny))
                 .Throws(new Exception("load failed"));
 
             var result = InvokeStatic<ITexture?>("TryLoadTexture", mockResourceManager.Object, "bad/path", "test");
