@@ -887,15 +887,6 @@ namespace DTXMania.Test.Stage
         public async Task Dispose_WhenEnumerationFaultsAfterDisposal_ShouldNotThrow()
         {
             var stage = CreateControlledStage();
-            // Deliberately NOT RunContinuationsAsynchronously: combined with the
-            // dedicated fault thread below (which has no SynchronizationContext
-            // and the default TaskScheduler), this makes SetException inline the
-            // chain's continuation per the TPL inlining contract, unwinding the
-            // whole chain synchronously — including the exception handler's
-            // fallback guard. (Delivering the fault from the test thread would
-            // queue the unwind instead: xUnit installs AsyncTestSyncContext,
-            // which TPL treats as an invalid inlining location, so any signal
-            // from a test-side wrapper would fire before the handler ran.)
             var completion = new TaskCompletionSource<SongEnumerationResult>();
             stage.NextEnumerationTask = completion.Task;
             var scope = stage.InstallTestBackgroundScope();
@@ -914,23 +905,52 @@ namespace DTXMania.Test.Stage
 
             Assert.Null(exception);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+            Assert.True(scope.Token.IsCancellationRequested);
 
-            // The chain faults after disposal; the retired scope drops the result.
-            // The bare fault thread satisfies TPL's inlining location rules (no
-            // sync context, default scheduler) and the gate task opts into
-            // inlining, so SetException returns only after the chain's exception
-            // handler fully unwound on that thread: a regression that attempted
-            // fallback here would increment BuildHierarchyCalls inside
-            // SetException, before the assertion below — the assertion
-            // synchronizes with actual chain completion and cannot pass
-            // vacuously.
-            var faultThread = new Thread(() =>
-                completion.SetException(new InvalidOperationException("boom")));
-            faultThread.Start();
-            Assert.True(
-                faultThread.Join(TimeSpan.FromSeconds(5)),
-                "the fault thread did not complete the chain unwind");
+            // The chain faults after disposal; Run's worker catches the fault and
+            // the retired scope drops the posted error, so nothing escapes. The
+            // worker consumes it on its own schedule — its unwind cannot be
+            // observed from here (no continuation-registration signal, no worker
+            // handle), so the deterministic no-fallback coverage for the exact
+            // retire-then-fault ordering lives in
+            // RunSongLoadChain_WhenEnumerationFaultsAfterCancellation_ShouldNotRunFallback,
+            // which invokes the chain directly and awaits its completion.
+            completion.SetException(new InvalidOperationException("boom"));
+        }
+
+        [Fact]
+        public async Task RunSongLoadChain_WhenEnumerationFaultsAfterCancellation_ShouldNotRunFallback()
+        {
+            var stage = CreateControlledStage();
+            var fault = new InvalidOperationException("boom");
+            var completion = new TaskCompletionSource<SongEnumerationResult>();
+            stage.NextEnumerationTask = completion.Task;
+            var cancellation = new CancellationTokenSource();
+
+            // InvokePrivateMethodAsync invokes the async chain synchronously on
+            // this thread up to the enumeration await, so the await continuation
+            // is registered before the helper suspends on the chain task. Canceling
+            // and faulting only afterwards reproduces the post-disposal ordering
+            // (retire → fault) with no completion-versus-registration race.
+            var chainTask = ReflectionHelpers.InvokePrivateMethodAsync<bool>(
+                stage,
+                "RunSongLoadChainAsync",
+                new[] { "Songs" },
+                new InlineProgress<EnumerationProgress>(_ => { }),
+                cancellation.Token);
+
+            cancellation.Cancel();
+            completion.SetException(fault);
+
+            // Awaiting the chain synchronizes with its actual completion: the
+            // exception handler's rethrow is what faults the task, so the
+            // fallback guard has fully run before the asserts below — no
+            // reliance on TPL inlining or thread joins.
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => chainTask);
+
+            Assert.Same(fault, thrown);
             Assert.Equal(0, stage.BuildHierarchyCalls);
+            Assert.Equal(1, stage.EnumerateSongsCalls);
         }
 
         [Fact]
