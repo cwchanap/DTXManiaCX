@@ -50,18 +50,6 @@ internal sealed record SongLibraryReloadResult(
 /// <summary>Immutable worker result consumed by ConfigStage on its update thread.</summary>
 internal sealed record ConfigSongOperationCompletion(string Status);
 
-/// <summary>
-/// Immutable status handoff from a background song operation to ConfigStage's
-/// update thread. Holding the lease lets the update thread avoid clearing a
-/// newer operation that started after an older terminal callback queued.
-/// </summary>
-internal sealed record ConfigSongOperationUpdate(
-    int ActivationGeneration,
-    ConfigSongOperationLease Lease,
-    ConfigSongOperationKind Kind,
-    string Status,
-    bool IsTerminal);
-
 internal interface ISongLibraryReloadService
 {
     Task<SongLibraryReloadResult> ReloadAsync(

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Config;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -595,6 +596,71 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
+    public async Task AddFolder_WhenPickerRestartsAfterCloseAndReopen_OnlyTheNewPickApplies()
+    {
+        using var root = TemporaryDirectory.Create();
+        using var staleFolder = TemporaryDirectory.Create();
+        using var freshFolder = TemporaryDirectory.Create();
+        var picker = new SequentialDelayedFolderPicker();
+        var panel = CreatePanel(new[] { root.Path }, picker);
+        panel.Activate();
+
+        // First pick, then close (cancel) and reopen the panel within the same
+        // activation; the second pick must be the only one that can apply.
+        ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        var firstCancellation = GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation");
+        panel.Deactivate();
+        panel.Activate();
+        ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        var secondCancellation = GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation");
+
+        Assert.NotSame(firstCancellation, secondCancellation);
+
+        picker.Complete(0, FolderPickerResult.Selected(staleFolder.Path));
+        picker.Complete(1, FolderPickerResult.Selected(freshFolder.Path));
+        await WaitForPendingPickerCompletionAsync(panel, expectedQueueCount: 2);
+        DrainPicker(panel);
+
+        Assert.Equal(new[] { root.Path, freshFolder.Path }, panel.DraftRoots);
+        Assert.True(panel.IsActive);
+        Assert.Null(GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation"));
+
+        // Both picker CTS are disposed on the completed path.
+        Assert.True(IsDisposed(firstCancellation!));
+        Assert.True(IsDisposed(secondCancellation!));
+    }
+
+    [Fact]
+    public async Task AddFolder_WhenScopeRetiresBeforeCompletion_ShouldDisposePickerCtsViaDrop()
+    {
+        using var root = TemporaryDirectory.Create();
+        using var selectedFolder = TemporaryDirectory.Create();
+        var picker = new DelayedFolderPicker();
+        var panel = CreatePanel(new[] { root.Path }, picker);
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        var cancellation = GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation");
+        var scope = GetPanelScope(panel);
+
+        // The stage deactivates before the pick completes: the queued/late result
+        // drops and the owned CTS must still be disposed exactly once.
+        scope.Retire();
+        picker.Completion.TrySetResult(FolderPickerResult.Selected(selectedFolder.Path));
+
+        var disposed = SpinWait.SpinUntil(
+            () => IsDisposed(cancellation!),
+            TimeSpan.FromSeconds(5));
+        Assert.True(disposed, "the dropped picker CTS was not disposed");
+        Assert.True(panel.IsActive);
+        Assert.Equal(new[] { root.Path }, panel.DraftRoots);
+
+        await Task.Yield();
+        DrainPicker(panel);
+        Assert.Equal(new[] { root.Path }, panel.DraftRoots);
+    }
+
+    [Fact]
     public void Apply_WhenUpdated_ShouldRaiseSavedBeforeClosed()
     {
         using var root = TemporaryDirectory.Create();
@@ -841,11 +907,14 @@ public sealed class SongFolderPanelTests
         IFolderPickerService? picker = null,
         Func<IReadOnlyList<string>, SongFolderApplyResult>? apply = null)
     {
+        // HPA-799: the panel completes pending folder picks through the parent
+        // stage's background-work scope instead of owning a queue.
         return new SongFolderPanel(
             configuredRoots,
             picker ?? new QueuedFolderPicker(),
             new SongRootPolicy(SongRootPolicy.CreateComparer(ignoreCase: false)),
-            apply ?? (roots => ApplyResult(SongFolderApplyStatus.Updated, roots)));
+            apply ?? (roots => ApplyResult(SongFolderApplyStatus.Updated, roots)),
+            new StageBackgroundWorkScope());
     }
 
     private static SongFolderApplyResult ApplyResult(
@@ -871,23 +940,58 @@ public sealed class SongFolderPanelTests
         Press(panel, Keys.Enter);
     }
 
-    private static void DrainPicker(SongFolderPanel panel) =>
-        panel.Update(0, new KeyboardState(), new KeyboardState());
+    private static StageBackgroundWorkScope GetPanelScope(SongFolderPanel panel) =>
+        GetPrivateField<StageBackgroundWorkScope>(panel, "_backgroundWork");
+
+    /// <summary>
+    /// Drains the panel's parent scope until the pending pick settles: the pick
+    /// runs on the scope's worker, so every completion (matched or stale) settles
+    /// the captured CTS by nulling or disposing it.
+    /// </summary>
+    private static void DrainPicker(SongFolderPanel panel)
+    {
+        var scope = GetPanelScope(panel);
+        var settled = SpinWait.SpinUntil(
+            () =>
+            {
+                scope.Drain();
+                var cancellation = GetPrivateField<CancellationTokenSource?>(panel, "_pickerCancellation");
+                return cancellation == null || IsDisposed(cancellation);
+            },
+            TimeSpan.FromSeconds(5));
+        Assert.True(settled, "the pending folder pick did not settle");
+        scope.Drain();
+    }
 
     private static int PendingPickerCompletionCount(SongFolderPanel panel)
     {
-        var queue = typeof(SongFolderPanel)
-            .GetField("_pickerCompletions", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.GetValue(panel) as System.Collections.ICollection;
+        var scope = GetPanelScope(panel);
+        var queue = typeof(StageBackgroundWorkScope)
+            .GetField("_queue", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.GetValue(scope) as System.Collections.ICollection;
         return queue?.Count ?? 0;
+    }
+
+    private static bool IsDisposed(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            _ = cancellation.Token;
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
     }
 
     private static async Task WaitForPendingPickerCompletionAsync(
         SongFolderPanel panel,
+        int expectedQueueCount = 1,
         int timeoutMs = 2000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (PendingPickerCompletionCount(panel) == 0)
+        while (PendingPickerCompletionCount(panel) < expectedQueueCount)
         {
             if (DateTime.UtcNow >= deadline)
                 throw new TimeoutException(
@@ -934,6 +1038,28 @@ public sealed class SongFolderPanelTests
             CallCount++;
             return Completion.Task;
         }
+    }
+
+    private sealed class SequentialDelayedFolderPicker : IFolderPickerService
+    {
+        private readonly List<TaskCompletionSource<FolderPickerResult>> _completions = new();
+        private int _next;
+
+        public SequentialDelayedFolderPicker()
+        {
+            _completions.Add(new TaskCompletionSource<FolderPickerResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously));
+            _completions.Add(new TaskCompletionSource<FolderPickerResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously));
+        }
+
+        public void Complete(int index, FolderPickerResult result) =>
+            _completions[index].TrySetResult(result);
+
+        public Task<FolderPickerResult> PickFolderAsync(
+            string? initialDirectory,
+            CancellationToken cancellationToken) =>
+            _completions[_next++].Task;
     }
 
     private sealed class NullFolderPicker : IFolderPickerService
@@ -991,7 +1117,8 @@ public sealed class SongFolderPanelTests
             new[] { root.Path },
             folderPicker: null!,
             new SongRootPolicy(SongRootPolicy.CreateComparer(false)),
-            _ => ApplyResult(SongFolderApplyStatus.Updated, _)));
+            _ => ApplyResult(SongFolderApplyStatus.Updated, _),
+            new StageBackgroundWorkScope()));
     }
 
     [Fact]
@@ -1002,7 +1129,8 @@ public sealed class SongFolderPanelTests
             new[] { root.Path },
             new Mock<IFolderPickerService>().Object,
             rootPolicy: null!,
-            _ => ApplyResult(SongFolderApplyStatus.Updated, _)));
+            _ => ApplyResult(SongFolderApplyStatus.Updated, _),
+            new StageBackgroundWorkScope()));
     }
 
     [Fact]
@@ -1013,7 +1141,20 @@ public sealed class SongFolderPanelTests
             new[] { root.Path },
             new Mock<IFolderPickerService>().Object,
             new SongRootPolicy(SongRootPolicy.CreateComparer(false)),
-            apply: null!));
+            apply: null!,
+            new StageBackgroundWorkScope()));
+    }
+
+    [Fact]
+    public void Constructor_WhenBackgroundWorkScopeIsNull_ShouldThrowArgumentNullException()
+    {
+        using var root = TemporaryDirectory.Create();
+        Assert.Throws<ArgumentNullException>(() => new SongFolderPanel(
+            new[] { root.Path },
+            new Mock<IFolderPickerService>().Object,
+            new SongRootPolicy(SongRootPolicy.CreateComparer(false)),
+            _ => ApplyResult(SongFolderApplyStatus.Updated, _),
+            backgroundWork: null!));
     }
 
     [Fact]
@@ -1036,12 +1177,13 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
-    public void Update_WhenNotActive_ShouldOnlyDrainPickerCompletions()
+    public void Update_WhenNotActive_ShouldIgnoreKeysWithoutNavigating()
     {
         using var root = TemporaryDirectory.Create();
         var panel = CreatePanel(new[] { root.Path });
 
         // Pressing keys while inactive must not navigate or activate rows.
+        // Picker completions are drained by the parent scope, not by panel.Update.
         panel.Update(0, new KeyboardState(Keys.Down), new KeyboardState());
 
         Assert.False(panel.IsActive);
@@ -1182,8 +1324,10 @@ public sealed class SongFolderPanelTests
         var panel = CreatePanel(new[] { root.Path }, picker);
         panel.Activate();
 
-        // Start the first picker.
+        // Start the first picker (the pick itself runs on the scope worker).
         ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        Assert.True(SpinWait.SpinUntil(() => picker.CallCount == 1, TimeSpan.FromSeconds(5)),
+            "the first pick was not started");
         var firstCancellation = GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation");
         Assert.NotNull(firstCancellation);
 

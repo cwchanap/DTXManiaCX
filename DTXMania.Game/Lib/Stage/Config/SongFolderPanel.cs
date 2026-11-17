@@ -1,11 +1,9 @@
 #nullable enable
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -70,10 +68,11 @@ namespace DTXMania.Game.Lib.Stage.Config
         private readonly SongRootPolicy _rootPolicy;
         private readonly Func<IReadOnlyList<string>, SongFolderApplyResult> _apply;
         private readonly List<string> _draftRoots = new();
-        private readonly ConcurrentQueue<PickerCompletion> _pickerCompletions = new();
+        // Parent stage scope (HPA-799): pending folder picks complete through it;
+        // the panel owns no queue of its own.
+        private readonly StageBackgroundWorkScope _backgroundWork;
 
         private CancellationTokenSource? _pickerCancellation;
-        private int _activationGeneration;
         private int _selectedIndex;
         private int _selectedRootIndex;
         private int _firstVisibleRowIndex;
@@ -83,12 +82,14 @@ namespace DTXMania.Game.Lib.Stage.Config
             IReadOnlyList<string> configuredRoots,
             IFolderPickerService folderPicker,
             SongRootPolicy rootPolicy,
-            Func<IReadOnlyList<string>, SongFolderApplyResult> apply)
+            Func<IReadOnlyList<string>, SongFolderApplyResult> apply,
+            StageBackgroundWorkScope backgroundWork)
         {
             ArgumentNullException.ThrowIfNull(configuredRoots);
             ArgumentNullException.ThrowIfNull(folderPicker);
             ArgumentNullException.ThrowIfNull(rootPolicy);
             ArgumentNullException.ThrowIfNull(apply);
+            ArgumentNullException.ThrowIfNull(backgroundWork);
 
             if (configuredRoots.Count == 0)
             {
@@ -101,6 +102,7 @@ namespace DTXMania.Game.Lib.Stage.Config
             _folderPicker = folderPicker;
             _rootPolicy = rootPolicy;
             _apply = apply;
+            _backgroundWork = backgroundWork;
         }
 
         public bool IsActive { get; private set; }
@@ -133,7 +135,6 @@ namespace DTXMania.Game.Lib.Stage.Config
         public void Activate()
         {
             CancelPendingPicker();
-            IncrementActivationGeneration();
 
             _draftRoots.Clear();
             _draftRoots.AddRange(_configuredRoots);
@@ -151,13 +152,11 @@ namespace DTXMania.Game.Lib.Stage.Config
                 return;
 
             IsActive = false;
-            IncrementActivationGeneration();
             CancelPendingPicker();
         }
 
         public void Update(double deltaTime, KeyboardState current, KeyboardState previous)
         {
-            DrainPickerCompletions();
             if (!IsActive)
                 return;
 
@@ -346,51 +345,57 @@ namespace DTXMania.Game.Lib.Stage.Config
             var initialDirectory = _selectedRootIndex >= 0 && _selectedRootIndex < _draftRoots.Count
                 ? _draftRoots[_selectedRootIndex]
                 : null;
-            _ = CompletePickerAsync(_activationGeneration, cancellation, initialDirectory);
+            _backgroundWork.Run(
+                _ => PickFolderBlocking(cancellation, initialDirectory),
+                onSuccess: result => ApplyPickerCompletion(cancellation, result),
+                onDropped: _ => cancellation.Dispose());
         }
 
-        private async Task CompletePickerAsync(
-            int generation,
+        /// <summary>
+        /// Worker-side pick. Every outcome — including cancellation and failure —
+        /// maps to a <see cref="FolderPickerResult"/>, so the terminal result always
+        /// queues for the update thread through the parent scope.
+        /// </summary>
+        private FolderPickerResult PickFolderBlocking(
             CancellationTokenSource cancellation,
             string? initialDirectory)
         {
-            FolderPickerResult result;
             try
             {
-                result = await _folderPicker
+                return _folderPicker
                     .PickFolderAsync(initialDirectory, cancellation.Token)
-                    .ConfigureAwait(false);
-                result ??= FolderPickerResult.Failed("The folder picker returned no result.");
+                    .GetAwaiter()
+                    .GetResult()
+                    ?? FolderPickerResult.Failed("The folder picker returned no result.");
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
-                result = FolderPickerResult.Cancelled();
+                return FolderPickerResult.Cancelled();
             }
             catch (Exception exception)
             {
-                result = FolderPickerResult.Failed(exception.Message);
+                return FolderPickerResult.Failed(exception.Message);
             }
-
-            _pickerCompletions.Enqueue(new PickerCompletion(generation, cancellation, result));
         }
 
-        private void DrainPickerCompletions()
+        /// <summary>
+        /// Update-thread terminal handler. The captured picker CTS is the operation
+        /// identity, so a pick from before a close/reopen (or panel deactivation)
+        /// never applies — and the CTS is disposed on every completed path. The
+        /// dropped path (scope retired before the result applied) disposes via
+        /// <c>onDropped</c>.
+        /// </summary>
+        private void ApplyPickerCompletion(
+            CancellationTokenSource cancellation,
+            FolderPickerResult result)
         {
-            while (_pickerCompletions.TryDequeue(out var completion))
+            if (IsActive && ReferenceEquals(_pickerCancellation, cancellation))
             {
-                var isCurrent = IsActive &&
-                                completion.Generation == _activationGeneration &&
-                                ReferenceEquals(completion.Cancellation, _pickerCancellation);
-                if (!isCurrent)
-                {
-                    completion.Cancellation.Dispose();
-                    continue;
-                }
-
                 _pickerCancellation = null;
-                completion.Cancellation.Dispose();
-                ApplyPickerResult(completion.Result);
+                ApplyPickerResult(result);
             }
+
+            cancellation.Dispose();
         }
 
         private void ApplyPickerResult(FolderPickerResult result)
@@ -579,14 +584,14 @@ namespace DTXMania.Game.Lib.Stage.Config
             if (cancellation == null)
                 return;
 
-            cancellation.Cancel();
-        }
-
-        private void IncrementActivationGeneration()
-        {
-            unchecked
+            try
             {
-                _activationGeneration++;
+                cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The parent scope may already have dropped (and disposed) the
+                // pending pick when Config deactivated before this panel closed.
             }
         }
 
@@ -688,10 +693,5 @@ namespace DTXMania.Game.Lib.Stage.Config
             var size = font.MeasureString(text);
             font.DrawString(spriteBatch, text, new Vector2((virtualWidth - size.X) / 2f, y), color);
         }
-
-        private sealed record PickerCompletion(
-            int Generation,
-            CancellationTokenSource Cancellation,
-            FolderPickerResult Result);
     }
 }

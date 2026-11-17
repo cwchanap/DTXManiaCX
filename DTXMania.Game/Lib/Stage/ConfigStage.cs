@@ -13,7 +13,6 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -184,7 +183,6 @@ namespace DTXMania.Game.Lib.Stage
         private string _importStatus = "";
         private string _songFolderStatus = "";
         private readonly ConfigSongOperationCoordinator _songOperationCoordinator = new();
-        private readonly ConcurrentQueue<ConfigSongOperationUpdate> _songOperationUpdates = new();
         private readonly ISongLibraryReloadService _songLibraryReloadService;
         private readonly Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> _nxImportAsync;
         private readonly Func<Task> _refreshSongListAsync;
@@ -195,7 +193,6 @@ namespace DTXMania.Game.Lib.Stage
         private readonly Func<Task, Action<Task>, Task>? _songOperationContinuationRegistrar;
         private CancellationTokenSource? _songOperationCts;
         private ActiveSongOperation? _activeSongOperation;
-        private int _activationGeneration;
 
         #endregion
 
@@ -279,16 +276,18 @@ namespace DTXMania.Game.Lib.Stage
             _focusOnMenu = true;
             _itemScroll = 0;
 
-            // Clear any status left over from a previous visit. In-flight operation updates are
-            // tagged with the activation generation and discarded by OnUpdate after deactivation.
+            // Clear any status left over from a previous visit. Any queued updates of
+            // the previous activation's scope were dropped synchronously on deactivation,
+            // so they can never resurface here.
             _importStatus = "";
             _songFolderStatus = "";
 
-            // Drop stale operation state from a prior activation. Terminal updates from a
-            // prior generation are discarded by DrainSongOperationUpdates, so without this
-            // the fields would retain references to a superseded lease/CTS until the next
-            // operation overwrites them. The prior operation's task continuation still owns
-            // lease/CTS disposal, so clearing the handles here does not leak.
+            // Drop stale operation state from a prior activation. Queued terminal
+            // posts from its retired scope were dropped on deactivation, so without
+            // this the fields would retain references to a superseded lease/CTS until
+            // the next operation overwrites them. The prior operation's task
+            // continuation still owns lease/CTS disposal, so clearing the handles
+            // here does not leak.
             _activeSongOperation = null;
             _songOperationCts = null;
 
@@ -301,7 +300,8 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnUpdate(double deltaTime)
         {
-            DrainSongOperationUpdates();
+            // Queued operation progress/terminal results are applied by the
+            // BaseStage scope drain before this method runs (HPA-799).
 
             // Overlay panels edge-detect on these raw states, and GameApi/MCP keys are injected
             // into ModularInputManager rather than the hardware keyboard, so fold them in here.
@@ -1130,7 +1130,8 @@ namespace DTXMania.Game.Lib.Stage
                 _configManager.Config.SongRoots.ToArray(),
                 _songFolderPicker,
                 SongRootPolicy.ForCurrentPlatform(),
-                ApplySongRoots);
+                ApplySongRoots,
+                BackgroundWork!);
             _songFolderPanel.Saved += OnPanelSaved;
             _songFolderPanel.Closed += OnPanelClosed;
         }
@@ -1347,7 +1348,9 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Starts one already-leased Config operation. All synchronous lifecycle
         /// work is contained here: construct the task, attach its terminal
-        /// observer, then hand lease/CTS disposal to that terminal path.
+        /// observer, then hand lease/CTS disposal to that terminal path. Progress
+        /// streams through the stage scope's Latest reporter; the terminal status
+        /// is FIFO-posted so it always lands after (and wins over) progress.
         /// </summary>
         private bool StartSongOperation(
             ConfigSongOperationLease lease,
@@ -1357,21 +1360,37 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                var activationGeneration = Volatile.Read(ref _activationGeneration);
-                IProgress<string> progress = new InlineProgress<string>(status =>
-                    EnqueueSongOperationUpdate(
-                        activationGeneration,
-                        lease,
-                        kind,
-                        status,
-                        isTerminal: false));
+                var scope = BackgroundWork;
+                if (scope == null)
+                {
+                    // Only reachable in headless tests that never activated the stage.
+                    Logger.LogWarning(
+                        "ConfigStage: no active background scope; {Operation} not started",
+                        kind);
+                    return false;
+                }
+
+                var progressReporter = scope.Latest<string>(status =>
+                {
+                    // Only the current operation may apply progress: a late report
+                    // from a completed/superseded operation must never overwrite a
+                    // terminal status.
+                    if (!ReferenceEquals(_activeSongOperation?.Lease, lease))
+                    {
+                        return;
+                    }
+
+                    ApplySongOperationStatus(kind, status);
+                });
+                IProgress<string> progress = new InlineProgress<string>(progressReporter);
                 var task = _backgroundSongOperationRunner(
                     () => operation(cancellation.Token, progress));
                 if (task == null)
                     throw new InvalidOperationException("Song operation runner returned no task.");
 
                 // These fields are only mutated on the Config update thread;
-                // terminal worker callbacks enqueue immutable updates instead.
+                // workers enqueue progress through the scope and terminal callbacks
+                // FIFO-post the final status instead.
                 _songOperationCts = cancellation;
                 _activeSongOperation = new ActiveSongOperation(lease, cancellation);
 
@@ -1382,7 +1401,7 @@ namespace DTXMania.Game.Lib.Stage
                         task,
                         completed => CompleteSongOperation(
                             completed,
-                            activationGeneration,
+                            scope,
                             lease,
                             cancellation,
                             kind),
@@ -1464,7 +1483,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void CompleteSongOperation(
             Task completed,
-            int activationGeneration,
+            StageBackgroundWorkScope scope,
             ConfigSongOperationLease lease,
             CancellationTokenSource cancellation,
             ConfigSongOperationKind kind)
@@ -1512,56 +1531,38 @@ namespace DTXMania.Game.Lib.Stage
             }
             finally
             {
-                EnqueueSongOperationUpdate(
-                    activationGeneration,
-                    lease,
-                    kind,
-                    status ?? string.Empty,
-                    isTerminal: true);
+                // FIFO terminal post: lands after any queued progress of the same
+                // operation, and after retirement the scope drops it (the fields it
+                // would clear are reset by OnActivate on the next visit). The status
+                // applies within the activation — only handle-clearing is lease-checked.
+                scope.Post(() =>
+                {
+                    ApplySongOperationStatus(kind, status ?? string.Empty);
+                    if (ReferenceEquals(_activeSongOperation?.Lease, lease))
+                    {
+                        _activeSongOperation = null;
+                        _songOperationCts = null;
+                    }
+                });
                 cancellation.Dispose();
             }
         }
 
-        private void EnqueueSongOperationUpdate(
-            int activationGeneration,
-            ConfigSongOperationLease lease,
+        private void ApplySongOperationStatus(
             ConfigSongOperationKind kind,
-            string status,
-            bool isTerminal)
+            string status)
         {
-            _songOperationUpdates.Enqueue(new ConfigSongOperationUpdate(
-                activationGeneration,
-                lease,
-                kind,
-                status,
-                isTerminal));
-        }
-
-        private void DrainSongOperationUpdates()
-        {
-            var activationGeneration = Volatile.Read(ref _activationGeneration);
-            while (_songOperationUpdates.TryDequeue(out var update))
-            {
-                if (update.ActivationGeneration != activationGeneration)
-                    continue;
-
-                if (update.Kind == ConfigSongOperationKind.NxScoreImport)
-                    _importStatus = update.Status;
-                else
-                    _songFolderStatus = update.Status;
-
-                if (update.IsTerminal &&
-                    ReferenceEquals(_activeSongOperation?.Lease, update.Lease))
-                {
-                    _activeSongOperation = null;
-                    _songOperationCts = null;
-                }
-            }
+            if (kind == ConfigSongOperationKind.NxScoreImport)
+                _importStatus = status;
+            else
+                _songFolderStatus = status;
         }
 
         private void CancelSongOperationForDeactivation()
         {
-            Interlocked.Increment(ref _activationGeneration);
+            // The activation scope is retired (queued results dropped) by
+            // BaseStage.Deactivate before this runs; only the per-operation CTS
+            // — owned by this stage — still needs cancelling here.
             try
             {
                 _songOperationCts?.Cancel();
@@ -1569,7 +1570,7 @@ namespace DTXMania.Game.Lib.Stage
             catch (ObjectDisposedException)
             {
                 // A terminal continuation may have released it just before
-                // deactivation. It has already enqueued its stale update.
+                // deactivation. Its terminal post was dropped with the scope.
             }
         }
 
