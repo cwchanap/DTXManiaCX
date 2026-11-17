@@ -3424,17 +3424,10 @@ namespace DTXMania.Game.Lib.Stage
                             }
                         }
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
-                        try
-                        {
-                            _previewSoundInstance?.Dispose();
-                        }
-                        catch (Exception)
-                        {
-                        }
-
-                        _previewSoundInstance = null;
+                        Logger.LogWarning(ex, "Song preview playback failed");
+                        DisposePreviewInstance();
                     }
                 }
             }
