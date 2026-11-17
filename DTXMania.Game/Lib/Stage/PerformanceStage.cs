@@ -1042,7 +1042,8 @@ namespace DTXMania.Game.Lib.Stage
                         _preparedAudioSet.MainBackground,
                         _parsedChart.BackgroundAudioPath);
                     _chipSoundCache = new ChipSoundCache(
-                        _preparedAudioSet.ChipSoundsByWavId);
+                        _preparedAudioSet.ChipSoundsByWavId,
+                        _game.LoggerFactory?.CreateLogger<ChipSoundCache>());
                     BindPreparedBGMSounds();
 
                     // Schedule BGM events for playback
@@ -1960,8 +1961,9 @@ namespace DTXMania.Game.Lib.Stage
                     if (instance != null)
                         _activeBgmInstances.Add(instance);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    _logger.LogWarning(ex, "BGM playback failed for WAV id '{WavId}'", bgmEvent.WavId);
                 }
             }
         }

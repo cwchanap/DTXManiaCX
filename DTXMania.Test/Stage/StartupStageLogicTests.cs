@@ -16,6 +16,7 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Update;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -1307,6 +1308,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", phase);
             ReflectionHelpers.SetPrivateField(stage, "_songManager", null);
             ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(effectiveConfigData));
+            ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<StartupStage>.Instance);
             ReflectionHelpers.SetPrivateField(stage, "_activationGate", new object());
             ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", currentAsyncTask);
             ReflectionHelpers.SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());

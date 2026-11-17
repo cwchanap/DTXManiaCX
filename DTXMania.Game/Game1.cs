@@ -269,7 +269,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         Exiting += OnGameExiting;
 
         // Initialize graphics manager
-        _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager, _loggerFactory.CreateLogger<GraphicsManager>());
+        _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager, _loggerFactory.CreateLogger<GraphicsManager>(), _loggerFactory);
 
         // Apply graphics settings from config
         var graphicsSettings = config.ToGraphicsSettings();
@@ -362,6 +362,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
             GraphicsDevice,
             _loggerFactory.CreateLogger<ResourceManager>());
         ManagedFont.InitializeFontFactory(Content);
+        // The font factory is static like the SongManager singleton: wire its
+        // logger here (null logger default keeps independent tests silent).
+        ManagedFont.ConfigureLogger(_loggerFactory.CreateLogger<ManagedFont>());
 
         // The SongManager singleton has no constructor seam; wire its logger
         // here (null logger default keeps independent tests silent).
