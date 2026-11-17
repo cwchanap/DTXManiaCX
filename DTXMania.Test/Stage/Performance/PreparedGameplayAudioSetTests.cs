@@ -972,7 +972,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_MissingReferencedAudio_ReportsEachDistinctMissingPathOnce()
+        public async Task PrepareAsync_DefaultProfile_MissingReferencedAudio_ShouldReportEachDistinctMissingPathOnce()
         {
             var directory = CreateTempDirectory();
             try
