@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using Moq;
@@ -284,25 +285,58 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnSongLibraryPublished_WhenVersionsArriveOutOfOrder_ShouldCaptureOnlyTheHighestPendingVersion()
+        public void OnSongLibraryPublished_WhenVersionsArriveOutOfOrder_ShouldApplyOnlyTheNewestOnDrain()
         {
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var newestNode = Score("Newest", 88, "/library/newest/newest.dtx");
             var stage = CreateStage();
             var display = new SongListDisplay { CurrentList = new List<SongListNode> { Score("Existing", 1, "/library/existing.dtx") } };
-            AttachCoreUi(stage, display: display);
-            var before = display.CurrentList;
-            SetPrivateField(stage, "_libraryPublicationActive", 1);
-            SetPrivateField(stage, "_pendingLibraryPublicationVersion", 0L);
 
-            InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(20, Array.Empty<SongListNode>(), Array.Empty<string>())));
-            InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(22, Array.Empty<SongListNode>(), Array.Empty<string>())));
-            InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(21, Array.Empty<SongListNode>(), Array.Empty<string>())));
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(newestNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/newest" });
+                SetPrivateField(songManager, "_publicationVersion", 31L);
+                stage.InstallTestBackgroundScope();
+                InvokePrivateMethod(stage, "SubscribeLibraryPublications");
 
-            Assert.Equal(22L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
-            Assert.Same(before, display.CurrentList);
+                var before = display.CurrentList;
+
+                // Out-of-order publications coalesce into one pending Latest signal on the
+                // stage scope; nothing applies from the publisher thread.
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(20, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(22, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(21, Array.Empty<SongListNode>(), Array.Empty<string>())));
+
+                Assert.Same(before, display.CurrentList);
+                Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+
+                // One drain applies the newest signal: the update thread fetches the
+                // newest coherent manager snapshot (version 31), not any stale signal.
+                stage.BackgroundWork!.Drain();
+
+                Assert.Equal(31L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Same(newestNode, display.CurrentList[0]);
+            }
+            finally
+            {
+                InvokePrivateMethod(stage, "UnsubscribeLibraryPublications");
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+            }
         }
 
         [Fact]
-        public void SongLibraryPublished_WhenPriorActivationHandlerRuns_ShouldIgnoreIt()
+        public void SongLibraryPublished_WhenScopeRetires_ShouldDropStaleSignalsAndRearmForNewScope()
         {
             var songManager = SongManager.Instance;
             var originalHandler = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
@@ -312,23 +346,31 @@ namespace DTXMania.Test.Stage
 
             try
             {
+                AttachCoreUi(stage);
                 SetPrivateField(songManager, "SongLibraryPublished", null);
-                SetPrivateField(stage, "_activationVersion", 41);
+                stage.InstallTestBackgroundScope();
                 InvokePrivateMethod(stage, "SubscribeLibraryPublications");
-                var priorActivationHandler = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
-                    songManager,
-                    "SongLibraryPublished");
-                Assert.NotNull(priorActivationHandler);
 
-                SetPrivateField(stage, "_activationVersion", 42);
+                // While active, a coalesced signal applies the snapshot on drain.
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(73, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                stage.BackgroundWork!.Drain();
+                Assert.Equal(73L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+
+                // Retire the scope (as Deactivate does before teardown) and model a
+                // publisher thread that already captured the old handler: its signal
+                // drops into the retired scope instead of reaching torn-down UI state.
+                SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+                stage.Deactivate();
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(74, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                Assert.Equal(73L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+
+                // A new activation installs a fresh scope and re-arms the subscription:
+                // only the new scope receives and applies new signals.
+                stage.InstallTestBackgroundScope();
                 InvokePrivateMethod(stage, "SubscribeLibraryPublications");
-                SetPrivateField(stage, "_pendingLibraryPublicationVersion", 0L);
-
-                priorActivationHandler!(songManager,
-                    new SongLibraryPublishedEventArgs(
-                        Snapshot(73, Array.Empty<SongListNode>(), Array.Empty<string>())));
-
-                Assert.Equal(0L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(75, Array.Empty<SongListNode>(), Array.Empty<string>())));
+                stage.BackgroundWork!.Drain();
+                Assert.Equal(75L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
             }
             finally
             {
@@ -356,10 +398,8 @@ namespace DTXMania.Test.Stage
                 rootSongs.Add(newestNode);
                 SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/newest" });
                 SetPrivateField(songManager, "_publicationVersion", 31L);
-                SetPrivateField(stage, "_libraryPublicationActive", 1);
-                SetPrivateField(stage, "_pendingLibraryPublicationVersion", 31L);
 
-                InvokePrivateMethod(stage, "ApplyPendingLibraryPublication");
+                InvokePrivateMethod(stage, "ApplyPendingLibraryPublication", 31L);
 
                 Assert.Equal(31L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
                 Assert.Equal(2, display.CurrentList.Count);
@@ -367,6 +407,47 @@ namespace DTXMania.Test.Stage
                 Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
                 Assert.Equal(new[] { "/library/newest" },
                     GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot")!.ActiveRoots);
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+            }
+        }
+
+        [Fact]
+        public void ApplyPendingLibraryPublication_WhenAppliedVersionIsCurrent_ShouldNotReapply()
+        {
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var oldNode = Score("Old", 3, "/library/old/old.dtx");
+            var stage = CreateStage();
+            var display = new SongListDisplay { CurrentList = new List<SongListNode> { oldNode } };
+            var appliedSnapshot = Snapshot(50, new[] { oldNode }, new[] { "/library/old" });
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(oldNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/old" });
+                SetPrivateField(songManager, "_publicationVersion", 50L);
+                SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
+                SetPrivateField(stage, "_appliedLibraryPublicationVersion", 50L);
+                var displayListBefore = display.CurrentList;
+
+                // A stale (already-applied) signal must not reapply an older tree.
+                InvokePrivateMethod(stage, "ApplyPendingLibraryPublication", 50L);
+
+                Assert.Same(appliedSnapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+                Assert.Equal(50L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.Same(displayListBefore, display.CurrentList);
+                Assert.Single(display.CurrentList);
             }
             finally
             {
@@ -411,40 +492,63 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void CheckSongInitializationCompletion_WhenNewerPublicationIsAlreadyApplied_ShouldNotResetRestoredSelection()
+        public void ApplyInitializedLibrarySnapshot_WhenNewerPublicationIsAlreadyApplied_ShouldNotResetRestoredSelection()
         {
-            var stage = CreateStage();
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var first = Score("First", 1, "/library/new/first.dtx");
             var selected = Score("Selected", 2, "/library/new/selected.dtx");
             var oldNode = Score("Old", 3, "/library/old/old.dtx");
+            var stage = CreateStage();
             var display = new SongListDisplay
             {
                 CurrentList = new List<SongListNode> { first, selected }
             };
-            AttachCoreUi(stage, display: display);
-            display.SelectedIndex = 1;
 
-            var appliedSnapshot = Snapshot(51, new[] { first, selected }, new[] { "/library/new" });
-            var staleSnapshot = Snapshot(50, new[] { oldNode }, new[] { "/library/old" });
-            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { first, selected });
-            SetPrivateField(stage, "_selectedSong", selected);
-            SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
-            SetPrivateField(stage, "_appliedLibraryPublicationVersion", 51L);
-            SetPrivateField(stage, "_activationVersion", 0);
-            SetPrivateField(stage, "_activeSongInitializationGeneration", 1L);
-            EnqueueSongInitializationResult(stage, 0, 1, staleSnapshot, new[] { oldNode });
-            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode> { oldNode }));
-            SetPrivateField(stage, "_songInitializationProcessed", false);
+            try
+            {
+                AttachCoreUi(stage: stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(oldNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/old" });
+                SetPrivateField(songManager, "_publicationVersion", 50L);
+                display.SelectedIndex = 1;
 
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+                var appliedSnapshot = Snapshot(51, new[] { first, selected }, new[] { "/library/new" });
+                SetPrivateField(stage, "_currentSongList", new List<SongListNode> { first, selected });
+                SetPrivateField(stage, "_selectedSong", selected);
+                SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
+                SetPrivateField(stage, "_appliedLibraryPublicationVersion", 51L);
 
-            Assert.Same(selected, display.SelectedSong);
-            Assert.Same(appliedSnapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+                // The initializer completion fetches on the update thread: the manager's
+                // stale snapshot (v50) must not overwrite the newer publication (v51) that
+                // already restored the user's navigation and selection.
+                InvokePrivateMethod(stage, "ApplyInitializedLibrarySnapshot");
+
+                Assert.Same(selected, display.SelectedSong);
+                Assert.Same(appliedSnapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+            }
         }
 
         [Fact]
-        public void CheckSongInitializationCompletion_WhenNewerSnapshotArrives_ShouldReconcileNestedSelection()
+        public void ApplyInitializedLibrarySnapshot_WhenNewerSnapshotArrives_ShouldReconcileNestedSelection()
         {
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var oldSong = Score("Old", 1, "/library/shared/BOX/old.dtx");
             var oldBox = Box("BOX", "/library/shared/BOX", oldSong);
             var replacementSong = Score("Replacement", 1, "/library/shared/BOX/replacement.dtx");
@@ -458,246 +562,191 @@ namespace DTXMania.Test.Stage
                     oldSong
                 }
             };
-            AttachCoreUi(stage, display: display);
-            display.SelectedIndex = 1;
-            SetPrivateField(stage, "_currentSongList", oldBox.Children);
-            SetPrivateField(stage, "_currentBreadcrumb", "BOX");
-            SetPrivateField(stage, "_selectedSong", oldSong);
-            GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(
-                new SongListNode { Children = new List<SongListNode> { oldBox }, Title = "" });
 
-            var appliedSnapshot = Snapshot(81, new[] { oldBox }, new[] { "/library/shared" });
-            var newerSnapshot = Snapshot(82, new[] { replacementBox }, new[] { "/library/shared" });
-            SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
-            SetPrivateField(stage, "_appliedLibraryPublicationVersion", 81L);
-            SetPrivateField(stage, "_activationVersion", 0);
-            SetPrivateField(stage, "_activeSongInitializationGeneration", 1L);
-            EnqueueSongInitializationResult(stage, 0, 1, newerSnapshot, new[] { replacementBox });
-            SetPrivateField(stage, "_songInitializationTask",
-                Task.FromResult(new List<SongListNode> { replacementBox }));
-            SetPrivateField(stage, "_songInitializationProcessed", false);
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(replacementBox);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/shared" });
+                SetPrivateField(songManager, "_publicationVersion", 82L);
+                display.SelectedIndex = 1;
+                SetPrivateField(stage, "_currentSongList", oldBox.Children);
+                SetPrivateField(stage, "_currentBreadcrumb", "BOX");
+                SetPrivateField(stage, "_selectedSong", oldSong);
+                GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(
+                    new SongListNode { Children = new List<SongListNode> { oldBox }, Title = "" });
 
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+                var appliedSnapshot = Snapshot(81, new[] { oldBox }, new[] { "/library/shared" });
+                SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
+                SetPrivateField(stage, "_appliedLibraryPublicationVersion", 81L);
 
-            Assert.Same(replacementBox.Children,
-                GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
-            Assert.Single(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
-            Assert.Equal("BOX", GetPrivateField<string>(stage, "_currentBreadcrumb"));
-            Assert.Same(replacementSong, display.SelectedSong);
-            Assert.Equal(82L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                InvokePrivateMethod(stage, "ApplyInitializedLibrarySnapshot");
+
+                // The newer snapshot (v82) reconciles the nested selection against the
+                // replacement box from the same coherent tree.
+                Assert.Same(replacementBox.Children,
+                    GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+                Assert.Single(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
+                Assert.Equal("BOX", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+                Assert.Same(replacementSong, display.SelectedSong);
+                Assert.Equal(82L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+            }
         }
 
         [Fact]
-        public async Task CheckSongInitializationCompletion_WhenOldActivationCompletesAfterNewCompletion_ShouldUseNewSnapshot()
+        public void ApplyInitializedLibrarySnapshot_ShouldFetchTheNewestSnapshotOnTheUpdateThread()
         {
-            var stage = CreateStage();
-            var display = new SongListDisplay();
-            AttachCoreUi(stage, display: display);
-            var oldNode = Score("Old", 91, "/library/old/old.dtx");
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var newNode = Score("New", 92, "/library/new/new.dtx");
-            var oldSnapshot = Snapshot(91, new[] { oldNode }, new[] { "/library/old" });
-            var newSnapshot = Snapshot(92, new[] { newNode }, new[] { "/library/new" });
-            var oldWorkerPassedTokenCheck = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseOldWorker = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var newWorker = new TaskCompletionSource<List<SongListNode>>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-
-            SetPrivateField(stage, "_activationVersion", 71);
-            var completions = GetPrivateField<
-                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
-                stage,
-                "_pendingSongInitializationResults")!;
-            var oldWorker = Task.Run(async () =>
-            {
-                // Model the prior initializer after it has passed its activation check but
-                // before it publishes its immutable completion record.
-                oldWorkerPassedTokenCheck.TrySetResult(true);
-                await releaseOldWorker.Task;
-                completions.Enqueue(new SongSelectionStage.SongInitializationResult(
-                    71,
-                    1,
-                    oldSnapshot,
-                    new[] { oldNode }));
-            });
-            await oldWorkerPassedTokenCheck.Task.WaitAsync(TimeSpan.FromSeconds(3));
-
-            // A later activation completes and installs its own task/snapshot first.
-            SetPrivateField(stage, "_activationVersion", 72);
-            SetPrivateField(stage, "_activeSongInitializationGeneration", 2L);
-            EnqueueSongInitializationResult(stage, 72, 2, newSnapshot, new[] { newNode });
-            SetPrivateField(stage, "_songInitializationTask", newWorker.Task);
-            SetPrivateField(stage, "_songInitializationProcessed", false);
-            newWorker.SetResult(new List<SongListNode> { newNode });
-
-            // The old worker is released last. Its record must be discarded instead of being
-            // paired with the newer activation's completed task.
-            releaseOldWorker.SetResult(true);
-            await oldWorker.WaitAsync(TimeSpan.FromSeconds(3));
-
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
-
-            Assert.Equal(92L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
-            Assert.Equal(2, display.CurrentList.Count);
-            Assert.Same(newNode, display.CurrentList[0]);
-            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
-            Assert.Empty(completions);
-        }
-
-        [Fact]
-        public async Task Deactivate_WhenCancelledInitializerCompletesLate_ShouldDiscardOnlyItsInactiveGeneration()
-        {
-            var stage = CreateStage();
-            var currentNode = Score("Current", 311, "/library/current/current.dtx");
-            var staleNode = Score("Stale", 310, "/library/stale/stale.dtx");
-            var staleSnapshot = Snapshot(310, new[] { staleNode }, new[] { "/library/stale" });
-            var display = new SongListDisplay
-            {
-                CurrentList = new List<SongListNode> { currentNode }
-            };
-            AttachCoreUi(stage, display: display);
-            var completions = GetPrivateField<
-                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
-                stage,
-                "_pendingSongInitializationResults")!;
-            var workerStarted = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseWorker = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var worker = Task.Run(async () =>
-            {
-                workerStarted.TrySetResult(true);
-                await releaseWorker.Task;
-                completions.Enqueue(new SongSelectionStage.SongInitializationResult(
-                    310,
-                    17,
-                    staleSnapshot,
-                    new[] { staleNode }));
-                return new List<SongListNode> { staleNode };
-            });
-
-            SetPrivateField(stage, "_activationVersion", 310);
-            SetPrivateField(stage, "_activeSongInitializationGeneration", 17L);
-            SetPrivateField(stage, "_songInitializationTask", worker);
-            SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
-            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
-
-            stage.Deactivate();
-            releaseWorker.TrySetResult(true);
-            await worker.WaitAsync(TimeSpan.FromSeconds(3));
-            await WaitForSongInitializationQueueAsync(completions, results => results.Length == 0);
-
-            Assert.Empty(completions);
-            Assert.Equal(new[] { currentNode }, display.CurrentList);
-            Assert.Null(GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
-        }
-
-        [Fact]
-        public async Task Deactivate_WhenCancelledInitializerCompletesLate_ShouldPreserveNewerGenerationRecords()
-        {
-            var stage = CreateStage();
-            var staleNode = Score("Stale", 320, "/library/stale/stale.dtx");
-            var newerNode = Score("Newer", 321, "/library/newer/newer.dtx");
-            var staleSnapshot = Snapshot(320, new[] { staleNode }, new[] { "/library/stale" });
-            var newerSnapshot = Snapshot(321, new[] { newerNode }, new[] { "/library/newer" });
-            var completions = GetPrivateField<
-                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
-                stage,
-                "_pendingSongInitializationResults")!;
-            var workerStarted = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseWorker = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var worker = Task.Run(async () =>
-            {
-                workerStarted.TrySetResult(true);
-                await releaseWorker.Task;
-                completions.Enqueue(new SongSelectionStage.SongInitializationResult(
-                    320,
-                    23,
-                    staleSnapshot,
-                    new[] { staleNode }));
-                return new List<SongListNode> { staleNode };
-            });
-
-            SetPrivateField(stage, "_activationVersion", 320);
-            SetPrivateField(stage, "_activeSongInitializationGeneration", 23L);
-            SetPrivateField(stage, "_songInitializationTask", worker);
-            SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
-            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
-
-            stage.Deactivate();
-            completions.Enqueue(new SongSelectionStage.SongInitializationResult(
-                321,
-                24,
-                newerSnapshot,
-                new[] { newerNode }));
-            releaseWorker.TrySetResult(true);
-            await worker.WaitAsync(TimeSpan.FromSeconds(3));
-            await WaitForSongInitializationQueueAsync(
-                completions,
-                results => results.Length == 1 &&
-                           results[0].ActivationVersion == 321 &&
-                           results[0].Generation == 24);
-
-            var remaining = Assert.Single(completions);
-            Assert.Equal(321, remaining.ActivationVersion);
-            Assert.Equal(24L, remaining.Generation);
-            Assert.Same(newerSnapshot, remaining.Snapshot);
-            Assert.Equal(new[] { newerNode }, remaining.SongList);
-        }
-
-        [Fact]
-        public void CheckSongInitializationCompletion_WhenPriorActivationCompletesAfterSynchronousReactivation_ShouldDiscardQueuedResult()
-        {
             var stage = CreateStage();
             var display = new SongListDisplay();
-            AttachCoreUi(stage, display: display);
-            var currentNode = Score("Current", 101, "/library/current/current.dtx");
-            var staleNode = Score("Stale", 100, "/library/stale/stale.dtx");
-            var currentSnapshot = Snapshot(101, new[] { currentNode }, new[] { "/library/current" });
-            var staleSnapshot = Snapshot(100, new[] { staleNode }, new[] { "/library/stale" });
-            var completions = GetPrivateField<
-                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
-                stage,
-                "_pendingSongInitializationResults")!;
 
-            // Model a late worker from activation 100 arriving after activation 101 took the
-            // already-initialized synchronous path, so there is no current initializer task.
-            SetPrivateField(stage, "_activationVersion", 101);
-            SetPrivateField(stage, "_activeSongInitializationGeneration", 0L);
-            SetPrivateField(stage, "_songInitializationTask", null!);
-            SetPrivateField(stage, "_songInitializationProcessed", false);
-            SetPrivateField(stage, "_appliedLibrarySnapshot", currentSnapshot);
-            SetPrivateField(stage, "_appliedLibraryPublicationVersion", 101L);
-            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { currentNode });
-            display.CurrentList = new List<SongListNode> { currentNode };
-            completions.Enqueue(new SongSelectionStage.SongInitializationResult(
-                100,
-                17,
-                staleSnapshot,
-                new[] { staleNode }));
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(newNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/new" });
+                SetPrivateField(songManager, "_publicationVersion", 92L);
 
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+                // The initializer completion never carries a copied snapshot: it fetches
+                // the newest coherent manager snapshot on the update thread, so an old
+                // initializer read can never overwrite a newer library.
+                InvokePrivateMethod(stage, "ApplyInitializedLibrarySnapshot");
 
-            Assert.Empty(completions);
-            Assert.Same(currentSnapshot, GetPrivateField<SongLibrarySnapshot>(
-                stage,
-                "_appliedLibrarySnapshot"));
-            Assert.Equal(new[] { currentNode }, display.CurrentList);
+                Assert.Equal(92L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Same(newNode, display.CurrentList[0]);
+                Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+            }
         }
 
         [Fact]
-        public void OnSongLibraryPublished_AfterDeactivation_ShouldIgnoreTheNotification()
+        public void ApplyLibraryInitializationFailure_ShouldFallBackToEmptyListAndMarkCompleted()
         {
             var stage = CreateStage();
-            SetPrivateField(stage, "_libraryPublicationActive", 0);
-            SetPrivateField(stage, "_pendingLibraryPublicationVersion", 0L);
+            var display = new SongListDisplay { CurrentList = new List<SongListNode> { Score("Existing", 1, "/library/existing.dtx") } };
+            var modal = new SongSearchFilterModal(new Mock<ITextInputSource>().Object) { IsLibraryReady = false };
+            modal.Open(SongFilterCriteria.Default);
 
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { Score("Existing", 1, "/library/existing.dtx") });
+
+            // The initializer's failure fallback (fetch/apply faulted on the update thread):
+            // with no snapshot applied yet it shows an empty placeholder list and marks the
+            // initialization completed so an open modal stops waiting.
+            InvokePrivateMethod(stage, "ApplyLibraryInitializationFailure");
+
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+            Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            Assert.True(modal.IsLibraryReady);
+        }
+
+        [Fact]
+        public void Deactivate_WhenInitializerQueuedBeforeRetire_ShouldDropTheResult()
+        {
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
+            var deferredNode = Score("Deferred", 311, "/library/deferred/deferred.dtx");
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(deferredNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/deferred" });
+                SetPrivateField(songManager, "_publicationVersion", 311L);
+                SetPrivateField(songManager, "_isInitialized", false);
+                stage.InstallTestBackgroundScope();
+
+                // The async initializer queues its apply into the activation scope.
+                InvokePrivateMethod(stage, "InitializeSongList");
+                Assert.Empty(display.CurrentList); // placeholder list while pending
+
+                // Deactivate retires the scope BEFORE tearing down UI state: the queued
+                // initializer apply drops and can never reach the disposed stage state.
+                SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+                stage.Deactivate();
+
+                Assert.Null(GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+                Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+                Assert.Empty(display.CurrentList);
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
+        }
+
+        [Fact]
+        public void OnSongLibraryPublished_WhenNoActiveScopeOrSubscription_ShouldIgnoreTheNotification()
+        {
+            var stage = CreateStage();
+
+            // No activation scope and no subscription: a stray notification must be
+            // ignored entirely.
             InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(23, Array.Empty<SongListNode>(), Array.Empty<string>())));
 
-            Assert.Equal(0L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
+            Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+        }
+
+        [Fact]
+        public void OnSongLibraryPublished_WhenReporterIsBoundToARetiredScope_ShouldDropTheSignal()
+        {
+            var stage = CreateStage();
+            AttachCoreUi(stage);
+            var scope = stage.InstallTestBackgroundScope();
+            InvokePrivateMethod(stage, "SubscribeLibraryPublications");
+
+            try
+            {
+                scope.Retire();
+
+                // A publisher thread that already captured the old handler can still call
+                // it after retirement: the reporter is bound to the retired scope, so the
+                // signal drops directly instead of reaching torn-down UI state.
+                InvokePrivateMethod(stage, "OnSongLibraryPublished", null!, new SongLibraryPublishedEventArgs(Snapshot(45, Array.Empty<SongListNode>(), Array.Empty<string>())));
+
+                Assert.Equal(0L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.Null(GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+            }
+            finally
+            {
+                InvokePrivateMethod(stage, "UnsubscribeLibraryPublications");
+            }
         }
 
         [Fact]
@@ -749,40 +798,6 @@ namespace DTXMania.Test.Stage
             Assert.Same(newestNode, display.CurrentList[0]);
             Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
             Assert.DoesNotContain(oldNode, display.CurrentList);
-        }
-
-        private static void EnqueueSongInitializationResult(
-            SongSelectionStage stage,
-            int activationVersion,
-            long generation,
-            SongLibrarySnapshot? snapshot,
-            IReadOnlyList<SongListNode> songList)
-        {
-            var completions = GetPrivateField<
-                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
-                stage,
-                "_pendingSongInitializationResults")!;
-            completions.Enqueue(new SongSelectionStage.SongInitializationResult(
-                activationVersion,
-                generation,
-                snapshot,
-                songList));
-        }
-
-        private static async Task WaitForSongInitializationQueueAsync(
-            System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult> completions,
-            Func<SongSelectionStage.SongInitializationResult[], bool> condition)
-        {
-            for (var attempt = 0; attempt < 600; attempt++)
-            {
-                if (condition(completions.ToArray()))
-                    return;
-
-                await Task.Delay(10);
-            }
-
-            Assert.True(condition(completions.ToArray()),
-                "The expected SongSelection initialization completion queue state was not observed.");
         }
 
         private static SongListNode Box(string title, string directoryPath, params SongListNode[] children)
@@ -969,48 +984,6 @@ namespace DTXMania.Test.Stage
             Assert.Null(GetPrivateField<SongListNode>(stage, "_selectedSong"));
             Assert.False(GetPrivateField<bool>(stage, "_isInStatusPanel"));
             Assert.False(statusPanel.Visible);
-        }
-
-        [Fact]
-        public void OnSongLibraryPublishedForActivation_WhenPublicationIsInactive_ShouldIgnoreEvent()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_libraryPublicationActive", 0);
-            SetPrivateField(stage, "_pendingLibraryPublicationVersion", 0L);
-
-            InvokePrivateMethod(stage, "OnSongLibraryPublishedForActivation",
-                1, new SongLibraryPublishedEventArgs(Snapshot(40, Array.Empty<SongListNode>(), Array.Empty<string>())));
-
-            Assert.Equal(0L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
-        }
-
-        [Fact]
-        public void OnSongLibraryPublishedForActivation_WhenActivationVersionDiffers_ShouldIgnoreEvent()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_libraryPublicationActive", 1);
-            SetPrivateField(stage, "_activationVersion", 5);
-            SetPrivateField(stage, "_pendingLibraryPublicationVersion", 0L);
-
-            // A handler captured for activation version 4 must not update version 5's state.
-            InvokePrivateMethod(stage, "OnSongLibraryPublishedForActivation",
-                4, new SongLibraryPublishedEventArgs(Snapshot(41, Array.Empty<SongListNode>(), Array.Empty<string>())));
-
-            Assert.Equal(0L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
-        }
-
-        [Fact]
-        public void OnSongLibraryPublishedForActivation_WhenPublishedVersionIsOlder_ShouldNotOverwritePendingVersion()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_libraryPublicationActive", 1);
-            SetPrivateField(stage, "_activationVersion", 1);
-            SetPrivateField(stage, "_pendingLibraryPublicationVersion", 50L);
-
-            InvokePrivateMethod(stage, "OnSongLibraryPublishedForActivation",
-                1, new SongLibraryPublishedEventArgs(Snapshot(45, Array.Empty<SongListNode>(), Array.Empty<string>())));
-
-            Assert.Equal(50L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
         }
 
         [Fact]

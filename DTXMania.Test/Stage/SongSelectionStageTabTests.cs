@@ -27,21 +27,30 @@ namespace DTXMania.Test.Stage
             Title = title
         };
 
-        private static async Task WaitForTabLoadCompletionAsync(
-            SongSelectionStage stage, int timeoutMs = 3000)
+        // Drives the stage's background-work scope until the condition holds: workers only
+        // queue their results; a drain on the test thread applies them (as stage.Update does).
+        private static async Task DrainUntilAsync(
+            SongSelectionStage stage, Func<bool> condition, int timeoutMs = 5000)
         {
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
             {
-                var queue = GetPrivateField<System.Collections.ICollection>(
-                    stage, "_pendingTabLoadCompletions");
-                if (queue != null && queue.Count > 0)
+                stage.BackgroundWork?.Drain();
+                if (condition())
                     return;
                 if (DateTime.UtcNow >= deadline)
                     throw new TimeoutException(
-                        "The recent-plays load did not enqueue a completion within the timeout.");
+                        "The expected background-work result was not applied within the timeout.");
                 await Task.Delay(10);
             }
+        }
+
+        // Retires the activation scope the way Deactivate does, without requiring the full
+        // Activate path: an in-flight result must drop instead of being applied.
+        private static void RetireStageScope(SongSelectionStage stage)
+        {
+            SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            stage.Deactivate();
         }
 
         [Fact]
@@ -423,13 +432,11 @@ namespace DTXMania.Test.Stage
             Assert.Equal("S3", display.CurrentList[display.SelectedIndex].Title);
         }
 
-        // Real exercise of the _activationVersion staleness guard in BeginRecentPlaysLoad.
-        // The companion pair below replaces the tautological tests that only hand-set
-        // _tabListNeedsRefresh=false. Here we actually invoke BeginRecentPlaysLoad, bump
-        // the version token, and wait for the continuation — proving the guard discards
-        // stale results instead of overwriting fresh state.
+        // Real exercise of the retirement staleness guard in BeginRecentPlaysLoad:
+        // a result that arrives after the activation scope retired is dropped and must
+        // not overwrite fresh state from a newer activation.
         [Fact]
-        public async Task BeginRecentPlaysLoad_WhenActivationVersionBumped_PreservesExistingNodes()
+        public async Task BeginRecentPlaysLoad_WhenScopeRetires_PreservesExistingNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -438,33 +445,30 @@ namespace DTXMania.Test.Stage
             // Simulate "fresh" data that a newer activation already populated.
             var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
             SetPrivateField(stage, "_recentPlayNodes", freshNodes);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            stage.InstallTestBackgroundScope();
 
-            // Start the background load — captures version=0.
+            // Start the background load for the current activation.
             InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
 
-            // Simulate re-Activate: bump the version so the in-flight continuation is stale.
-            SetPrivateField(stage, "_activationVersion", 1);
-
-            // Wait for the thread-pool continuation to complete. With no DB connected,
-            // GetRecentlyPlayedNodesAsync returns an empty list almost instantly.
+            // Retire the scope (as Deactivate does before teardown) — the in-flight
+            // completion drops instead of being applied. The grace wait is cosmetic:
+            // a retired scope structurally cannot apply results.
+            RetireStageScope(stage);
             await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
-            // The stale completion must NOT overwrite _recentPlayNodes when consumed.
+            // The dropped completion must NOT overwrite _recentPlayNodes.
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes");
             Assert.NotNull(nodes);
             Assert.Single(nodes);
             Assert.Equal("Fresh", nodes[0].Title);
         }
 
-        // Companion to the guarded test above: proves the continuation actually runs
-        // and overwrites _recentPlayNodes when the version is NOT bumped. Without this
-        // test, the guarded test could pass simply because the continuation hadn't
-        // completed yet within the delay window.
+        // Companion to the guarded test above: proves the completion actually runs and
+        // overwrites _recentPlayNodes when the scope stays active. Without this test,
+        // the guarded test could pass simply because the load never completed.
         [Fact]
-        public async Task BeginRecentPlaysLoad_WhenActivationVersionUnchanged_OverwritesNodes()
+        public async Task BeginRecentPlaysLoad_WhenScopeActive_AppliesResultOnDrain()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -472,27 +476,15 @@ namespace DTXMania.Test.Stage
 
             var staleNodes = new List<SongListNode> { ScoreNode("Stale") };
             SetPrivateField(stage, "_recentPlayNodes", staleNodes);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            stage.InstallTestBackgroundScope();
 
             InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
-            // Do NOT bump version — continuation should be accepted.
+            // Scope stays active — the worker's queued completion applies on drain.
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes")!.Count == 0);
 
-            await WaitForTabLoadCompletionAsync(stage);
-
-            // The worker has only queued its immutable result; stage-owned cache state stays
-            // unchanged until the update-thread consumer runs.
-            var beforeConsumption = GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes");
-            Assert.NotNull(beforeConsumption);
-            Assert.Single(beforeConsumption);
-            Assert.Equal("Stale", beforeConsumption[0].Title);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
-
-            // The matching completion was consumed and overwrote _recentPlayNodes with the
-            // empty result from the no-DB load.
-            var nodes = GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes");
-            Assert.NotNull(nodes);
-            Assert.Empty(nodes);
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes")!);
         }
 
         [Fact]
@@ -573,11 +565,10 @@ namespace DTXMania.Test.Stage
             Assert.Null(GetPrivateField<IReadOnlyList<FilteredSongResult>>(stage, "_filteredView"));
         }
 
-        // --- BeginRecentPlaysLoad faulted-continuation tests ---
-        // These exercise the _activationVersion staleness guard on the faulted
-        // path (lines 2039-2053 in SongSelectionStage.cs) by making the SongManager
-        // singleton throw from GetRecentlyPlayedNodesAsync. The DB is purged after
-        // initialization so CreateContext() throws InvalidOperationException.
+        // --- BeginRecentPlaysLoad faulted-result tests ---
+        // These exercise the retirement staleness guard on the faulted path by making
+        // the SongManager singleton throw from GetRecentlyPlayedNodesAsync. The DB is
+        // purged after initialization so CreateContext() throws InvalidOperationException.
 
         [Fact]
         public async Task BeginRecentPlaysLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
@@ -594,12 +585,11 @@ namespace DTXMania.Test.Stage
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
-                SetPrivateField(stage, "_activationVersion", 0);
+                stage.InstallTestBackgroundScope();
 
                 InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
 
-                await Task.Delay(500);
-                InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+                await DrainUntilAsync(stage, () => GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
 
                 Assert.True(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
                 Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
@@ -613,7 +603,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginRecentPlaysLoad_WhenDbThrowsAndVersionBumped_DiscardsStaleFault()
+        public async Task BeginRecentPlaysLoad_WhenScopeRetiresBeforeFault_DropsStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_stale_fault_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -627,16 +617,15 @@ namespace DTXMania.Test.Stage
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
-                SetPrivateField(stage, "_activationVersion", 0);
+                stage.InstallTestBackgroundScope();
 
                 InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
 
-                // Bump version to simulate re-Activate — the faulted continuation
-                // must be discarded.
-                SetPrivateField(stage, "_activationVersion", 1);
+                // Retire the scope (simulate re-Activate after navigation away) — the
+                // faulted result must drop instead of flagging the load failed.
+                RetireStageScope(stage);
 
                 await Task.Delay(500);
-                InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
                 Assert.False(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
             }
@@ -655,12 +644,12 @@ namespace DTXMania.Test.Stage
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
-            SetPrivateField(stage, "_activationVersion", 0);
+            stage.InstallTestBackgroundScope();
 
             InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
 
-            await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes") != null);
 
             // The success completion populates _recentPlayNodes (cache-warming)
             // but must NOT set _tabListNeedsRefresh on the All Songs tab.
@@ -674,13 +663,12 @@ namespace DTXMania.Test.Stage
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_recentPlaysLoadFailed", true);
+            stage.InstallTestBackgroundScope();
 
             InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
 
-            await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await DrainUntilAsync(stage, () => !GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
 
             // The success completion must clear the failure flag so the draw
             // path shows the normal empty message instead of the error message.
@@ -688,13 +676,12 @@ namespace DTXMania.Test.Stage
         }
 
         // --- BeginBookmarksLoad staleness/fault tests ---
-        // These mirror the BeginRecentPlaysLoad pair above. BeginBookmarksLoad has an
-        // identical _activationVersion guard; these prove the bookmark load discards stale
-        // completions instead of overwriting fresh state, and that DB faults set
-        // _bookmarksLoadFailed only when the activation is still current.
+        // These mirror the BeginRecentPlaysLoad pair above. A bookmark load whose scope
+        // retired must drop its completion instead of overwriting fresh state, and DB
+        // faults set _bookmarksLoadFailed only while the activation is still current.
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenCompletionArrives_DefersStageMutationUntilOnUpdate()
+        public async Task BeginBookmarksLoad_WhenCompletionArrives_DefersStageMutationUntilDrain()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -709,26 +696,28 @@ namespace DTXMania.Test.Stage
                     loadStarted.TrySetResult(true);
                     return loadResult.Task;
                 }));
+            stage.InstallTestBackgroundScope();
 
             var staleNodes = new List<SongListNode> { ScoreNode("Stale") };
             SetPrivateField(stage, "_bookmarkNodes", staleNodes);
-            SetPrivateField(stage, "_activationVersion", 17);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
             SetPrivateField(stage, "_uiManager", null);
 
-            var load = Assert.IsAssignableFrom<Task>(
-                InvokePrivateMethod(stage, "BeginBookmarksLoad"));
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
             await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
             loadResult.SetResult(new List<SongListNode> { ScoreNode("Loaded") });
-            await load.WaitAsync(TimeSpan.FromSeconds(1));
 
-            // Worker completion may enqueue data, but it must not mutate stage-owned state.
-            var beforeUpdate = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
-            Assert.NotNull(beforeUpdate);
-            Assert.Single(beforeUpdate);
-            Assert.Equal("Stale", beforeUpdate[0].Title);
+            // The worker only queues its result; give the pool thread a moment to reach the
+            // queue, then prove nothing was applied before a drain ran. Only a production
+            // bug (applying from the worker) could fail this — EnqueueSuccess never applies.
+            await Task.Delay(50);
+            var beforeDrain = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
+            Assert.NotNull(beforeDrain);
+            Assert.Single(beforeDrain);
+            Assert.Equal("Stale", beforeDrain[0].Title);
 
-            InvokePrivateMethod(stage, "OnUpdate", 0.016);
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")![0].Title == "Loaded");
 
             var afterUpdate = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.NotNull(afterUpdate);
@@ -737,7 +726,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenActivationChangesBeforeOnUpdate_DiscardsQueuedCompletion()
+        public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeCompletion_DropsQueuedResult()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -752,22 +741,21 @@ namespace DTXMania.Test.Stage
                     loadStarted.TrySetResult(true);
                     return loadResult.Task;
                 }));
+            stage.InstallTestBackgroundScope();
 
             var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
             SetPrivateField(stage, "_bookmarkNodes", freshNodes);
-            SetPrivateField(stage, "_activationVersion", 23);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
             SetPrivateField(stage, "_uiManager", null);
 
-            var load = Assert.IsAssignableFrom<Task>(
-                InvokePrivateMethod(stage, "BeginBookmarksLoad"));
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
             await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-            loadResult.SetResult(new List<SongListNode> { ScoreNode("Stale completion") });
-            await load.WaitAsync(TimeSpan.FromSeconds(1));
 
-            // Simulate a new activation after the worker has produced its immutable record.
-            SetPrivateField(stage, "_activationVersion", 24);
-            InvokePrivateMethod(stage, "OnUpdate", 0.016);
+            // Navigate away before the worker produces its result: the queued completion
+            // (and any not-yet-queued one) must drop instead of reaching torn-down state.
+            RetireStageScope(stage);
+            loadResult.SetResult(new List<SongListNode> { ScoreNode("Stale completion") });
+            await Task.Delay(300);
 
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.NotNull(nodes);
@@ -776,7 +764,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenActivationVersionBumped_ShouldPreserveExistingNodes()
+        public async Task BeginBookmarksLoad_WhenScopeRetires_ShouldPreserveExistingNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -784,19 +772,18 @@ namespace DTXMania.Test.Stage
 
             var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
             SetPrivateField(stage, "_bookmarkNodes", freshNodes);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            stage.InstallTestBackgroundScope();
 
-            // Start the background load — captures version=0.
+            // Start the background load for the current activation.
             InvokePrivateMethod(stage, "BeginBookmarksLoad");
 
-            // Simulate re-Activate: bump the version so the in-flight continuation is stale.
-            SetPrivateField(stage, "_activationVersion", 1);
+            // Retire the scope — the in-flight completion drops (grace wait is cosmetic;
+            // a retired scope structurally cannot apply results).
+            RetireStageScope(stage);
 
             await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
-            // The stale completion must NOT overwrite _bookmarkNodes when consumed.
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.NotNull(nodes);
             Assert.Single(nodes);
@@ -804,7 +791,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenActivationVersionUnchanged_ShouldOverwriteNodes()
+        public async Task BeginBookmarksLoad_WhenScopeActive_ShouldOverwriteNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -812,20 +799,17 @@ namespace DTXMania.Test.Stage
 
             var staleNodes = new List<SongListNode> { ScoreNode("Stale") };
             SetPrivateField(stage, "_bookmarkNodes", staleNodes);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            stage.InstallTestBackgroundScope();
 
             InvokePrivateMethod(stage, "BeginBookmarksLoad");
-            // Do NOT bump version — continuation should be accepted.
 
-            await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")!.Count == 0);
 
-            // The matching completion was consumed and overwrote _bookmarkNodes with the
+            // The completion was drained and overwrote _bookmarkNodes with the
             // empty result from the no-DB load.
-            var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
-            Assert.NotNull(nodes);
-            Assert.Empty(nodes);
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")!);
         }
 
         [Fact]
@@ -843,12 +827,11 @@ namespace DTXMania.Test.Stage
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
-                SetPrivateField(stage, "_activationVersion", 0);
+                stage.InstallTestBackgroundScope();
 
                 InvokePrivateMethod(stage, "BeginBookmarksLoad");
 
-                await Task.Delay(500);
-                InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+                await DrainUntilAsync(stage, () => GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
 
                 Assert.True(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
                 Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
@@ -862,7 +845,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenDbThrowsAndVersionBumped_ShouldDiscardStaleFault()
+        public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_fault_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -876,16 +859,15 @@ namespace DTXMania.Test.Stage
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
-                SetPrivateField(stage, "_activationVersion", 0);
+                stage.InstallTestBackgroundScope();
 
                 InvokePrivateMethod(stage, "BeginBookmarksLoad");
 
-                // Bump version to simulate re-Activate — the faulted continuation
-                // must be discarded.
-                SetPrivateField(stage, "_activationVersion", 1);
+                // Retire the scope (simulate navigation away) — the faulted result must
+                // drop instead of flagging the load failed.
+                RetireStageScope(stage);
 
                 await Task.Delay(500);
-                InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
                 Assert.False(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
             }
@@ -904,13 +886,12 @@ namespace DTXMania.Test.Stage
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_bookmarksLoadFailed", true);
+            stage.InstallTestBackgroundScope();
 
             InvokePrivateMethod(stage, "BeginBookmarksLoad");
 
-            await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await DrainUntilAsync(stage, () => !GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
 
             // The success completion must clear the failure flag so the draw
             // path shows the normal empty message instead of the error message.
@@ -940,16 +921,15 @@ namespace DTXMania.Test.Stage
                     loadStarted.TrySetResult(true);
                     return releaseOlderLoad.Task;
                 }));
+            stage.InstallTestBackgroundScope();
 
             // Simulate the result of a newer load already landing.
             var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
             SetPrivateField(stage, "_bookmarkNodes", freshNodes);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
 
             // Start the older background load — captures load version 1.
-            var olderLoad = Assert.IsAssignableFrom<Task>(
-                InvokePrivateMethod(stage, "BeginBookmarksLoad"));
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
             await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
             // Simulate a newer same-activation load starting (e.g., from a tab switch
@@ -958,8 +938,10 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_bookmarksLoadVersion", 2);
 
             releaseOlderLoad.SetResult(new List<SongListNode>());
-            await olderLoad.WaitAsync(TimeSpan.FromSeconds(1));
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            // Grace wait: the worker must have queued (and the drain dropped) the stale
+            // completion before the assertion; only a fence regression could apply it.
+            await Task.Delay(300);
+            stage.BackgroundWork?.Drain();
 
             // The stale completion must NOT overwrite _bookmarkNodes with
             // the empty no-DB result.
@@ -984,7 +966,7 @@ namespace DTXMania.Test.Stage
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
-                SetPrivateField(stage, "_activationVersion", 0);
+                stage.InstallTestBackgroundScope();
 
                 // Start the older faulting load — captures load version 1.
                 InvokePrivateMethod(stage, "BeginBookmarksLoad");
@@ -995,7 +977,7 @@ namespace DTXMania.Test.Stage
                 SetPrivateField(stage, "_bookmarksLoadVersion", 2);
 
                 await Task.Delay(500);
-                InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+                stage.BackgroundWork?.Drain();
 
                 Assert.False(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
             }
@@ -1016,18 +998,60 @@ namespace DTXMania.Test.Stage
 
             var staleNodes = new List<SongListNode> { ScoreNode("Stale") };
             SetPrivateField(stage, "_bookmarkNodes", staleNodes);
-            SetPrivateField(stage, "_activationVersion", 0);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            stage.InstallTestBackgroundScope();
 
             // Start the load — captures the current load version. No newer load
-            // supersedes it, so the continuation should be accepted.
+            // supersedes it, so the completion should be accepted on drain.
             InvokePrivateMethod(stage, "BeginBookmarksLoad");
 
-            await Task.Delay(300);
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")!.Count == 0);
 
-            // The completion was consumed un-superseded and overwrote _bookmarkNodes
+            // The completion was drained un-superseded and overwrote _bookmarkNodes
             // with the empty result from the no-DB load.
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")!);
+        }
+
+        // Rapid same-activation bookmark load requests (e.g. two tab switches while writes
+        // settle) each start a load; the per-load version fence must make the newest load's
+        // result win even when the older load completes last.
+        [Fact]
+        public async Task BeginBookmarksLoad_RapidSameActivationRequests_NewestLoadWins()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            stage.InstallTestBackgroundScope();
+
+            var loads = new List<(TaskCompletionSource<bool> Started, TaskCompletionSource<List<SongListNode>> Result)>();
+            SetPrivateField(stage, "_loadBookmarkedNodesAsync",
+                new Func<Task<List<SongListNode>>>(() =>
+                {
+                    var started = new TaskCompletionSource<bool>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    var result = new TaskCompletionSource<List<SongListNode>>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    loads.Add((started, result));
+                    started.TrySetResult(true);
+                    return result.Task;
+                }));
+
+            InvokePrivateMethod(stage, "BeginBookmarksLoad"); // load A (version 1)
+            InvokePrivateMethod(stage, "BeginBookmarksLoad"); // load B (version 2, newest)
+            Assert.Equal(2, loads.Count);
+
+            // The newest load completes first with the fresh (empty) result...
+            loads[1].Result.SetResult(new List<SongListNode>());
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes") is { Count: 0 });
+
+            // ...and the older load completes last with a stale snapshot that must be fenced.
+            loads[0].Result.SetResult(new List<SongListNode> { ScoreNode("Stale") });
+            await Task.Delay(300);
+            stage.BackgroundWork?.Drain();
+
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.NotNull(nodes);
             Assert.Empty(nodes);
