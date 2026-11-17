@@ -518,7 +518,7 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture? TryLoadTexture(string path)
         {
             ITexture? texture = null;
-            try { texture = _resourceManager.LoadTexture(path); }
+            try { _resourceManager.TryLoadTexture(path, out texture); }
             catch (Exception ex) { Logger.LogDebug(ex, "optional texture unavailable: {Path}", path); return null; }
 
             if (texture == null || texture.Width <= 1 || texture.Height <= 1)

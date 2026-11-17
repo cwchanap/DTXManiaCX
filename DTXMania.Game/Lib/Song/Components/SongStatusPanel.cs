@@ -417,7 +417,8 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             try
             {
-                return _resourceManager.LoadTexture(path);
+                _resourceManager.TryLoadTexture(path, out var texture);
+                return texture;
             }
             catch (Exception)
             {

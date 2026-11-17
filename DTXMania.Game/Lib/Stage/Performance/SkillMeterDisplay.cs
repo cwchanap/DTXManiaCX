@@ -50,7 +50,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                _backgroundTexture = resourceManager.LoadTexture(TexturePath.PerfGraphMain);
+                resourceManager.TryLoadTexture(TexturePath.PerfGraphMain, out var backgroundTexture);
+                _backgroundTexture = backgroundTexture;
             }
             catch (Exception)
             {
@@ -59,7 +60,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                _gaugeTexture = resourceManager.LoadTexture(TexturePath.PerfGraphGauge);
+                resourceManager.TryLoadTexture(TexturePath.PerfGraphGauge, out var gaugeTexture);
+                _gaugeTexture = gaugeTexture;
             }
             catch (Exception)
             {

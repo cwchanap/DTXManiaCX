@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -227,6 +228,36 @@ public class ResourceManagerLoadFailureLoggingTests
         {
             File.Delete(decodeFile);
         }
+    }
+
+    // Drives a real optional caller (TabModeArt.Load -> TryLoad -> TryLoadTexture)
+    // through a real ResourceManager so the whole probe chain is under test: a
+    // skin asset that isn't on disk must stay below Warning instead of being
+    // classified as a required-resource miss.
+    [Fact]
+    public void TabModeArtLoad_MissingOptionalAsset_ShouldLogDebugOnly()
+    {
+        var logger = CreateLoggerMock();
+        using var resourceManager = new ThrowingDecodeResourceManager(
+            RD.CreateUninitialized<GraphicsDevice>(), logger.Object);
+
+        var missingPath = $"hpa796-tab-{Guid.NewGuid():N}.png";
+        var theme = SkinTheme.Parse(new[] { $"Tab.PanelTexture={missingPath}" });
+
+        var art = TabModeArt.Load(resourceManager, theme);
+
+        Assert.Null(art.Panel);
+        Assert.Null(art.Strip);
+        Assert.Null(art.HitLine);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains(missingPath, StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+        VerifyNever(logger, LogLevel.Warning);
     }
 
     [GraphicsFact]

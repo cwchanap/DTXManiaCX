@@ -218,7 +218,7 @@ namespace DTXMania.Game.Lib.Song.Components
             ITexture? texture;
             try
             {
-                texture = resourceManager.LoadTexture(path);
+                resourceManager.TryLoadTexture(path, out texture);
             }
             catch (Exception)
             {

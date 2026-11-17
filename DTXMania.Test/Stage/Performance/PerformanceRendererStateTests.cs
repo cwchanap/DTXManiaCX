@@ -29,9 +29,10 @@ namespace DTXMania.Test.Stage.Performance
         {
             var resourceManager = new Mock<IResourceManager>();
             var texture = CreateManagedTexture(width: 320, height: 180, sourcePath: "Graphics/7_background.jpg");
+            ITexture textureResult = texture;
             resourceManager
-                .Setup(manager => manager.LoadTexture(TexturePath.PerformanceBackground))
-                .Returns(texture);
+                .Setup(manager => manager.TryLoadTexture(TexturePath.PerformanceBackground, out textureResult))
+                .Returns(true);
 
             var renderer = new BackgroundRenderer(resourceManager.Object);
 
@@ -48,7 +49,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager
-                .Setup(manager => manager.LoadTexture(TexturePath.PerformanceBackground))
+                .Setup(manager => manager.TryLoadTexture(TexturePath.PerformanceBackground, out It.Ref<ITexture>.IsAny))
                 .Throws(new InvalidOperationException("load failed"));
 
             var renderer = new BackgroundRenderer(resourceManager.Object);

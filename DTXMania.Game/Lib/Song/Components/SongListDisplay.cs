@@ -544,7 +544,8 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadSkinBarTextures();
             try
             {
-                _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar);
+                _resourceManager.TryLoadTexture(TexturePath.Scrollbar, out var scrollbarTexture);
+                _scrollbarTexture = scrollbarTexture;
             }
             catch (Exception)
             {
@@ -615,7 +616,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
             try
             {
-                _commentBarTexture = _resourceManager.LoadTexture(TexturePath.CommentBar);
+                _resourceManager.TryLoadTexture(TexturePath.CommentBar, out var commentBarTexture);
+                _commentBarTexture = commentBarTexture;
             }
             catch (Exception)
             {

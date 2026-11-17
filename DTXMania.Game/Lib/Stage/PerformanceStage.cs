@@ -1224,7 +1224,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                return _resourceManager?.LoadSound(path);
+                if (_resourceManager == null)
+                    return null;
+                _resourceManager.TryLoadSound(path, out var sound);
+                return sound;
             }
             catch (Exception ex)
             {
@@ -1689,7 +1692,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                return _resourceManager?.LoadTexture(path);
+                if (_resourceManager == null)
+                    return null;
+                _resourceManager.TryLoadTexture(path, out var texture);
+                return texture;
             }
             catch
             {

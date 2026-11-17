@@ -75,7 +75,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
 
                 // Load background texture using ResourceManager
-                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.PerformanceBackground);
+                _resourceManager.TryLoadTexture(TexturePath.PerformanceBackground, out var texture);
+                _backgroundTexture = texture;
 
                 // Since the async wrapper is removed, this task completes synchronously.
                 // For true async loading, ResourceManager would need a LoadTextureAsync method.

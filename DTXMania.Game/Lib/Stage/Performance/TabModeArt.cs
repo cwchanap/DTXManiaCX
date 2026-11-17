@@ -62,7 +62,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ITexture? texture;
             try
             {
-                texture = resourceManager.LoadTexture(path);
+                resourceManager.TryLoadTexture(path, out texture);
             }
             catch
             {

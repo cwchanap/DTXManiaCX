@@ -480,7 +480,8 @@ public class PerformanceStageDeterministicTests
         // abort the whole load. This exercises every TryLoadTexture call site in the method.
         var stage = CreateStage();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture?)null);
+        ITexture missingTexture = null;
+        resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingTexture)).Returns(false);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
 
         var exception = Record.Exception(() =>
@@ -490,8 +491,10 @@ public class PerformanceStageDeterministicTests
         Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_backgroundTexture"));
         Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_shutterTexture"));
         Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_skillPanelTexture"));
-        // Every asset path should have been attempted exactly once.
-        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.AtLeastOnce);
+        // Every asset path should have been attempted exactly once, through the
+        // optional-probe API so the misses stay below Warning.
+        resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.AtLeastOnce);
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -522,8 +525,10 @@ public class PerformanceStageDeterministicTests
 
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.SetupGet(x => x.CurrentTheme).Returns(theme);
-        resourceManager.Setup(x => x.LoadTexture(themedPath)).Returns(fallbackTexture.Object);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.SkillPanel)).Returns(defaultTexture.Object);
+        var themedResult = fallbackTexture.Object;
+        var defaultResult = defaultTexture.Object;
+        resourceManager.Setup(x => x.TryLoadTexture(themedPath, out themedResult)).Returns(false);
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.SkillPanel, out defaultResult)).Returns(true);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
 
         var result = (ITexture?)ReflectionHelpers.InvokePrivateMethod(stage, "LoadSkillPanelTexture", theme);
@@ -534,7 +539,7 @@ public class PerformanceStageDeterministicTests
         // the fallback alive with no owner, leaking one texture per activation.
         fallbackTexture.Verify(x => x.Dispose(), Times.Once);
         fallbackTexture.Verify(x => x.RemoveReference(), Times.Never);
-        resourceManager.Verify(x => x.LoadTexture(TexturePath.SkillPanel), Times.Once);
+        resourceManager.Verify(x => x.TryLoadTexture(TexturePath.SkillPanel, out It.Ref<ITexture>.IsAny), Times.Once);
     }
 
     [Fact]
@@ -558,14 +563,15 @@ public class PerformanceStageDeterministicTests
 
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.SetupGet(x => x.CurrentTheme).Returns(theme);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.SkillPanel)).Returns(fallbackTexture.Object);
+        var fallbackResult = fallbackTexture.Object;
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.SkillPanel, out fallbackResult)).Returns(false);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
 
         var result = (ITexture?)ReflectionHelpers.InvokePrivateMethod(stage, "LoadSkillPanelTexture", theme);
 
         Assert.Null(result);
         // Single load attempt (no retry on the same default path).
-        resourceManager.Verify(x => x.LoadTexture(TexturePath.SkillPanel), Times.Once);
+        resourceManager.Verify(x => x.TryLoadTexture(TexturePath.SkillPanel, out It.Ref<ITexture>.IsAny), Times.Once);
         // Fallback is still disposed — the leak fix applies to both branches.
         fallbackTexture.Verify(x => x.Dispose(), Times.Once);
         fallbackTexture.Verify(x => x.RemoveReference(), Times.Never);
@@ -602,8 +608,10 @@ public class PerformanceStageDeterministicTests
 
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.SetupGet(x => x.CurrentTheme).Returns(theme);
-        resourceManager.Setup(x => x.LoadTexture(themedPath)).Returns(themedFallback.Object);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.SkillPanel)).Returns(defaultFallback.Object);
+        var themedResult = themedFallback.Object;
+        var defaultResult = defaultFallback.Object;
+        resourceManager.Setup(x => x.TryLoadTexture(themedPath, out themedResult)).Returns(false);
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.SkillPanel, out defaultResult)).Returns(false);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
 
         var result = (ITexture?)ReflectionHelpers.InvokePrivateMethod(stage, "LoadSkillPanelTexture", theme);
@@ -1699,7 +1707,7 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
 
-        resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
+        resourceManager.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Never);
         Assert.Null(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
     }
 
@@ -1710,8 +1718,10 @@ public class PerformanceStageDeterministicTests
         var beatSound = new Mock<ISound>();
         var accentSound = new Mock<ISound>();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadSound(SoundPath.MetronomeBeat)).Returns(beatSound.Object);
-        resourceManager.Setup(x => x.LoadSound(SoundPath.MetronomeAccent)).Returns(accentSound.Object);
+        var beatResult = beatSound.Object;
+        var accentResult = accentSound.Object;
+        resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeBeat, out beatResult)).Returns(true);
+        resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeAccent, out accentResult)).Returns(true);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
             new BeatMarker { TimeMs = 0.0, IsMeasureStart = true },
@@ -1722,8 +1732,8 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
 
-        resourceManager.Verify(x => x.LoadSound(SoundPath.MetronomeBeat), Times.Once);
-        resourceManager.Verify(x => x.LoadSound(SoundPath.MetronomeAccent), Times.Once);
+        resourceManager.Verify(x => x.TryLoadSound(SoundPath.MetronomeBeat, out It.Ref<ISound>.IsAny), Times.Once);
+        resourceManager.Verify(x => x.TryLoadSound(SoundPath.MetronomeAccent, out It.Ref<ISound>.IsAny), Times.Once);
         Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
         var click = Assert.Single(stage.MetronomeClicks);
         Assert.Equal(0.0, click.TimeMs);
@@ -1812,7 +1822,8 @@ public class PerformanceStageDeterministicTests
         var stage = CreateInspectableStage();
         var sound = new Mock<ISound>();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadSound(It.IsAny<string>())).Returns(sound.Object);
+        var soundResult = sound.Object;
+        resourceManager.Setup(x => x.TryLoadSound(It.IsAny<string>(), out soundResult)).Returns(true);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
         ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
@@ -1845,7 +1856,7 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateInspectableStage();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadSound(It.IsAny<string>()))
+        resourceManager.Setup(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny))
             .Throws(new FileNotFoundException("click asset missing"));
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
@@ -5044,7 +5055,7 @@ public class PerformanceStageDeterministicTests
         Assert.Null(missingManagerResult);
 
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture("throws")).Throws(new InvalidOperationException("boom"));
+        resourceManager.Setup(x => x.TryLoadTexture("throws", out It.Ref<ITexture>.IsAny)).Throws(new InvalidOperationException("boom"));
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
 
         var loadFailureResult = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", "throws");
@@ -5057,12 +5068,15 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var texture = CreateTextureMock();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture("ok")).Returns(texture.Object);
+        var textureResult = texture.Object;
+        resourceManager.Setup(x => x.TryLoadTexture("ok", out textureResult)).Returns(true);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
 
         var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", "ok");
 
         Assert.Same(texture.Object, result);
+        // The probe keeps a missing optional asset out of the Warning path.
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -6014,7 +6028,8 @@ public class PerformanceStageDeterministicTests
         var stage = CreateInspectableStage();
         var sound = new Mock<ISound>();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadSound(It.IsAny<string>())).Returns(sound.Object);
+        var soundResult = sound.Object;
+        resourceManager.Setup(x => x.TryLoadSound(It.IsAny<string>(), out soundResult)).Returns(true);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
             markers.Length == 0

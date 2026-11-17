@@ -206,7 +206,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager
-                .Setup(rm => rm.LoadTexture(It.IsAny<string>()))
+                .Setup(rm => rm.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny))
                 .Throws(new Exception("texture load failure"));
 
             var display = WithManagedFontUnavailable(() =>
@@ -222,8 +222,8 @@ namespace DTXMania.Test.Stage.Performance
             var resourceManager = new Mock<IResourceManager>();
             var maxBadgeTexture = new Mock<ITexture>().Object;
             resourceManager
-                .Setup(rm => rm.LoadTexture(TexturePath.SkillMax))
-                .Returns(maxBadgeTexture);
+                .Setup(rm => rm.TryLoadTexture(TexturePath.SkillMax, out maxBadgeTexture))
+                .Returns(true);
 
             var display = WithManagedFontUnavailable(() =>
                 new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), null));

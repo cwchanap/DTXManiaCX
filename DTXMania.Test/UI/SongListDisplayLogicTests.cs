@@ -737,12 +737,12 @@ public class SongListDisplayLogicTests
         var resourceManager = new Mock<IResourceManager>();
         var commentTexture = new Mock<ITexture>().Object;
 
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.CommentBar)).Returns(commentTexture);
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.CommentBar, out commentTexture)).Returns(true);
 
         display.SetResourceManager(resourceManager.Object);
 
         Assert.Same(commentTexture, GetField<ITexture?>(display, "_commentBarTexture"));
-        resourceManager.Verify(x => x.LoadTexture(TexturePath.CommentBar), Times.Once);
+        resourceManager.Verify(x => x.TryLoadTexture(TexturePath.CommentBar, out It.Ref<ITexture>.IsAny), Times.Once);
     }
 
     [Fact]
@@ -757,6 +757,7 @@ public class SongListDisplayLogicTests
         display.SetResourceManager(resourceManager.Object);
 
         resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+        resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.Never);
         Assert.Same(existing, GetField<ITexture?>(display, "_commentBarTexture"));
     }
 
@@ -765,7 +766,7 @@ public class SongListDisplayLogicTests
     {
         var display = new SongListDisplay();
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.CommentBar)).Throws(new Exception("load-failed"));
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.CommentBar, out It.Ref<ITexture>.IsAny)).Throws(new Exception("load-failed"));
 
         var ex = Record.Exception(() => display.SetResourceManager(resourceManager.Object));
 
@@ -2695,14 +2696,15 @@ public class SongListDisplayLogicTests
         var resourceManager = new Mock<IResourceManager>();
         var commentBarTexture = CreateTexture(width: 620, height: 60);
 
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.CommentBar)).Returns(commentBarTexture.Object);
+        var commentBarResult = commentBarTexture.Object;
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.CommentBar, out commentBarResult)).Returns(true);
         SetField(display, "_resourceManager", resourceManager.Object);
         SetField(display, "_commentBarTexture", null);
         SetField(display, "_font", null);
 
         InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!);
 
-        resourceManager.Verify(x => x.LoadTexture(TexturePath.CommentBar), Times.Once);
+        resourceManager.Verify(x => x.TryLoadTexture(TexturePath.CommentBar, out It.Ref<ITexture>.IsAny), Times.Once);
         commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
         Assert.Same(commentBarTexture.Object, GetField<ITexture>(display, "_commentBarTexture"));
     }
@@ -2925,7 +2927,7 @@ public class SongListDisplayLogicTests
         var display = new SongListDisplay();
         var resourceManager = new Mock<IResourceManager>();
         var commentBarTexture = new Mock<ITexture>().Object;
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.CommentBar)).Returns(commentBarTexture);
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.CommentBar, out commentBarTexture)).Returns(true);
 
         SetField(display, "_resourceManager", resourceManager.Object);
         InvokePrivate<object?>(display, "LoadCommentBarTexture");

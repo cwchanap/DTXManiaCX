@@ -169,9 +169,10 @@ namespace DTXMania.Test.Stage.Performance
             var spriteSheet = new Mock<ITexture>();
             spriteSheet.SetupGet(x => x.Width).Returns(400);
             spriteSheet.SetupGet(x => x.Height).Returns(150);
-            resourceManager.SetupSequence(x => x.LoadTexture(It.IsAny<string>()))
-                .Returns((ITexture)null!)
-                .Returns(spriteSheet.Object);
+            ITexture missingTexture = null;
+            var spriteSheetResult = spriteSheet.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(TexturePath.PadCaps, out missingTexture)).Returns(false);
+            resourceManager.Setup(x => x.TryLoadTexture("Graphics/ScreenPlayDrums/7_PadCaps.png", out spriteSheetResult)).Returns(true);
 
             var renderer = new PadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
 
@@ -179,8 +180,8 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(renderer, "_spriteColumns"));
             Assert.Equal(100, ReflectionHelpers.GetPrivateField<int>(renderer, "_cellWidth"));
             Assert.Equal(50, ReflectionHelpers.GetPrivateField<int>(renderer, "_cellHeight"));
-            resourceManager.Verify(x => x.LoadTexture(TexturePath.PadCaps), Times.Once);
-            resourceManager.Verify(x => x.LoadTexture("Graphics/ScreenPlayDrums/7_PadCaps.png"), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(TexturePath.PadCaps, out It.Ref<ITexture>.IsAny), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture("Graphics/ScreenPlayDrums/7_PadCaps.png", out It.Ref<ITexture>.IsAny), Times.Once);
         }
 
         [Fact]
@@ -189,7 +190,8 @@ namespace DTXMania.Test.Stage.Performance
             var resourceManager = new Mock<IResourceManager>();
             var spriteSheet = new Mock<ITexture>();
             spriteSheet.SetupGet(x => x.Width).Throws(new InvalidOperationException("width failed"));
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(spriteSheet.Object);
+            var spriteSheetResult = spriteSheet.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out spriteSheetResult)).Returns(true);
 
             var renderer = new PadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
 
@@ -254,7 +256,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Draw_WhenSpriteSheetAvailable_ShouldDrawSpriteSheetPadsForAllLanes()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            ITexture missingPadSheet = null;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingPadSheet)).Returns(false);
             var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
             var spriteSheet = new Mock<ITexture>();
             var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
@@ -292,7 +295,8 @@ namespace DTXMania.Test.Stage.Performance
                 new Rectangle(791, 570, 96, 96)
             };
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            ITexture missingPadSheet = null;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingPadSheet)).Returns(false);
             var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
             var spriteSheet = new Mock<ITexture>();
             var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
@@ -311,7 +315,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Draw_WhenCellDimensionsInvalid_ShouldUseFallbackPads()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            ITexture missingPadSheet = null;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingPadSheet)).Returns(false);
             resourceManager.Setup(x => x.CreateTextureFromColor(Color.White)).Returns(CreateWhitePixelResource().Object);
             var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
             var spriteSheet = new Mock<ITexture>();
@@ -332,7 +337,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Draw_WhenSpriteSheetMissing_ShouldDrawFallbackPadsForAllLanes()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            ITexture missingPadSheet = null;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingPadSheet)).Returns(false);
             var whitePixelResource = CreateWhitePixelResource();
             resourceManager.Setup(x => x.CreateTextureFromColor(Color.White)).Returns(whitePixelResource.Object);
             var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
@@ -352,7 +358,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Draw_WhenCachedWhitePixelHasNullTexture_ShouldAcquireOnlyOnce()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            ITexture missingPadSheet = null;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingPadSheet)).Returns(false);
             var emptyPixelResource = new Mock<ITexture>();
             resourceManager.Setup(x => x.CreateTextureFromColor(Color.White)).Returns(emptyPixelResource.Object);
             var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
@@ -384,7 +391,8 @@ namespace DTXMania.Test.Stage.Performance
         private static PadRenderer CreateRenderer()
         {
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            ITexture missingPadSheet = null;
+            resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingPadSheet)).Returns(false);
             return new PadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
         }
 

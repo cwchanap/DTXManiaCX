@@ -449,7 +449,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         {
             try
             {
-                var texture = _resourceManager.LoadTexture(path);
+                _resourceManager.TryLoadTexture(path, out var texture);
                 if (texture != null && texture.Width > 1 && texture.Height > 1)
                     return texture;
                 texture?.RemoveReference();

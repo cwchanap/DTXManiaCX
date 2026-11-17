@@ -114,7 +114,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // digits and "SCORE" label at exact pixel positions. The system font is only a fallback.
             try
             {
-                _scoreNumbersTexture = resourceManager.LoadTexture(TexturePath.ScoreNumbers);
+                resourceManager.TryLoadTexture(TexturePath.ScoreNumbers, out var texture);
+                _scoreNumbersTexture = texture;
             }
             catch (Exception)
             {
