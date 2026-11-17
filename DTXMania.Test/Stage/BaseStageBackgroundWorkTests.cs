@@ -186,7 +186,8 @@ namespace DTXMania.Test.Stage
             stage.StageManager = stageManager.Object;
 
             var order = new List<string>();
-            var dropped = new List<string>();
+            var dropped = new ConcurrentQueue<string>();
+            var droppedSignal = NewGate();
             stage.Order = order;
 
             stage.Activate();
@@ -200,11 +201,20 @@ namespace DTXMania.Test.Stage
             scope.Run<string>(
                 _ => "owned",
                 _ => order.Add("owned-applied"),
-                onDropped: dropped.Add);
+                onDropped: v =>
+                {
+                    dropped.Enqueue(v);
+                    droppedSignal.TrySetResult(true);
+                });
             scope.Post(() => order.Add("third"));
 
+            // Wait for the owned result to be enqueued so this test exercises the
+            // synchronous removal of an already-queued owned item, not the
+            // completion-after-retirement direct-drop path.
+            SpinUntilTrue(() => PendingQueueCount(scope) == 4, "owned result was not enqueued");
+
             stage.Update(0.016);
-            SpinUntilTrue(() => dropped.Count == 1, "owned result was not dropped");
+            Assert.True(droppedSignal.Task.Wait(TimeSpan.FromSeconds(5)), "owned result was not dropped");
 
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
             Assert.Equal(new[] { "transition" }, order);

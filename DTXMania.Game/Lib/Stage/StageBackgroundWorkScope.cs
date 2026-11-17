@@ -227,7 +227,17 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            dropDirect?.Invoke();
+            try
+            {
+                dropDirect?.Invoke();
+            }
+            catch
+            {
+                // A failing direct drop (result arriving after retirement) runs on
+                // the worker thread outside the worker try/catch; isolate it like
+                // Retire's per-item drops so the discarded Task.Run task never
+                // faults unobserved.
+            }
         }
 
         private void EnqueueError(Exception ex, Action<Exception>? onError)

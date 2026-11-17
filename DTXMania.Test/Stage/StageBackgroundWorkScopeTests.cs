@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
@@ -380,23 +381,63 @@ namespace DTXMania.Test.Stage
         {
             var scope = new StageBackgroundWorkScope();
             var applied = new List<string>();
-            var dropped = new List<string>();
+            // The direct drop runs on the worker thread: use a thread-safe
+            // collection plus an explicit completion signal — seeing an
+            // unsynchronized List<T>.Count would not prove the callback finished
+            // or safely publish its contents.
+            var dropped = new ConcurrentQueue<string>();
+            var droppedSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             scope.Run<string>(
                 _ => { gate.Task.Wait(TimeSpan.FromSeconds(5)); return "late"; },
                 applied.Add,
-                onDropped: dropped.Add);
+                onDropped: v =>
+                {
+                    dropped.Enqueue(v);
+                    droppedSignal.TrySetResult(true);
+                });
 
             scope.Retire();
             gate.SetResult(true);
-            SpinUntilTrue(() => dropped.Count == 1, "late result was not dropped");
+            Assert.True(droppedSignal.Task.Wait(TimeSpan.FromSeconds(5)), "late result was not dropped");
 
             Assert.Equal(new[] { "late" }, dropped);
             Assert.Empty(applied);
             scope.Drain();
             Assert.Empty(applied);
             Assert.Equal(1, dropped.Count);
+        }
+
+        [Fact]
+        public void Run_LateResultCleanupThrows_ShouldIsolateDirectDropFailure()
+        {
+            // Regression (HPA-799 review): a result completing after retirement is
+            // dropped directly inside EnqueueSuccess on the worker thread, outside
+            // the worker's try/catch, on a discarded Task.Run task. A throwing
+            // cleanup must be isolated per-item exactly like Retire's drops —
+            // otherwise the exception faults the discarded task, which is then
+            // never observed. EnqueueSuccess is the sole escape path for that
+            // exception, so the isolation contract is pinned by invoking it on a
+            // retired scope directly.
+            var scope = new StageBackgroundWorkScope();
+            scope.Retire();
+
+            var method = typeof(StageBackgroundWorkScope).GetMethod(
+                "EnqueueSuccess", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(method);
+            var enqueueSuccess = method!.MakeGenericMethod(typeof(string));
+
+            var ex = Record.Exception(() => enqueueSuccess.Invoke(
+                scope,
+                new object?[]
+                {
+                    "late",
+                    (Action<string>)(_ => throw new InvalidOperationException("success must not run")),
+                    (Action<string>)(_ => throw new InvalidOperationException("cleanup failure"))
+                }));
+
+            Assert.Null(ex);
         }
 
         [Fact]
@@ -457,7 +498,8 @@ namespace DTXMania.Test.Stage
         {
             var scope = new StageBackgroundWorkScope();
             var applied = new List<string>();
-            var dropped = new List<string>();
+            var dropped = new ConcurrentQueue<string>();
+            var droppedSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             scope.Post(() =>
             {
@@ -467,11 +509,20 @@ namespace DTXMania.Test.Stage
             scope.Run<string>(
                 _ => "owned",
                 _ => applied.Add("owned-applied"),
-                onDropped: dropped.Add);
+                onDropped: v =>
+                {
+                    dropped.Enqueue(v);
+                    droppedSignal.TrySetResult(true);
+                });
             scope.Post(() => applied.Add("third"));
 
+            // Wait for the owned result to be enqueued so this test exercises the
+            // synchronous removal of an already-queued owned item, not the
+            // completion-after-retirement direct-drop path.
+            SpinUntilTrue(() => PendingQueueCount(scope) == 3, "owned result was not enqueued");
+
             scope.Drain();
-            SpinUntilTrue(() => dropped.Count == 1, "owned result was not dropped");
+            Assert.True(droppedSignal.Task.Wait(TimeSpan.FromSeconds(5)), "owned result was not dropped");
 
             Assert.Equal(new[] { "first" }, applied);
             Assert.Equal(new[] { "owned" }, dropped);
