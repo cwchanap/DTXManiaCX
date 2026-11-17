@@ -1673,8 +1673,9 @@ namespace DTXMania.Game.Lib.Stage
                 _preparedPreviewState = PreparedPreviewState.Playing;
                 return PreparedSuccess();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Logger.LogWarning(ex, "Prepared chart preview could not be started");
                 DisposePreviewInstance();
                 return MarkPreparedPreviewFailed("The prepared chart preview could not be started.");
             }

@@ -105,19 +105,47 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var pathComparer = OperatingSystem.IsWindows()
                 ? StringComparer.OrdinalIgnoreCase
                 : StringComparer.Ordinal;
-            var mainPath = NormalizeExistingPath(mainBackgroundPath);
+            // Referenced-but-absent sources are normalized to null below and
+            // never reach the loaders, so each distinct missing path is
+            // reported up front — a chart pointing at a deleted WAV/OGG keeps
+            // playing (silent-clock fallback) without failing silently.
+            var missingSourcePaths = new HashSet<string>(pathComparer);
+            var mainPath = NormalizeExistingPath(
+                mainBackgroundPath, path => missingSourcePaths.Add(path));
             var scheduledPaths = scheduledBgmSourcePaths
-                .Select(NormalizeExistingPath)
+                .Select(path => NormalizeExistingPath(path, p => missingSourcePaths.Add(p)))
                 .Where(path => path != null)
                 .Cast<string>()
                 .Distinct(pathComparer)
                 .ToArray();
             var chipPaths = chipSourcePathsByWavId
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
-                .Select(pair => (pair.Key, Path: NormalizeExistingPath(pair.Value)))
+                .Select(pair => (pair.Key, Path: NormalizeExistingPath(
+                    pair.Value, p => missingSourcePaths.Add(p))))
                 .Where(pair => pair.Path != null)
                 .Select(pair => (pair.Key, Path: pair.Path!))
                 .ToArray();
+
+            foreach (var missingPath in missingSourcePaths)
+            {
+                ReportLoadFailure(missingPath, new FileNotFoundException(
+                    $"Referenced audio source was not found: {missingPath}", missingPath));
+            }
+
+            void ReportLoadFailure(string path, Exception exception)
+            {
+                // The reporter is guarded: logging providers can throw (M.E.L
+                // rethrows them as AggregateException) and that must not turn a
+                // skipped sound into a failed audio preparation.
+                try
+                {
+                    reportSoundLoadFailure?.Invoke(path, exception);
+                }
+                catch (Exception reportException) when (reportException is not OperationCanceledException)
+                {
+                    // Reporting is best-effort; the sound is already skipped.
+                }
+            }
 
             var allPaths = new HashSet<string>(pathComparer);
             if (mainPath != null)
@@ -188,18 +216,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                             // Nonfatal fallback stays (Invariant #2); each distinct
                             // failed source is reported once so a corrupt chip or main
                             // BGM is visible to the owner's logger without failing the
-                            // whole performance. The reporter is guarded: logging
-                            // providers can throw (M.E.L rethrows them as
-                            // AggregateException) and that must not turn a skipped
-                            // sound into a failed audio preparation.
-                            try
-                            {
-                                reportSoundLoadFailure?.Invoke(sourcePath, ex);
-                            }
-                            catch (Exception reportException) when (reportException is not OperationCanceledException)
-                            {
-                                // Reporting is best-effort; the sound is already skipped.
-                            }
+                            // whole performance.
+                            ReportLoadFailure(sourcePath, ex);
                         }
 
                         completed++;
@@ -374,7 +392,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return new ManagedSound(effect, sourcePath);
         }
 
-        private static string? NormalizeExistingPath(string? path)
+        private static string? NormalizeExistingPath(
+            string? path,
+            Action<string>? reportMissing = null)
         {
             if (string.IsNullOrWhiteSpace(path))
                 return null;
@@ -382,6 +402,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (File.Exists(fullPath))
                 return fullPath;
 
+            reportMissing?.Invoke(fullPath);
             return null;
         }
 

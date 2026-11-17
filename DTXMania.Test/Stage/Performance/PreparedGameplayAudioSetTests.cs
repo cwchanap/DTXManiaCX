@@ -971,6 +971,63 @@ namespace DTXMania.Test.Stage.Performance
             }
         }
 
+        [Fact]
+        public async Task PrepareAsync_DefaultProfile_MissingReferencedAudio_ReportsEachDistinctMissingPathOnce()
+        {
+            var directory = CreateTempDirectory();
+            try
+            {
+                var missingShared = Path.GetFullPath(Path.Combine(directory, "missing-shared.wav"));
+                var missingChip = Path.GetFullPath(Path.Combine(directory, "missing-chip.wav"));
+                var healthyChip = CreateSource(directory, "healthy.wav");
+                var healthySound = new Mock<ISound>();
+                var reported = new List<(string Path, Exception Exception)>();
+
+                var prepared = await PreparedGameplayAudioSet.PrepareAsync(
+                    missingShared,
+                    new[] { missingShared },
+                    new Dictionary<string, string>
+                    {
+                        ["01"] = missingShared,
+                        ["02"] = missingChip,
+                        ["03"] = healthyChip,
+                        ["04"] = " ",
+                    },
+                    new PlaybackModifiers(100, 0),
+                    processor: null,
+                    cache: null,
+                    progress: null,
+                    CancellationToken.None,
+                    path => healthySound.Object,
+                    (artifact, path) => throw new InvalidOperationException(
+                        "Prepared factory should not run for default profile."),
+                    reportSoundLoadFailure: (path, exception) =>
+                        reported.Add((path, exception)));
+
+                // Absent referenced files never reach the loader, so each
+                // distinct missing path is reported once up front; the same
+                // missing file referenced by main BGM, scheduled BGM, and a
+                // chip yields a single report, and blank paths stay quiet.
+                Assert.Equal(2, reported.Count);
+                Assert.All(reported, r => Assert.IsType<FileNotFoundException>(r.Exception));
+                Assert.Contains(reported, r => r.Path == missingShared);
+                Assert.Contains(reported, r => r.Path == missingChip);
+
+                // Nonfatal fallback holds: only the healthy chip is published.
+                Assert.Null(prepared.MainBackground);
+                Assert.Empty(prepared.ScheduledBgmBySourcePath);
+                var chip = Assert.Single(prepared.ChipSoundsByWavId);
+                Assert.Equal("03", chip.Key);
+                Assert.Same(healthySound.Object, chip.Value);
+
+                prepared.Dispose();
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
         private static string CreateSource(string directory, string name)
         {
             var path = Path.Combine(directory, name);
