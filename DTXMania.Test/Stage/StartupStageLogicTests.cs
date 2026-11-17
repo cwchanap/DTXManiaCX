@@ -141,8 +141,12 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task UpdateCurrentPhase_WhenEnumerationCanceled_ShouldStayPendingWithoutFallback()
+        public async Task UpdateCurrentPhase_WhenEnumerationCanceledWhileScopeActive_ShouldPostTerminalAndContinue()
         {
+            // Cancellation independent of stage retirement (e.g.
+            // SongManager.CancelEnumeration) must still publish a terminal
+            // outcome: _asyncPhaseSucceeded stays null otherwise and
+            // UpdateCurrentPhase would never advance (startup hangs).
             var stage = CreateControlledStage();
             stage.PublishedHierarchy = new SongListNode { Title = "Original" };
             stage.NextNeedsEnumerationResult = true;
@@ -152,13 +156,11 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-            // Cancellation queues nothing; settle the worker before asserting.
-            await WaitForEnumerationStartedAsync(stage);
-            scope.Drain();
-            await Task.Delay(100);
+            DrainUntilPostedTerminal(scope, stage);
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
-            Assert.Null(ReflectionHelpers.GetPrivateField<bool?>(stage, "_asyncPhaseSucceeded"));
-            Assert.Equal(StartupPhase.EnumerateSongs, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal(StartupPhase.BuildSongLists, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Contains("Error", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.Equal("Original", stage.PublishedHierarchy!.Title);
         }
@@ -891,6 +893,11 @@ namespace DTXMania.Test.Stage
             var scope = stage.InstallTestBackgroundScope();
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            // Park the chain on the enumeration await BEFORE disposal: disposing
+            // while the worker is still en route would let it hit a canceled-token
+            // checkpoint without ever consuming completion.Task, leaving the later
+            // SetException fault unobserved and unrelated to the chain.
+            await WaitForEnumerationStartedAsync(stage);
             // BaseStage.Dispose deactivates an active stage, which retires the scope
             // and cancels the chain token, so the later fault runs no fallback.
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
@@ -902,6 +909,9 @@ namespace DTXMania.Test.Stage
 
             // The chain faults after disposal; the retired scope drops the result.
             completion.SetException(new InvalidOperationException("boom"));
+            // Synchronize the unwind: the parked chain consumes the fault and its
+            // canceled-token guard makes it rethrow without touching the stage;
+            // give the worker a moment before asserting.
             await Task.Delay(100);
             Assert.Equal(0, stage.BuildHierarchyCalls);
         }
@@ -1277,15 +1287,17 @@ namespace DTXMania.Test.Stage
             Assert.True(posted, "the terminal success/error result was not posted and applied");
         }
 
-        private static async Task WaitForEnumerationStartedAsync(ControlledStartupStage stage)
+        private static Task WaitForEnumerationStartedAsync(ControlledStartupStage stage)
         {
-            // EnumerateSongsCalls increments inside the worker's override; reaching it
-            // proves the chain started and its queued Latest progress is observable.
+            // EnumerateSongsCalls increments before the fake captures its token,
+            // reports progress or reads its completion task, so reaching it proves
+            // nothing for the assertions that follow; wait for the fake's own
+            // readiness signal instead, set only after all of those steps.
             var started = SpinWait.SpinUntil(
-                () => stage.EnumerateSongsCalls == 1,
+                () => stage.EnumerateSongsCalls >= 1 && stage.EnumerationStarted,
                 TimeSpan.FromSeconds(5));
-            await Task.Yield();
             Assert.True(started, "the enumeration chain did not start");
+            return Task.CompletedTask;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1476,6 +1488,23 @@ namespace DTXMania.Test.Stage
 
             public int EnumerateSongsCalls { get; private set; }
 
+            private volatile TaskCompletionSource? _enumerationStartedSignal;
+
+            /// <summary>
+            /// True once the most recent enumeration invocation captured its
+            /// token, reported progress and read its completion task; the
+            /// <see cref="EnumerateSongsCalls"/> counter alone increments before
+            /// those steps.
+            /// </summary>
+            public bool EnumerationStarted
+            {
+                get
+                {
+                    var signal = _enumerationStartedSignal;
+                    return signal != null && signal.Task.IsCompleted;
+                }
+            }
+
             public int BuildHierarchyCalls { get; private set; }
 
             public int SaveSongsDatabaseCalls { get; private set; }
@@ -1548,16 +1577,28 @@ namespace DTXMania.Test.Stage
                 {
                     progressReporter.Report(ReportedEnumerationProgress);
                 }
-                var result = NextEnumerationTask == null
-                    ? NextEnumerationResult
-                    : null;
-                if (result?.Batch.RootNodes.Count > 0)
+
+                var resultTask = NextEnumerationTask;
+                if (resultTask == null)
                 {
-                    PublishedHierarchy = result.Batch.RootNodes[0];
+                    var result = NextEnumerationResult;
+                    if (result.Batch.RootNodes.Count > 0)
+                    {
+                        PublishedHierarchy = result.Batch.RootNodes[0];
+                    }
+
+                    resultTask = Task.FromResult(result);
                 }
 
-                return NextEnumerationTask ??
-                    Task.FromResult(NextEnumerationResult);
+                // Signal readiness only after the token was captured, progress was
+                // reported and the completion task was read; waiters relying on the
+                // call counter alone would race a paused worker mid-capture.
+                var ready = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                ready.SetResult();
+                _enumerationStartedSignal = ready;
+
+                return resultTask;
             }
 
             protected override Task BuildHierarchyFromDatabaseOnceCoreAsync(

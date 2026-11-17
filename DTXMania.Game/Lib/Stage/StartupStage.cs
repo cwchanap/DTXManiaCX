@@ -812,9 +812,25 @@ namespace DTXMania.Game.Lib.Stage
 
             scope.Run<bool>(
                 _ =>
-                    RunSongLoadChainAsync(songPaths, progress, scope.Token)
-                        .GetAwaiter()
-                        .GetResult(),
+                {
+                    try
+                    {
+                        return RunSongLoadChainAsync(songPaths, progress, scope.Token)
+                            .GetAwaiter()
+                            .GetResult();
+                    }
+                    catch (OperationCanceledException cancellation)
+                        when (!scope.Token.IsCancellationRequested)
+                    {
+                        // Cancellation independent of stage retirement (e.g.
+                        // SongManager.CancelEnumeration) must still publish a
+                        // terminal outcome or the phase would never advance;
+                        // retirement stays silent (Run swallows that OCE).
+                        throw new InvalidOperationException(
+                            "Song enumeration was canceled.",
+                            cancellation);
+                    }
+                },
                 onSuccess: _ =>
                 {
                     _asyncPhaseSucceeded = true;

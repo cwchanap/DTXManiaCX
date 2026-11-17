@@ -609,12 +609,25 @@ public sealed class SongFolderPanelTests
         // activation; the second pick must be the only one that can apply.
         ActivateAction(panel, rootCount: 1, actionOffset: 0);
         var firstCancellation = GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation");
+        // Worker execution does not follow scheduling order: wait for the first
+        // invocation to be captured before close/reopen, and again before the
+        // second completion, so invocation index always matches scheduling order.
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => picker.InvocationCount >= 1,
+                TimeSpan.FromSeconds(5)),
+            "the first picker invocation never started");
         panel.Deactivate();
         panel.Activate();
         ActivateAction(panel, rootCount: 1, actionOffset: 0);
         var secondCancellation = GetPrivateField<CancellationTokenSource>(panel, "_pickerCancellation");
 
         Assert.NotSame(firstCancellation, secondCancellation);
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => picker.InvocationCount >= 2,
+                TimeSpan.FromSeconds(5)),
+            "the second picker invocation never started");
 
         picker.Complete(0, FolderPickerResult.Selected(staleFolder.Path));
         picker.Complete(1, FolderPickerResult.Selected(freshFolder.Path));
@@ -1042,24 +1055,49 @@ public sealed class SongFolderPanelTests
 
     private sealed class SequentialDelayedFolderPicker : IFolderPickerService
     {
+        private readonly object _gate = new();
         private readonly List<TaskCompletionSource<FolderPickerResult>> _completions = new();
-        private int _next;
 
-        public SequentialDelayedFolderPicker()
+        /// <summary>How many invocations have been captured (workers may race).</summary>
+        public int InvocationCount
         {
-            _completions.Add(new TaskCompletionSource<FolderPickerResult>(
-                TaskCreationOptions.RunContinuationsAsynchronously));
-            _completions.Add(new TaskCompletionSource<FolderPickerResult>(
-                TaskCreationOptions.RunContinuationsAsynchronously));
+            get
+            {
+                lock (_gate)
+                {
+                    return _completions.Count;
+                }
+            }
         }
 
-        public void Complete(int index, FolderPickerResult result) =>
-            _completions[index].TrySetResult(result);
+        /// <summary>
+        /// Completes the invocation captured at <paramref name="index"/>
+        /// (capture order), not whichever worker happens to arrive first.
+        /// </summary>
+        public void Complete(int index, FolderPickerResult result)
+        {
+            TaskCompletionSource<FolderPickerResult> completion;
+            lock (_gate)
+            {
+                completion = _completions[index];
+            }
+
+            completion.TrySetResult(result);
+        }
 
         public Task<FolderPickerResult> PickFolderAsync(
             string? initialDirectory,
-            CancellationToken cancellationToken) =>
-            _completions[_next++].Task;
+            CancellationToken cancellationToken)
+        {
+            var completion = new TaskCompletionSource<FolderPickerResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_gate)
+            {
+                _completions.Add(completion);
+            }
+
+            return completion.Task;
+        }
     }
 
     private sealed class NullFolderPicker : IFolderPickerService
