@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
@@ -43,6 +44,31 @@ namespace DTXMania.Test.Stage
                         "The expected background-work result was not applied within the timeout.");
                 await Task.Delay(10);
             }
+        }
+
+        // Run completion enqueues behind the same lock that guards the queue, so tests can
+        // await a deterministic worker/terminal enqueue by observing the pending item count
+        // (read-only probe; same pattern as StageBackgroundWorkScopeTests).
+        private static int PendingQueueCount(StageBackgroundWorkScope scope)
+        {
+            var queue = typeof(StageBackgroundWorkScope)
+                .GetField("_queue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(scope) as System.Collections.ICollection;
+            return queue?.Count ?? 0;
+        }
+
+        // Deterministic worker/terminal barrier: waits until the scope worker has queued
+        // its terminal, then applies exactly one drain. Proves the older terminal was
+        // actually processed before the winner is checked, instead of hoping a fixed
+        // delay was long enough (a too-short delay lets a fence regression pass vacuously).
+        private static void DrainAfterTerminalQueued(SongSelectionStage stage)
+        {
+            var scope = stage.BackgroundWork!;
+            var queued = SpinWait.SpinUntil(
+                () => PendingQueueCount(scope) >= 1,
+                TimeSpan.FromSeconds(5));
+            Assert.True(queued, "the scope worker did not queue its terminal in time");
+            scope.Drain();
         }
 
         // Retires the activation scope the way Deactivate does, without requiring the full
@@ -938,10 +964,10 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_bookmarksLoadVersion", 2);
 
             releaseOlderLoad.SetResult(new List<SongListNode>());
-            // Grace wait: the worker must have queued (and the drain dropped) the stale
-            // completion before the assertion; only a fence regression could apply it.
-            await Task.Delay(300);
-            stage.BackgroundWork?.Drain();
+            // Deterministic worker/terminal barrier: wait until the worker has queued the
+            // stale completion, then drain exactly once. Only a fence regression could
+            // now apply it — a fixed delay here let the stale terminal pass unprocessed.
+            DrainAfterTerminalQueued(stage);
 
             // The stale completion must NOT overwrite _bookmarkNodes with
             // the empty no-DB result.
@@ -976,8 +1002,9 @@ namespace DTXMania.Test.Stage
                 // not spuriously set _bookmarksLoadFailed over the newer load's result.
                 SetPrivateField(stage, "_bookmarksLoadVersion", 2);
 
-                await Task.Delay(500);
-                stage.BackgroundWork?.Drain();
+                // Deterministic worker/terminal barrier: prove the stale fault terminal
+                // queued and was processed (fenced) before checking the winner flag.
+                DrainAfterTerminalQueued(stage);
 
                 Assert.False(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
             }
@@ -1025,6 +1052,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
             stage.InstallTestBackgroundScope();
 
+            var loadsGate = new object();
             var loads = new List<(TaskCompletionSource<bool> Started, TaskCompletionSource<List<SongListNode>> Result)>();
             SetPrivateField(stage, "_loadBookmarkedNodesAsync",
                 new Func<Task<List<SongListNode>>>(() =>
@@ -1033,13 +1061,24 @@ namespace DTXMania.Test.Stage
                         TaskCreationOptions.RunContinuationsAsynchronously);
                     var result = new TaskCompletionSource<List<SongListNode>>(
                         TaskCreationOptions.RunContinuationsAsynchronously);
-                    loads.Add((started, result));
+                    lock (loadsGate)
+                    {
+                        loads.Add((started, result));
+                    }
                     started.TrySetResult(true);
                     return result.Task;
                 }));
 
+            // Loaders now start inside the scope workers, so registration order is
+            // established by awaiting each start before issuing the next request:
+            // only one request is outstanding while loads[0] registers, so loads[0] is
+            // load A (version 1) and loads[1] is load B (version 2, newest).
             InvokePrivateMethod(stage, "BeginBookmarksLoad"); // load A (version 1)
+            SpinWait.SpinUntil(() => { lock (loadsGate) return loads.Count >= 1; }, TimeSpan.FromSeconds(5));
+            await loads[0].Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
             InvokePrivateMethod(stage, "BeginBookmarksLoad"); // load B (version 2, newest)
+            SpinWait.SpinUntil(() => { lock (loadsGate) return loads.Count >= 2; }, TimeSpan.FromSeconds(5));
+            await loads[1].Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Equal(2, loads.Count);
 
             // The newest load completes first with the fresh (empty) result...
@@ -1048,9 +1087,10 @@ namespace DTXMania.Test.Stage
                 () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes") is { Count: 0 });
 
             // ...and the older load completes last with a stale snapshot that must be fenced.
+            // Deterministic worker/terminal barrier: prove the stale terminal queued and was
+            // processed (fenced) before checking the winner.
             loads[0].Result.SetResult(new List<SongListNode> { ScoreNode("Stale") });
-            await Task.Delay(300);
-            stage.BackgroundWork?.Drain();
+            DrainAfterTerminalQueued(stage);
 
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.NotNull(nodes);

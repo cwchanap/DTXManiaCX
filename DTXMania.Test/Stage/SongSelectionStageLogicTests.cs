@@ -328,8 +328,19 @@ namespace DTXMania.Test.Stage
                 display.SelectedIndex = 1;
 
                 // The initializer completion must not overwrite the newer publication that
-                // already restored the user's selection.
-                stage.BackgroundWork!.Drain();
+                // already restored the user's selection. The worker only queues its
+                // terminal, so keep driving Update (the real game loop) with a bounded
+                // timeout until the update thread applies it — a single Drain could run
+                // before the worker has posted anything.
+                SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+                var applied = SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.Update(0.016);
+                        return GetPrivateField<bool>(stage, "_libraryInitializationCompleted");
+                    },
+                    TimeSpan.FromSeconds(5));
+                Assert.True(applied, "the initializer terminal was not applied within the timeout");
 
                 Assert.Same(selectedNode, display.SelectedSong);
                 Assert.Equal(51L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
