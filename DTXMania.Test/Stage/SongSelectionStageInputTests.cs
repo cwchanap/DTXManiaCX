@@ -355,7 +355,6 @@ namespace DTXMania.Test.Stage
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", null);
 
             InvokePrivateMethod(stage, "OpenSearchFilterModal");
 
@@ -370,7 +369,6 @@ namespace DTXMania.Test.Stage
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", null);
             SetPrivateField(stage, "_isInStatusPanel", true);
 
             InvokePrivateMethod(stage, "OpenSearchFilterModal");

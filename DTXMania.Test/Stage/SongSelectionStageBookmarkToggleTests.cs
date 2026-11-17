@@ -45,19 +45,20 @@ namespace DTXMania.Test.Stage
             return display;
         }
 
-        private static async Task WaitForQueueCountAsync(
-            SongSelectionStage stage, string fieldName, int timeoutMs = 10000)
+        // Drives the stage's background-work scope until the condition holds: workers only
+        // queue their results; a drain on the test thread applies them (as stage.Update does).
+        private static async Task DrainUntilAsync(
+            SongSelectionStage stage, Func<bool> condition, int timeoutMs = 10000)
         {
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
             {
-                var queue = GetPrivateField<System.Collections.ICollection>(
-                    stage, fieldName);
-                if (queue != null && queue.Count > 0)
+                stage.BackgroundWork?.Drain();
+                if (condition())
                     return;
                 if (DateTime.UtcNow >= deadline)
                     throw new TimeoutException(
-                        $"The '{fieldName}' queue was not populated within {timeoutMs}ms.");
+                        "The expected background-work result was not applied within the timeout.");
                 await Task.Delay(10);
             }
         }
@@ -332,6 +333,7 @@ namespace DTXMania.Test.Stage
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+                stage.InstallTestBackgroundScope();
                 // Mirror real All-Songs behavior: the selected node's entity lives in RootSongs,
                 // so the revert (which applies by song Id across RootSongs) reaches it.
                 var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
@@ -344,16 +346,65 @@ namespace DTXMania.Test.Stage
                 var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
                 try { await pending[songId]; } catch { /* expected persist fault */ }
 
-                // The fault continuation enqueues a revert on the thread pool; poll for it.
-                var queue = GetPrivateField<System.Collections.Concurrent.ConcurrentQueue<(int, bool, int)>>(stage, "_pendingBookmarkReverts");
-                var deadline = DateTime.UtcNow.AddSeconds(5);
-                while (queue.IsEmpty && DateTime.UtcNow < deadline)
-                    await Task.Delay(20);
-                Assert.False(queue.IsEmpty); // the fault enqueued a rollback
-
-                InvokePrivateMethod(stage, "ProcessPendingBookmarkReverts");
+                // The fault continuation posts the rollback into the stage scope; a drain
+                // applies it on the update thread.
+                await DrainUntilAsync(stage, () => !nodeEntity.IsBookmarked);
 
                 Assert.False(nodeEntity.IsBookmarked); // reverted to pre-toggle state
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+                if (File.Exists(dbPath))
+                    try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        // A committed bookmark persistence task may outlive navigation; only the stale UI
+        // rollback is dropped (the stage's scope retired on Deactivate), never the write itself.
+        [Fact]
+        public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_DropsRollbackOnly()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_drop_{Guid.NewGuid():N}.db");
+            SongManager.ResetInstanceForTesting();
+            var manager = SongManager.Instance;
+            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
+            var db = manager.DatabaseService!;
+            var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
+            var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
+            await db.AddSongAsync(seed, chart);
+            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            await db.PurgeDatabaseAsync(); // make the bookmark write fault
+
+            try
+            {
+                var stage = CreateStage();
+                var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
+                var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
+                var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+                stage.InstallTestBackgroundScope();
+                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                roots.Clear();
+                roots.Add(node);
+
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong"); // optimistic flip to true
+                Assert.True(nodeEntity.IsBookmarked);
+
+                // Navigate away before the persist fault lands: Deactivate retires the
+                // scope before tearing down, so the stale rollback cannot be applied.
+                SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+                stage.Deactivate();
+
+                var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
+                try { await pending[songId]; } catch { /* expected persist fault */ }
+
+                // Grace wait: cosmetic — a retired scope structurally cannot apply the rollback.
+                await Task.Delay(300);
+
+                // The stale UI rollback was dropped; the in-memory flag keeps the optimistic value.
+                Assert.True(nodeEntity.IsBookmarked);
             }
             finally
             {
@@ -503,7 +554,7 @@ namespace DTXMania.Test.Stage
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays); // -> Bookmarks
-            SetPrivateField(stage, "_activationVersion", 0);
+            stage.InstallTestBackgroundScope();
 
             // Gate the bookmark loader so the test does not depend on the SongManager
             // singleton's database state or on real DB I/O latency.
@@ -536,22 +587,18 @@ namespace DTXMania.Test.Stage
             Assert.Single(nodes);
             Assert.False(loadStarted.Task.IsCompleted);
 
-            // Settle the write. Its worker continuation only queues a reload request, so the
-            // stage-owned cache stays unchanged until the update path consumes that request.
+            // Settle the write. Its worker continuation only posts the load request into the
+            // stage scope, so the stage-owned cache stays unchanged until a drain consumes it.
             tcs.SetResult(true);
-            await WaitForQueueCountAsync(stage, "_pendingBookmarkLoadRequests");
-
+            await DrainUntilAsync(stage, () => loadStarted.Task.IsCompleted);
+            Assert.True(loadStarted.Task.IsCompleted);
             nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Single(nodes);
-            Assert.False(loadStarted.Task.IsCompleted);
 
-            // First update-thread pass begins the deferred load; releasing it enqueues the
-            // completion which the second pass applies.
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
-            await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            // The deferred load runs on the worker; releasing it queues the completion which
+            // the next drain applies.
             releaseLoad.SetResult(new List<SongListNode>());
-            await WaitForQueueCountAsync(stage, "_pendingTabLoadCompletions");
-            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await DrainUntilAsync(stage, () => GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes")!.Count == 0);
 
             nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Empty(nodes);
@@ -560,19 +607,19 @@ namespace DTXMania.Test.Stage
         // Stale-revert guard: a revert from an older, superseded toggle must be skipped so it
         // cannot override a newer toggle's in-memory flag.
         [Fact]
-        public void ProcessPendingBookmarkReverts_WhenSupersededByNewerToggle_SkipsStaleRevert()
+        public void ApplyBookmarkRevert_WhenSupersededByNewerToggle_SkipsStaleRevert()
         {
             var stage = CreateStage();
             var recentSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 7, IsBookmarked = true };
             SetPrivateField(stage, "_recentPlayNodes",
                 new List<SongListNode> { new() { Type = NodeType.Score, DatabaseSong = recentSong } });
 
-            var queue = GetPrivateField<System.Collections.Concurrent.ConcurrentQueue<(int, bool, int)>>(stage, "_pendingBookmarkReverts");
-            queue.Enqueue((7, false, toggleVersion: 1)); // stale: a newer toggle bumped to 2
             var versions = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, int>>(stage, "_bookmarkToggleVersion");
             versions[7] = 2;
 
-            InvokePrivateMethod(stage, "ProcessPendingBookmarkReverts");
+            // The posted rollback carries the toggle generation that triggered it (1);
+            // a newer toggle bumped the generation to 2, so this revert is stale.
+            InvokePrivateMethod(stage, "ApplyBookmarkRevert", 7, false, 1);
 
             Assert.True(recentSong.IsBookmarked); // newer toggle's flag preserved
         }

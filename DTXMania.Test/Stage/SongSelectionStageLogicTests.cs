@@ -227,93 +227,122 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void CheckSongInitializationCompletion_WhenTaskCompleted_ShouldPromoteSongsAndClearTask()
+        public void InitializeSongList_WhenManagerUninitialized_ShouldKeepPlaceholderListUntilDrainApplies()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
             var songs = new List<SongListNode> { CreateScoreNode("Loaded Song") };
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalSongs = new List<SongListNode>(rootSongs);
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
 
-            AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_currentSongList", new List<SongListNode>());
-            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(songs));
-            SetPrivateField(stage, "_songInitializationProcessed", false);
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                SetPrivateField(stage, "_currentSongList", new List<SongListNode>());
+                rootSongs.Clear();
+                rootSongs.AddRange(songs);
+                SetPrivateField(songManager, "_currentSearchPaths", Array.Empty<string>());
+                SetPrivateField(songManager, "_publicationVersion", 41L);
+                SetPrivateField(songManager, "_isInitialized", false);
+                stage.InstallTestBackgroundScope();
 
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+                // The initializer only queues its completion into the stage scope; the
+                // placeholder empty list stays visible until a drain applies the snapshot.
+                InvokePrivateMethod(stage, "InitializeSongList");
 
-            Assert.True(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
-            Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
-            Assert.Same(songs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
-            Assert.Equal(2, display.CurrentList.Count);
-            Assert.Same(songs[0], display.CurrentList[0]);
-            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
+                Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+                Assert.Empty(display.CurrentList);
+                Assert.False(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+
+                // The worker only queues its terminal; keep draining (as the game loop does)
+                // until the update thread applies it, then prove a second drain is a no-op.
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.BackgroundWork?.Drain();
+                        return GetPrivateField<bool>(stage, "_libraryInitializationCompleted");
+                    },
+                    TimeSpan.FromSeconds(5));
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+                Assert.Single(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+                Assert.Same(songs[0], GetPrivateField<List<SongListNode>>(stage, "_currentSongList")![0]);
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Same(songs[0], display.CurrentList[0]);
+                Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
+
+                // A second drain must not re-apply or reset the projected state.
+                stage.BackgroundWork!.Drain();
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Same(songs[0], display.CurrentList[0]);
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
         }
 
         [Fact]
-        public void CheckSongInitializationCompletion_WhenTaskFaulted_ShouldClearTaskAndFallbackToEmptyList()
+        public void InitializeSongList_WhenManagerUninitialized_AndDrainRacesPublication_ShouldNotOverwriteNewerSnapshot()
         {
             var stage = CreateStage();
-            var display = new SongListDisplay
+            var display = new SongListDisplay();
+            var staleNode = CreateScoreNode("Stale");
+            var firstNode = CreateScoreNode("First");
+            var selectedNode = CreateScoreNode("Selected");
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalSongs = new List<SongListNode>(rootSongs);
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
+
+            try
             {
-                CurrentList = [CreateScoreNode("Existing")]
-            };
+                AttachCoreUi(stage, display: display);
+                SetPrivateField(stage, "_currentSongList", new List<SongListNode>());
+                rootSongs.Clear();
+                rootSongs.Add(staleNode);
+                SetPrivateField(songManager, "_currentSearchPaths", Array.Empty<string>());
+                SetPrivateField(songManager, "_publicationVersion", 50L);
+                SetPrivateField(songManager, "_isInitialized", false);
+                stage.InstallTestBackgroundScope();
+                InvokePrivateMethod(stage, "InitializeSongList");
 
-            AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_songInitializationTask", Task.FromException<List<SongListNode>>(new InvalidOperationException("boom")));
-            SetPrivateField(stage, "_songInitializationProcessed", false);
+                // A live publication reconciles a NEWER snapshot while the initializer is
+                // still queued (the manager state above stays stale for the initializer).
+                var newerSnapshot = new SongLibrarySnapshot(
+                    version: 51,
+                    rootSongs: new[] { firstNode, selectedNode },
+                    activeRoots: Array.Empty<string>(),
+                    enumeratedFileCount: 2,
+                    discoveredScoreCount: 2);
+                InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", newerSnapshot);
+                display.SelectedIndex = 1;
 
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+                // The initializer completion must not overwrite the newer publication that
+                // already restored the user's selection.
+                stage.BackgroundWork!.Drain();
 
-            Assert.True(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
-            Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
-            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
-            Assert.Empty(display.CurrentList);
-        }
-
-        [Fact]
-        public void CheckSongInitializationCompletion_WhenTaskStillRunning_ShouldLeaveStateUnchanged()
-        {
-            var pendingTask = new TaskCompletionSource<List<SongListNode>>();
-            var stage = CreateStage();
-            var currentSongs = new List<SongListNode> { CreateScoreNode("Existing") };
-            var display = new SongListDisplay
+                Assert.Same(selectedNode, display.SelectedSong);
+                Assert.Equal(51L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            }
+            finally
             {
-                CurrentList = [currentSongs[0]]
-            };
-
-            AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_currentSongList", currentSongs);
-            SetPrivateField(stage, "_songInitializationTask", pendingTask.Task);
-            SetPrivateField(stage, "_songInitializationProcessed", false);
-
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
-
-            Assert.False(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
-            Assert.Same(pendingTask.Task, GetPrivateField<Task<List<SongListNode>>>(stage, "_songInitializationTask"));
-            Assert.Same(currentSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
-            Assert.Same(currentSongs[0], display.CurrentList[0]);
-        }
-
-        [Fact]
-        public void CheckSongInitializationCompletion_WhenAlreadyProcessed_ShouldLeaveCompletedTaskUntouched()
-        {
-            var songs = new List<SongListNode> { CreateScoreNode("Existing") };
-            var stage = CreateStage();
-            var display = new SongListDisplay
-            {
-                CurrentList = [songs[0]]
-            };
-
-            AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_currentSongList", songs);
-            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode> { CreateScoreNode("Loaded") }));
-            SetPrivateField(stage, "_songInitializationProcessed", true);
-
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
-
-            Assert.True(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
-            Assert.NotNull(GetPrivateField<Task<List<SongListNode>>>(stage, "_songInitializationTask"));
-            Assert.Same(songs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
-            Assert.Same(songs[0], display.CurrentList[0]);
+                rootSongs.Clear();
+                rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
         }
 
         [Fact]
@@ -2395,7 +2424,6 @@ namespace DTXMania.Test.Stage
             var cursorSound = new Mock<ISound>();
             var gameStartSound = new Mock<ISound>();
 
-            SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
             SetPrivateField(stage, "_inputManager", ownedInputManager);
             SetPrivateField(stage, "_ownsInputManager", true);
             SetPrivateField(stage, "_headerPanelTexture", headerTexture.Object);
@@ -2421,30 +2449,59 @@ namespace DTXMania.Test.Stage
             gameStartSound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(GetPrivateField<InputManager>(stage, "_inputManager"));
             Assert.False(GetPrivateField<bool>(stage, "_ownsInputManager"));
-            Assert.Null(GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+            Assert.Null(stage.BackgroundWork);
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
             Assert.Equal(SongSelectionPhase.Inactive, GetPrivateField<SongSelectionPhase>(stage, "_selectionPhase"));
         }
 
+        // HPA-799: SongSelectionStage tears down UI, input and fonts in its Deactivate
+        // override. The background scope must retire FIRST so queued callbacks drop
+        // before any of those resources are disposed.
         [Fact]
-        public void Deactivate_WhenSongInitializationTaskExists_ShouldClearTaskWithoutDisposingSharedInputManager()
+        public void Deactivate_ShouldRetireBackgroundWorkBeforeTeardown()
         {
             var stage = CreateStage();
-            var sharedInputManager = new TrackingInputManager();
-            var cancellationTokenSource = new CancellationTokenSource();
-            var taskSource = new TaskCompletionSource<List<SongListNode>>();
+            var teardownLog = new List<string>();
+            var ownedInputManager = new OrderedTrackingInputManager(teardownLog);
+            var scope = stage.InstallTestBackgroundScope();
+            var report = scope.Latest<long>(
+                _ => teardownLog.Add("applied"),
+                _ => teardownLog.Add("dropped"));
+            report(1);
 
-            SetPrivateField(stage, "_inputManager", sharedInputManager);
-            SetPrivateField(stage, "_ownsInputManager", false);
-            SetPrivateField(stage, "_cancellationTokenSource", cancellationTokenSource);
-            SetPrivateField(stage, "_songInitializationTask", taskSource.Task);
+            SetPrivateField(stage, "_inputManager", ownedInputManager);
+            SetPrivateField(stage, "_ownsInputManager", true);
+            SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
 
             stage.Deactivate();
 
+            // The queued result was dropped during retirement — before the owned input
+            // manager was cleared and disposed by the teardown below it — and never applied.
+            Assert.Equal(new[] { "dropped", "cleared", "disposed" }, teardownLog);
+            Assert.Null(stage.BackgroundWork);
+        }
+
+        [Fact]
+        public void Deactivate_WhenBackgroundWorkPending_ShouldRetireScopeWithoutDisposingSharedInputManager()
+        {
+            var stage = CreateStage();
+            var sharedInputManager = new TrackingInputManager();
+            var scope = stage.InstallTestBackgroundScope();
+            var applied = false;
+            scope.Post(() => applied = true);
+
+            SetPrivateField(stage, "_inputManager", sharedInputManager);
+            SetPrivateField(stage, "_ownsInputManager", false);
+            SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+
+            stage.Deactivate();
+
+            // The shared input manager is untouched and the queued work can never apply.
             Assert.False(sharedInputManager.ClearPendingCommandsCalled);
             Assert.False(sharedInputManager.DisposeCalled);
-            Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
-            Assert.Null(GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+            Assert.Null(stage.BackgroundWork);
+            scope.Drain();
+            Assert.False(applied);
         }
 
         [Fact]
@@ -2596,7 +2653,7 @@ namespace DTXMania.Test.Stage
                 Assert.Equal(2, display.CurrentList.Count);
                 Assert.Same(song, display.CurrentList[0]);
                 Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
-                Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
             }
             finally
             {
@@ -2627,7 +2684,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void InitializeSongList_WhenSongManagerIsNotInitialized_ShouldStartBackgroundTaskAndKeepDisplayEmpty()
+        public void InitializeSongList_WhenSongManagerIsNotInitialized_ShouldKeepDisplayEmptyUntilScopeApplies()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -2643,19 +2700,85 @@ namespace DTXMania.Test.Stage
                 rootSongs.Clear();
                 rootSongs.Add(song);
                 SetPrivateField(songManager, "_isInitialized", false);
+                stage.InstallTestBackgroundScope();
 
                 InvokePrivateMethod(stage, "InitializeSongList");
 
-                var initializationTask = GetPrivateField<Task<List<SongListNode>>>(stage, "_songInitializationTask");
-                Assert.NotNull(initializationTask);
+                // The scoped initializer defers to the next drain; the placeholder list
+                // stays empty until then. The worker only queues its terminal, so keep
+                // draining (as the game loop does) until the update thread applies it.
+                Assert.False(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
                 Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
                 Assert.Empty(display.CurrentList);
-                initializationTask!.Wait();
+
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.BackgroundWork?.Drain();
+                        return GetPrivateField<bool>(stage, "_libraryInitializationCompleted");
+                    },
+                    TimeSpan.FromSeconds(5));
+
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+                Assert.Single(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
             }
             finally
             {
                 rootSongs.Clear();
                 rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
+        }
+
+        // HPA-799: normal active-stage completion flows through BaseStage.Update's scope
+        // drain — exactly what the game loop does — not through a direct private call.
+        [Fact]
+        public void Update_WhenInitializerCompletes_ShouldApplyLibraryOnTheUpdateThread()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalSongs = new List<SongListNode>(rootSongs);
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(CreateScoreNode("Via Update"));
+                SetPrivateField(songManager, "_currentSearchPaths", Array.Empty<string>());
+                SetPrivateField(songManager, "_publicationVersion", 43L);
+                SetPrivateField(songManager, "_isInitialized", false);
+                stage.InstallTestBackgroundScope();
+                SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+
+                InvokePrivateMethod(stage, "InitializeSongList");
+                Assert.False(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+
+                // The worker only queues its terminal; keep driving Update (one pass per
+                // game frame drains the scope and applies the projection) until it lands.
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.Update(0.016);
+                        return GetPrivateField<bool>(stage, "_libraryInitializationCompleted");
+                    },
+                    TimeSpan.FromSeconds(5));
+
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+                Assert.Single(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
                 SetPrivateField(songManager, "_isInitialized", originalInitialized);
             }
         }
@@ -2783,6 +2906,30 @@ namespace DTXMania.Test.Stage
             protected override void Dispose(bool disposing)
             {
                 DisposeCalled = true;
+                base.Dispose(disposing);
+            }
+        }
+
+        // Records teardown events in order so tests can pin retirement happening before
+        // the Deactivate teardown disposes stage resources.
+        private sealed class OrderedTrackingInputManager : InputManager
+        {
+            private readonly List<string> _log;
+
+            public OrderedTrackingInputManager(List<string> log)
+            {
+                _log = log;
+            }
+
+            public override void ClearPendingCommands()
+            {
+                _log.Add("cleared");
+                base.ClearPendingCommands();
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                _log.Add("disposed");
                 base.Dispose(disposing);
             }
         }
@@ -3372,7 +3519,6 @@ namespace DTXMania.Test.Stage
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", null);
 
             var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.OpenSearch, 0.0));
 
@@ -4124,14 +4270,14 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OpenSearchFilterModal_WhenSongListNotNullAndTaskNull_ShouldSetLibraryReady()
+        public void OpenSearchFilterModal_WhenLibraryInitializedAndSongListNotNull_ShouldSetLibraryReady()
         {
             var stage = CreateStage();
             var fakeTextSource = new Mock<ITextInputSource>();
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", null);
+            SetPrivateField(stage, "_libraryInitializationCompleted", true);
             SetPrivateField(stage, "_isInStatusPanel", true);
 
             InvokePrivateMethod(stage, "OpenSearchFilterModal");
@@ -4142,14 +4288,14 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OpenSearchFilterModal_WhenSongListNullAndTaskNull_ShouldSetLibraryNotReady()
+        public void OpenSearchFilterModal_WhenSongListNull_ShouldSetLibraryNotReady()
         {
             var stage = CreateStage();
             var fakeTextSource = new Mock<ITextInputSource>();
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", null);
-            SetPrivateField(stage, "_songInitializationTask", null);
+            SetPrivateField(stage, "_libraryInitializationCompleted", true);
 
             InvokePrivateMethod(stage, "OpenSearchFilterModal");
 
@@ -4157,31 +4303,14 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OpenSearchFilterModal_WhenTaskProcessed_ShouldSetLibraryReady()
+        public void OpenSearchFilterModal_WhileLibraryInitializationPending_ShouldSetLibraryNotReady()
         {
             var stage = CreateStage();
             var fakeTextSource = new Mock<ITextInputSource>();
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode>()));
-            SetPrivateField(stage, "_songInitializationProcessed", true);
-
-            InvokePrivateMethod(stage, "OpenSearchFilterModal");
-
-            Assert.True(modal.IsLibraryReady);
-        }
-
-        [Fact]
-        public void OpenSearchFilterModal_WhenTaskNotProcessed_ShouldSetLibraryNotReady()
-        {
-            var stage = CreateStage();
-            var fakeTextSource = new Mock<ITextInputSource>();
-            var modal = new SongSearchFilterModal(fakeTextSource.Object);
-            SetPrivateField(stage, "_searchFilterModal", modal);
-            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode>()));
-            SetPrivateField(stage, "_songInitializationProcessed", false);
+            SetPrivateField(stage, "_libraryInitializationCompleted", false);
 
             InvokePrivateMethod(stage, "OpenSearchFilterModal");
 
@@ -4708,7 +4837,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void CheckSongInitializationCompletion_WhenModalIsOpen_ShouldMarkLibraryReady()
+        public void InitializeSongList_WhenLoadAppliesWhileModalIsOpen_ShouldMarkLibraryReady()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -4717,16 +4846,41 @@ namespace DTXMania.Test.Stage
                 IsLibraryReady = false
             };
             modal.Open(SongFilterCriteria.Default);
-            AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_searchFilterModal", modal);
-            SetPrivateField(stage, "_songInitializationTask",
-                Task.FromResult(new List<SongListNode> { CreateScoreNode("Loaded") }));
-            SetPrivateField(stage, "_songInitializationProcessed", false);
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalSongs = new List<SongListNode>(rootSongs);
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
 
-            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                SetPrivateField(stage, "_searchFilterModal", modal);
+                rootSongs.Clear();
+                rootSongs.Add(CreateScoreNode("Loaded"));
+                SetPrivateField(songManager, "_isInitialized", false);
+                stage.InstallTestBackgroundScope();
 
-            Assert.True(modal.IsLibraryReady);
-            Assert.Null(GetPrivateField<Task<List<SongListNode>>?>(stage, "_songInitializationTask"));
+                InvokePrivateMethod(stage, "InitializeSongList");
+
+                // The worker only queues its terminal; keep draining (as the game loop
+                // does) until the update thread applies it.
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.BackgroundWork?.Drain();
+                        return GetPrivateField<bool>(stage, "_libraryInitializationCompleted");
+                    },
+                    TimeSpan.FromSeconds(5));
+
+                Assert.True(modal.IsLibraryReady);
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
         }
 
 
@@ -5127,7 +5281,6 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display: display);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("A"), CreateScoreNode("B") });
-            SetPrivateField(stage, "_songInitializationTask", null);
             SetPrivateField(stage, "_inputManager", inputManager);
 
             inputManager.Enqueue(new InputCommand(InputCommandType.OpenSearch, 0.0));
@@ -5160,7 +5313,6 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display: display);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("A"), CreateScoreNode("B") });
-            SetPrivateField(stage, "_songInitializationTask", null);
             SetPrivateField(stage, "_inputManager", inputManager);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
 
@@ -5189,7 +5341,6 @@ namespace DTXMania.Test.Stage
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
-            SetPrivateField(stage, "_songInitializationTask", null);
 
             // Simulate stale mouse state from a previous modal session
             SetPrivateField(stage, "_previousMouseState", new Microsoft.Xna.Framework.Input.MouseState(
