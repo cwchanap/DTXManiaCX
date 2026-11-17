@@ -56,7 +56,6 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager;
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
-        private ILogger<PerformanceStage> _logger = NullLogger<PerformanceStage>.Instance;
 
         // Stage data - initialized via ExtractSharedData
         private SongListNode _selectedSong = null!;
@@ -100,6 +99,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // BGM management
         private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
+        private HashSet<string> _bgmPlayFailureReported = new HashSet<string>();
         private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
         private readonly List<SoundEffectInstance> _activeBgmInstances = new();
 
@@ -262,8 +262,6 @@ namespace DTXMania.Game.Lib.Stage
             _resourceManager = game.ResourceManager;
             _uiManager = new UIManager();
             _inputManager = game.InputManager;
-            _logger = game.LoggerFactory?.CreateLogger<PerformanceStage>()
-                ?? NullLogger<PerformanceStage>.Instance;
         }
 
         protected virtual IAudioVariantProcessor CreateAudioVariantProcessor()
@@ -760,6 +758,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             _activeBgmInstances?.Clear();
             _bgmSounds?.Clear();
+            _bgmPlayFailureReported?.Clear();
             _scheduledBGMEvents?.Clear();
 
             // Cleanup gameplay managers
@@ -1555,7 +1554,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Font initialization failed, fallback will be used; keep the
                 // Release-visible diagnostic (logger is Console-backed).
-                _logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
+                Logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
                 _readyFont?.RemoveReference();
                 _readyFont = null;
                 _scrollSpeedFont?.RemoveReference();
@@ -1824,6 +1823,7 @@ namespace DTXMania.Game.Lib.Stage
         private void BindPreparedBGMSounds()
         {
             _bgmSounds.Clear();
+            _bgmPlayFailureReported?.Clear();
             if (_preparedAudioSet == null || _parsedChart?.BGMEvents == null)
                 return;
 
@@ -1963,7 +1963,12 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "BGM playback failed for WAV id '{WavId}'", bgmEvent.WavId);
+                    // Per-WAV dedupe: BGM events fire on the hot path, so a persistent
+                    // failure must not flood the log (mirrors ChipSoundCache).
+                    if ((_bgmPlayFailureReported ??= new HashSet<string>()).Add(bgmEvent.WavId))
+                    {
+                        Logger.LogWarning(ex, "BGM playback failed for WAV id '{WavId}'", bgmEvent.WavId);
+                    }
                 }
             }
         }
@@ -3025,11 +3030,11 @@ namespace DTXMania.Game.Lib.Stage
             // the error stays visible in all build configurations.
             if (exception != null)
             {
-                _logger.LogError(exception, "{Message}", message);
+                Logger.LogError(exception, "{Message}", message);
             }
             else
             {
-                _logger.LogError("{Message}", message);
+                Logger.LogError("{Message}", message);
             }
         }
 

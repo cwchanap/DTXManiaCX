@@ -23,6 +23,16 @@ namespace DTXMania.Game.Lib.Resources
 
         private readonly GraphicsDevice _graphicsDevice;
         private readonly ILogger<ResourceManager> _logger;
+
+        // Set while a TryLoad* probe runs on this thread, so a missing file inside it is
+        // classified as an optional miss (Debug). Thread-static: the load and the failure
+        // callback run synchronously on the calling thread.
+        [ThreadStatic]
+        private static int _optionalProbeDepth;
+
+        // Paths whose required-asset miss was already reported at Warning (once per path
+        // until the skin changes).
+        private ConcurrentDictionary<string, byte> _reportedMissingResources = new();
         private readonly ConcurrentDictionary<string, ITexture> _textureCache;
         private readonly ConcurrentDictionary<string, IFont> _fontCache;
         private readonly ConcurrentDictionary<string, ISound> _soundCache;
@@ -208,12 +218,14 @@ namespace DTXMania.Game.Lib.Resources
                     failed = true;
             };
             ResourceLoadFailed += handler;
+            _optionalProbeDepth++;
             try
             {
                 texture = LoadTexture(path);
             }
             finally
             {
+                _optionalProbeDepth--;
                 ResourceLoadFailed -= handler;
             }
             return !failed;
@@ -228,12 +240,14 @@ namespace DTXMania.Game.Lib.Resources
                     failed = true;
             };
             ResourceLoadFailed += handler;
+            _optionalProbeDepth++;
             try
             {
                 sound = LoadSound(path);
             }
             finally
             {
+                _optionalProbeDepth--;
                 ResourceLoadFailed -= handler;
             }
             return !failed;
@@ -530,6 +544,8 @@ namespace DTXMania.Game.Lib.Resources
         /// </remarks>
         private void EvictSkinDependentCache()
         {
+            // A different skin may resolve (or miss) the same relative paths afresh.
+            _reportedMissingResources?.Clear();
             // Preserve non-skin-dependent entries:
             //  - "__Color|…" textures are solid-color UI primitives (CreateTextureFromColor).
             //  - Absolute-path keys are song-local resources (chart preview audio, jacket
@@ -544,7 +560,6 @@ namespace DTXMania.Game.Lib.Resources
                             && !IsAbsolutePathCacheKey(k))
                 .ToList();
 
-            var textureCount = skinDependentKeys.Count;
             foreach (var key in skinDependentKeys)
             {
                 if (_textureCache.TryRemove(key, out var texture))
@@ -557,7 +572,6 @@ namespace DTXMania.Game.Lib.Resources
             var soundKeys = _soundCache.Keys
                 .Where(k => !IsAbsolutePathCacheKey(k))
                 .ToList();
-            var soundCount = soundKeys.Count;
             foreach (var key in soundKeys)
             {
                 if (_soundCache.TryRemove(key, out var sound))
@@ -639,8 +653,6 @@ namespace DTXMania.Game.Lib.Resources
             // fallback theme) that SetSkinPath's validation prevents.
             lock (_lockObject)
             {
-                var oldPath = _boxDefSkinPath;
-
                 // Capture the effective skin before mutation so we can detect
                 // whether the switch actually changes which skin ResolvePath
                 // uses. The cache is keyed by relative path, so without
@@ -691,9 +703,6 @@ namespace DTXMania.Game.Lib.Resources
                     }
                 }
 
-                if (oldPath != _boxDefSkinPath)
-                {
-                }
                 _currentTheme = null;
 
                 if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), AppPaths.SkinPathComparison))
@@ -1029,12 +1038,23 @@ namespace DTXMania.Game.Lib.Resources
         {
             ResourceLoadFailed?.Invoke(this, e);
 
-            // Expected optional-asset misses (skin/path probes) stay at Debug so
-            // ordinary Release runs stay quiet; genuine decode/I/O failures are
-            // worth exactly one Warning with the original exception.
+            // Classification is by caller intent, not exception type: a missing file
+            // behind TryLoadTexture/TryLoadSound is an explicit optional probe (Debug),
+            // while a missing file behind LoadTexture/LoadSound is a required asset and
+            // is reported once per path at Warning (the 1x1/silent fallback is not
+            // cached, so every later miss would otherwise repeat). Genuine decode/I/O
+            // failures always warn with the original exception.
             if (e.Exception is FileNotFoundException)
             {
-                _logger.LogDebug(e.Exception, "Optional resource not found: {Path}", e.Path);
+                if (_optionalProbeDepth == 0
+                    && (_reportedMissingResources ??= new()).TryAdd(e.Path ?? string.Empty, 0))
+                {
+                    _logger.LogWarning(e.Exception, "Required resource not found: {Path}", e.Path);
+                }
+                else
+                {
+                    _logger.LogDebug(e.Exception, "Optional resource not found: {Path}", e.Path);
+                }
             }
             else
             {
@@ -1269,16 +1289,7 @@ namespace DTXMania.Game.Lib.Resources
                 Path.GetFullPath(Path.Combine(skinPath, "Graphics", "2_background.jpg"))
             };
 
-            var isValid = validationFiles.Any(File.Exists);
-
-            if (!isValid)
-            {
-                foreach (var file in validationFiles)
-                {
-                }
-            }
-
-            return isValid;
+            return validationFiles.Any(File.Exists);
         }
 
         protected virtual ITexture CreateFallbackTexture(string originalPath)
@@ -1370,9 +1381,6 @@ namespace DTXMania.Game.Lib.Resources
 
         ~ResourceManager()
         {
-            if (!_disposed)
-            {
-            }
             Dispose(false);
         }
 

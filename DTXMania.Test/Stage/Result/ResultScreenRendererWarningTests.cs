@@ -1,48 +1,49 @@
-using System.Diagnostics;
-using System.IO;
+using System;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Stage.Result;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Result;
 
-[CollectionDefinition("ResultRendererTrace", DisableParallelization = true)]
-public sealed class ResultRendererTraceCollection { }
-
-[Collection("ResultRendererTrace")]
 public class ResultScreenRendererWarningTests
 {
     // HPA-796 Task 3: a missing rank badge is an expected optional-asset miss.
-    // The renderer no longer duplicates the failure at the leaf; the owner
-    // (ResourceManager.OnResourceLoadFailed) reports it at Debug, which stays
-    // below Warning in ordinary Release runs.
+    // The renderer pre-checks existence, so ResourceManager never sees the miss;
+    // the renderer itself reports it at Debug (below Warning in ordinary runs).
     [Fact]
-    public void Load_MissingRankBadge_ShouldStayBelowWarningAndLoadWithFallback()
+    public void Load_MissingRankBadge_ShouldReportAtDebugOnlyAndLoadWithFallback()
     {
         var resources = new Mock<IResourceManager>();
         resources.Setup(r => r.ResourceExists(It.IsAny<string>()))
             .Returns<string>(path => path != TexturePath.ResultRankF);
         resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+        var logger = new Mock<ILogger>();
         var model = ResultScreenModel.Create(new PerformanceSummary { PlayingSkill = 30 }, null, 0, null, null);
-        using var renderer = new ResultScreenRenderer(resources.Object, null, null, null);
-        using var output = new StringWriter();
-        using var listener = new TextWriterTraceListener(output);
-        Trace.Listeners.Add(listener);
-        try
-        {
-            var exception = Record.Exception(() => renderer.Load(model));
-            Trace.Flush();
+        using var renderer = new ResultScreenRenderer(
+            resources.Object, null, null, null, logger: logger.Object);
 
-            Assert.Null(exception);
-            Assert.DoesNotContain("Missing rank badge", output.ToString());
-            Assert.DoesNotContain(TexturePath.ResultRankF, output.ToString());
-            Assert.Equal(string.Empty, output.ToString().Trim());
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
+        var exception = Record.Exception(() => renderer.Load(model));
+
+        Assert.Null(exception);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains(TexturePath.ResultRankF, StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+        logger.Verify(
+            l => l.Log(
+                It.Is<LogLevel>(level => level >= LogLevel.Warning),
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
     }
 }

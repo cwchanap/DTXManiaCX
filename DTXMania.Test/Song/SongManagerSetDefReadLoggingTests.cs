@@ -20,12 +20,12 @@ public class SongManagerSetDefReadLoggingTests
     {
         var method = typeof(SongManager).GetMethod(
             "ReadSetDefLines",
-            BindingFlags.NonPublic | BindingFlags.Static,
+            BindingFlags.NonPublic | BindingFlags.Instance,
             null,
             new[] { typeof(string) },
             null);
         Assert.NotNull(method);
-        return method!.Invoke(null, new object[] { setDefPath }) as string[];
+        return method!.Invoke(SongManager.Instance, new object[] { setDefPath }) as string[];
     }
 
     [Fact]
@@ -65,6 +65,36 @@ public class SongManagerSetDefReadLoggingTests
         {
             // Do not leak the mock into other tests touching the singleton.
             SongManager.Instance.ConfigureLogger(null);
+            unreadableDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReadSetDefLines_RepeatedReadsOfSameUnreadableFile_ShouldWarnOncePerFile()
+    {
+        var logger = new Mock<ILogger<SongManager>>();
+        var unreadableDir = Directory.CreateTempSubdirectory("setdef-");
+        try
+        {
+            SongManager.ResetInstanceForTesting();
+            SongManager.Instance.ConfigureLogger(logger.Object);
+
+            // The DB hierarchy build and the freshness inventory both read the same file.
+            Assert.Null(InvokeReadSetDefLines(unreadableDir.FullName));
+            Assert.Null(InvokeReadSetDefLines(unreadableDir.FullName));
+
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception?>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+        finally
+        {
+            SongManager.ResetInstanceForTesting();
             unreadableDir.Delete(recursive: true);
         }
     }

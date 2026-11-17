@@ -84,6 +84,10 @@ namespace DTXMania.Game.Lib.Song
         // defaults to a null logger so independent tests stay silent.
         private ILogger<SongManager> _logger = NullLogger<SongManager>.Instance;
 
+        // Unreadable SET.def paths already reported; keeps the warning to one per file.
+        private readonly object _setDefReportGate = new();
+        private readonly HashSet<string> _reportedUnreadableSetDefs = new(StringComparer.Ordinal);
+
         /// <summary>
         /// Supplies the singleton's logger (no constructor injection seam).
         /// Null restores the null logger used by independent tests.
@@ -1574,7 +1578,7 @@ namespace DTXMania.Game.Lib.Song
         // because the database has already committed and the hierarchy is
         // already published by the time these fire — cannot escape to turn a
         // successful import into a reported failure. Exceptions are logged.
-        private static void SafeInvoke<TArgs>(
+        private void SafeInvoke<TArgs>(
             EventHandler<TArgs>? evt,
             object sender,
             TArgs args,
@@ -1586,12 +1590,12 @@ namespace DTXMania.Game.Lib.Song
                 try { ((EventHandler<TArgs>)handler)(sender, args); }
                 catch (Exception ex)
                 {
-                    Instance._logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
+                    _logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
                 }
             }
         }
 
-        private static void SafeInvoke(
+        private void SafeInvoke(
             EventHandler? evt,
             object sender,
             EventArgs args,
@@ -1603,7 +1607,7 @@ namespace DTXMania.Game.Lib.Song
                 try { ((EventHandler)handler)(sender, args); }
                 catch (Exception ex)
                 {
-                    Instance._logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
+                    _logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
                 }
             }
         }
@@ -2134,14 +2138,20 @@ namespace DTXMania.Game.Lib.Song
         /// runs on the synchronous database-load path. The async enumeration path reads via
         /// <see cref="File.ReadAllLinesAsync"/> in <see cref="ParseSetDefinitionAsync"/>.
         /// </remarks>
-        private static string[]? ReadSetDefLines(string setDefPath)
+        private string[]? ReadSetDefLines(string setDefPath)
         {
             Exception? lastError = null;
             foreach (var encoding in BuildSetDefEncodings())
             {
                 try
                 {
-                    return File.ReadAllLines(setDefPath, encoding);
+                    var lines = File.ReadAllLines(setDefPath, encoding);
+                    // A recovered file re-arms its warning for any later regression.
+                    lock (_setDefReportGate)
+                    {
+                        _reportedUnreadableSetDefs.Remove(setDefPath);
+                    }
+                    return lines;
                 }
                 // Only realistic failures here are I/O (the path is pre-validated and UTF-8 uses
                 // DecoderReplacementFallback, so encoding mismatches never throw). Let genuinely
@@ -2151,10 +2161,20 @@ namespace DTXMania.Game.Lib.Song
                     lastError = ex;
                 }
             }
-            // One record per unreadable SET.def, after every encoding has been retried.
+            // One record per unreadable SET.def file (not per call: the DB hierarchy build
+            // and the freshness inventory both read it), after every encoding was retried.
             if (lastError is not null)
             {
-                Instance._logger.LogWarning(lastError, "Failed to read SET.def: {Path}", setDefPath);
+                bool firstReport;
+                lock (_setDefReportGate)
+                {
+                    firstReport = _reportedUnreadableSetDefs.Add(setDefPath);
+                }
+
+                if (firstReport)
+                {
+                    _logger.LogWarning(lastError, "Failed to read SET.def: {Path}", setDefPath);
+                }
             }
             return null;
         }
@@ -3988,14 +4008,15 @@ namespace DTXMania.Game.Lib.Song
                 var success = await databaseService
                     .SetEnumerationWatermarkAtomicallyAsync(startUtc, activeRoots)
                     .ConfigureAwait(false);
-                if (success)
-                {
-                }
-                else
+                if (!success)
                 {
                     // A failed write leaves the previous watermark in place (or
                     // none), so the next freshness check remains conservative.
                     // No partial state is possible because the write is atomic.
+                    // The database service swallows the underlying exception and
+                    // returns false, so this is the only place it is reported.
+                    _logger.LogWarning(
+                        "Enumeration watermark write failed; the next freshness check will stay conservative");
                 }
             }
             catch (Exception ex)

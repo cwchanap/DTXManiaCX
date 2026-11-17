@@ -188,8 +188,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
                             // Nonfatal fallback stays (Invariant #2); each distinct
                             // failed source is reported once so a corrupt chip or main
                             // BGM is visible to the owner's logger without failing the
-                            // whole performance.
-                            reportSoundLoadFailure?.Invoke(sourcePath, ex);
+                            // whole performance. The reporter is guarded: logging
+                            // providers can throw (M.E.L rethrows them as
+                            // AggregateException) and that must not turn a skipped
+                            // sound into a failed audio preparation.
+                            try
+                            {
+                                reportSoundLoadFailure?.Invoke(sourcePath, ex);
+                            }
+                            catch (Exception reportException) when (reportException is not OperationCanceledException)
+                            {
+                                // Reporting is best-effort; the sound is already skipped.
+                            }
                         }
 
                         completed++;

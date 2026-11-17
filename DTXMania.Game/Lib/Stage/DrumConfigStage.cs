@@ -35,10 +35,6 @@ namespace DTXMania.Game.Lib.Stage
         private readonly DrumCaptureSession _capture;
         private InputManagerCompat? _input;
 
-        // NullLogger until OnActivate swaps in the game's factory, so reflection-based tests that
-        // skip OnActivate can drive the stage.
-        private ILogger<DrumConfigStage> _logger = NullLogger<DrumConfigStage>.Instance;
-
         private SpriteBatch? _spriteBatch;
         private DrumConfigRenderer? _renderer;
 
@@ -76,9 +72,8 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         protected override void OnActivate()
         {
-            _logger = _game.LoggerFactory?.CreateLogger<DrumConfigStage>() ?? _logger;
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
-            _renderer = new DrumConfigRenderer(_game.GraphicsDevice, _game.ResourceManager, _logger);
+            _renderer = new DrumConfigRenderer(_game.GraphicsDevice, _game.ResourceManager, Logger);
             _input = _game.InputManager; // IStageGame.InputManager is concretely InputManagerCompat
 
             _capture.Stop();

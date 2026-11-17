@@ -12,10 +12,12 @@ using RD = DTXMania.Test.TestData.ReflectionHelpers;
 namespace DTXMania.Test.Resources;
 
 // HPA-796 Task 3: ResourceManager.OnResourceLoadFailed classifies load
-// failures — expected optional-asset misses (FileNotFoundException) log at
-// Debug (filtered in ordinary Release runs), unexpected decode/I/O failures
-// warn once with the original exception and the path. The ResourceLoadFailed
-// event stays raised so TryLoadTexture/TryLoadSound keep their contract.
+// failures by caller intent — a missing file behind TryLoadTexture/TryLoadSound
+// is an explicit optional probe (Debug, filtered in ordinary Release runs), a
+// missing file behind LoadTexture/LoadSound is a required asset (one Warning
+// per path), and decode/I/O failures always warn with the original exception.
+// The ResourceLoadFailed event stays raised so TryLoadTexture/TryLoadSound keep
+// their contract.
 [Trait("Category", "Unit")]
 public class ResourceManagerLoadFailureLoggingTests
 {
@@ -81,7 +83,7 @@ public class ResourceManagerLoadFailureLoggingTests
     }
 
     [Fact]
-    public void LoadTexture_MissingOptionalFile_ShouldLogDebugOnly_AndStillRaiseEvent()
+    public void LoadTexture_MissingRequiredFile_ShouldWarnOncePerPath_AndStillRaiseEvent()
     {
         var logger = CreateLoggerMock();
         var failedPaths = new List<string>();
@@ -103,9 +105,42 @@ public class ResourceManagerLoadFailureLoggingTests
         Assert.Equal(missingPath, failedPaths[0]);
         Assert.IsType<FileNotFoundException>(failedExceptions[0]);
 
-        // Expected miss stays below Warning. Matchers must be built inline —
-        // a matcher value passed through a helper parameter is captured as a
-        // plain constant.
+        // A required-asset miss is visible at the default level, exactly once per
+        // path. Matchers must be built inline — a matcher value passed through a
+        // helper parameter is captured as a plain constant.
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains(missingPath, StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+
+        // The fallback texture is not cached, so a repeat miss must not repeat the Warning.
+        resourceManager.LoadTexture(missingPath);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void TryLoadTexture_MissingFile_ShouldLogDebugOnly_AndReportFailure()
+    {
+        var logger = CreateLoggerMock();
+        using var resourceManager = new ThrowingDecodeResourceManager(
+            RD.CreateUninitialized<GraphicsDevice>(), logger.Object);
+
+        var missingPath = $"hpa796-optional-{Guid.NewGuid():N}.png";
+        var loaded = resourceManager.TryLoadTexture(missingPath, out var texture);
+
+        Assert.False(loaded);
+        Assert.NotNull(texture);
         logger.Verify(
             l => l.Log(
                 LogLevel.Debug,
@@ -146,7 +181,7 @@ public class ResourceManagerLoadFailureLoggingTests
     }
 
     [Fact]
-    public void LoadSound_MissingOptionalFile_ShouldLogDebugOnly()
+    public void LoadSound_MissingRequiredFile_ShouldWarnOnce()
     {
         var logger = CreateLoggerMock();
         var missingExceptions = new List<Exception?>();
@@ -161,13 +196,13 @@ public class ResourceManagerLoadFailureLoggingTests
         Assert.IsType<FileNotFoundException>(missingExceptions[0]);
         logger.Verify(
             l => l.Log(
-                LogLevel.Debug,
+                LogLevel.Warning,
                 It.IsAny<EventId>(),
                 It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains(missingPath, StringComparison.Ordinal)),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
-        VerifyNever(logger, LogLevel.Warning);
+        VerifyNever(logger, LogLevel.Debug);
     }
 
     [Fact]
@@ -208,12 +243,12 @@ public class ResourceManagerLoadFailureLoggingTests
         Assert.NotNull(texture);
         logger.Verify(
             l => l.Log(
-                LogLevel.Debug,
+                LogLevel.Warning,
                 It.IsAny<EventId>(),
                 It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains(missingPath, StringComparison.Ordinal)),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
-        VerifyNever(logger, LogLevel.Warning);
+        VerifyNever(logger, LogLevel.Debug);
     }
 }

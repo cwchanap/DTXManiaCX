@@ -7,6 +7,8 @@ using System.Diagnostics.CodeAnalysis;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -24,6 +26,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         // group only; never disposed or reference-tracked by this renderer.
         private readonly Texture2D? _playbackBackdropTexture;
         private readonly List<ITexture> _loadedTextures = new();
+        private readonly ILogger _logger;
 
         private ITexture? _backgroundTexture;
         private ITexture? _rankBackgroundTexture;
@@ -43,8 +46,10 @@ namespace DTXMania.Game.Lib.Stage.Result
             IFont? largeFont,
             IFont? valueFont = null,
             IFont? countFont = null,
-            Texture2D? playbackBackdropTexture = null)
+            Texture2D? playbackBackdropTexture = null,
+            ILogger? logger = null)
         {
+            _logger = logger ?? NullLogger.Instance;
             _resources = resources ?? throw new ArgumentNullException(nameof(resources));
             _smallFont = smallFont;
             _normalFont = normalFont;
@@ -143,8 +148,16 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         private ITexture? LoadTextureIfAvailable(string? path)
         {
-            if (string.IsNullOrWhiteSpace(path) || !ResourceExists(path))
+            if (string.IsNullOrWhiteSpace(path))
                 return null;
+
+            if (!ResourceExists(path))
+            {
+                // ResourceManager never sees a pre-checked miss, so report it here (Debug:
+                // optional skin art, e.g. a rank badge, may legitimately be absent).
+                _logger.LogDebug("Optional result texture unavailable: {Path}", path);
+                return null;
+            }
 
             try
             {
