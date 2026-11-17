@@ -19,12 +19,12 @@ public class SongManagerConfigureLoggerTests
     {
         var method = typeof(SongManager).GetMethod(
             "SafeInvoke",
-            BindingFlags.NonPublic | BindingFlags.Static,
+            BindingFlags.NonPublic | BindingFlags.Instance,
             null,
             new[] { typeof(EventHandler), typeof(object), typeof(EventArgs), typeof(string) },
             null);
         Assert.NotNull(method);
-        method!.Invoke(null, new object[] { throwingHandler, SongManager.Instance, EventArgs.Empty, eventName });
+        method!.Invoke(SongManager.Instance, new object[] { throwingHandler, SongManager.Instance, EventArgs.Empty, eventName });
     }
 
     [Fact]

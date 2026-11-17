@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
@@ -24,6 +26,8 @@ namespace DTXMania.Game.Lib.Stage
         protected StageTransitionPayload? _transitionPayload;
         #nullable restore
 
+        private ILogger _logger;
+
         // Background system
         private ITexture _stageBackgroundTexture;
         private bool _backgroundLoadAttempted = false;
@@ -31,6 +35,13 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// Stage logger, categorized by the concrete stage type. Resolved lazily from
+        /// <see cref="IStageGame.LoggerFactory"/>; a no-op logger when none is provided.
+        /// </summary>
+        protected ILogger Logger =>
+            _logger ??= _game?.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
 
         public abstract StageType Type { get; }
         public StagePhase CurrentPhase => _currentPhase;

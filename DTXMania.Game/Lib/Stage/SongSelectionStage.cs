@@ -605,9 +605,7 @@ namespace DTXMania.Game.Lib.Stage
             _ownsInputManager = inputManager == null;
             if (_ownsInputManager)
             {
-                var logger = _game?.LoggerFactory?.CreateLogger<SongSelectionStage>()
-                    ?? NullLogger<SongSelectionStage>.Instance;
-                logger.LogWarning(
+                Logger.LogWarning(
                     "SongSelectionStage: No shared InputManager available; MCP key injection will not work. " +
                     "This should not occur in production — IStageGame.InputManager should be provided by the host.");
             }
@@ -917,8 +915,9 @@ namespace DTXMania.Game.Lib.Stage
                                 null,
                                 Array.Empty<SongListNode>());
                         }
-                        catch (Exception)
+                        catch (Exception ex)
                         {
+                            Logger.LogWarning(ex, "Song library snapshot read failed; showing an empty song list");
                             result = new SongInitializationResult(
                                 initializationActivationVersion,
                                 initializationGeneration,
@@ -948,9 +947,9 @@ namespace DTXMania.Game.Lib.Stage
                     ReconcileLibrarySnapshot(songManager.GetLibrarySnapshot());
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-
+                Logger.LogWarning(ex, "Song library initialization failed; showing an empty song list");
                 // Fallback to empty list
                 ClearNavigationForPendingLibrary();
                 _currentSongList = new List<SongListNode>();
@@ -1166,8 +1165,9 @@ namespace DTXMania.Game.Lib.Stage
                         ReapplyPersistedFilterIfActive();
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Logger.LogWarning(ex, "Applying the song library initialization result failed");
                     if (_appliedLibrarySnapshot == null)
                     {
                         _currentSongList = new List<SongListNode>();
@@ -3908,6 +3908,12 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (task.IsFaulted || task.IsCanceled)
                 {
+                    // Observe the exception so the failed persist is reported, not just reverted.
+                    Logger.LogWarning(
+                        task.Exception?.GetBaseException(),
+                        "Bookmark save failed for song {SongId} (target state {Bookmarked}); reverting",
+                        songId,
+                        newState);
                     _pendingBookmarkReverts.Enqueue((songId, !newState, toggleVersion));
                 }
             }, TaskScheduler.Default);

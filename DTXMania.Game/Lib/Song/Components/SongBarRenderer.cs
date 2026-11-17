@@ -437,9 +437,6 @@ namespace DTXMania.Game.Lib.Song.Components
             if (songNode == null)
                 return null;
 
-            // Performance metrics: Measure priority generation timing
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
             var barInfo = new SongBarInfo
             {
                 SongNode = songNode,
@@ -464,12 +461,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 songNode,
                 difficulty,
                 playSpeedPercent);
-
-            // Performance metrics logging
-            stopwatch.Stop();
-            if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if priority generation takes more than 2ms
-            {
-            }
 
             return barInfo;
         }

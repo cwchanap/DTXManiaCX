@@ -927,6 +927,50 @@ namespace DTXMania.Test.Stage.Performance
             }
         }
 
+        [Fact]
+        public async Task PrepareAsync_DefaultProfile_ThrowingFailureReporter_ShouldNotFailPreparation()
+        {
+            var directory = CreateTempDirectory();
+            try
+            {
+                var corruptChip = CreateSource(directory, "corrupt.wav");
+                var healthyChip = CreateSource(directory, "healthy.wav");
+                var healthySound = new Mock<ISound>();
+
+                // Logging providers can throw (M.E.L rethrows them as AggregateException);
+                // a failing report must not turn a skipped sound into a failed preparation.
+                var prepared = await PreparedGameplayAudioSet.PrepareAsync(
+                    null,
+                    Array.Empty<string>(),
+                    new Dictionary<string, string>
+                    {
+                        ["01"] = corruptChip,
+                        ["02"] = healthyChip,
+                    },
+                    new PlaybackModifiers(100, 0),
+                    processor: null,
+                    cache: null,
+                    progress: null,
+                    CancellationToken.None,
+                    path => path == corruptChip
+                        ? throw new InvalidOperationException("Simulated corrupt chip")
+                        : healthySound.Object,
+                    (artifact, path) => throw new InvalidOperationException(
+                        "Prepared factory should not run for default profile."),
+                    reportSoundLoadFailure: (path, exception) =>
+                        throw new AggregateException("logger provider failed"));
+
+                Assert.Single(prepared.ChipSoundsByWavId);
+                Assert.Same(healthySound.Object, prepared.ChipSoundsByWavId["02"]);
+
+                prepared.Dispose();
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
         private static string CreateSource(string directory, string name)
         {
             var path = Path.Combine(directory, name);

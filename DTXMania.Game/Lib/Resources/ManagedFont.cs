@@ -85,7 +85,12 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         internal static void ConfigureLogger(ILogger<ManagedFont> logger)
         {
-            _logger = logger ?? NullLogger<ManagedFont>.Instance;
+            lock (_fontFactoryLock)
+            {
+                _logger = logger ?? NullLogger<ManagedFont>.Instance;
+                // A new logger starts a fresh reporting scope.
+                _reportedFontFailures.Clear();
+            }
         }
 
         /// <summary>
@@ -97,6 +102,9 @@ namespace DTXMania.Game.Lib.Resources
             lock (_fontFactoryLock)
             {
                 _contentManager = contentManager ?? throw new ArgumentNullException(nameof(contentManager));
+                // A new ContentManager is a new failure scope; earlier reports must not
+                // suppress failures against it.
+                _reportedFontFailures.Clear();
             }
         }
 
@@ -313,6 +321,7 @@ namespace DTXMania.Game.Lib.Resources
                 _contentManager = contentManager;
                 _defaultFont = defaultFont;
                 _loadedFonts.Clear();
+                _reportedFontFailures.Clear();
                 if (loadedFonts != null)
                 {
                     foreach (var kvp in loadedFonts)
@@ -334,6 +343,7 @@ namespace DTXMania.Game.Lib.Resources
                 _contentManager = null;
                 _defaultFont = null;
                 _loadedFonts.Clear();
+                _reportedFontFailures.Clear();
             }
         }
 

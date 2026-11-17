@@ -282,12 +282,10 @@ namespace DTXMania.Game.Lib.Stage
 
         private void LogResultScreenshotWarning(string message, Exception? exception = null)
         {
-            var logger = _game?.LoggerFactory?.CreateLogger<ResultStage>()
-                ?? NullLogger<ResultStage>.Instance;
             if (exception is null)
-                logger.LogWarning(message);
+                Logger.LogWarning(message);
             else
-                logger.LogWarning(exception, message);
+                Logger.LogWarning(exception, message);
         }
 
         #endregion
@@ -340,9 +338,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                var logger = _game?.LoggerFactory?.CreateLogger<ResultStage>()
-                    ?? NullLogger<ResultStage>.Instance;
-                logger.LogWarning(ex, "Failed to initialize result renderer; result visuals are disabled for this run");
+                Logger.LogWarning(ex, "Failed to initialize result renderer; result visuals are disabled for this run");
                 _resultFont?.RemoveReference();
                 _smallResultFont?.RemoveReference();
                 _largeResultFont?.RemoveReference();
@@ -365,9 +361,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                var logger = _game?.LoggerFactory?.CreateLogger<ResultStage>()
-                    ?? NullLogger<ResultStage>.Instance;
-                logger.LogWarning(ex, "Failed to load result sounds");
+                Logger.LogWarning(ex, "Failed to load result sounds");
                 _resultSound = null;
                 _newRecordSound = null;
             }
@@ -428,7 +422,7 @@ namespace DTXMania.Game.Lib.Stage
             // _whitePixel is borrowed (stage-owned): the renderer draws the
             // playback backdrop with it but never disposes it.
             return new ResultScreenRenderer(_resourceManager, _smallResultFont, _resultFont, _largeResultFont,
-                _valueResultFont, _countResultFont, _whitePixel);
+                _valueResultFont, _countResultFont, _whitePixel, Logger);
         }
 
         private void CleanupComponents()

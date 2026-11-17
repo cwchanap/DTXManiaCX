@@ -1574,9 +1574,6 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_barRenderer == null || SelectedSong == null)
                 return;
 
-            // Performance metrics: Measure immediate texture generation timing
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
             // Generate bar info immediately for the selected song
             var barInfo = _barRenderer.GenerateBarInfoWithPriority(
                 SelectedSong,
@@ -1592,12 +1589,6 @@ namespace DTXMania.Game.Lib.Song.Components
                     _currentDifficulty,
                     PlaySpeedPercent);
                 SetBarInfoCacheEntry(cacheKey, barInfo);
-            }
-
-            // Performance metrics logging
-            stopwatch.Stop();
-            if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if processing takes more than 2ms
-            {
             }
         }/// <summary>
          /// Pre-generate textures for adjacent songs (±5 from current selection)

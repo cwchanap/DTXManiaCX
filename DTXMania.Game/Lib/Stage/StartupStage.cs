@@ -66,7 +66,6 @@ namespace DTXMania.Game.Lib.Stage
         // Services for actual functionality
         private readonly SongManager _songManager;
         private readonly IConfigManager _configManager;
-        private readonly ILogger<StartupStage> _logger;
 
         // Task tracking for async operations
         private readonly object _activationGate = new();
@@ -268,8 +267,6 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize services - use singleton for SongManager
             _songManager = SongManager.Instance;
             _configManager = _game.ConfigManager;
-            _logger = game.LoggerFactory?.CreateLogger<StartupStage>()
-                ?? NullLogger<StartupStage>.Instance;
 
             // Initialize cancellation token source for async operations
             _cancellationTokenSource = new CancellationTokenSource();
@@ -693,9 +690,14 @@ namespace DTXMania.Game.Lib.Stage
                         $"{currentPhaseInfo.message.Replace("...", "")} - Error";
                     if (_currentAsyncTask.IsFaulted)
                     {
+                        // The phase is still advanced below (startup must not hang), so
+                        // this is the only place the failure is surfaced.
+                        Logger.LogWarning(
+                            _currentAsyncTask.Exception?.GetBaseException(),
+                            "Startup phase {Phase} failed; continuing startup",
+                            _startupPhase);
                     }
                 }
-
             }
             else
             {
@@ -872,7 +874,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Database service initialization failed");
+                Logger.LogWarning(ex, "Database service initialization failed");
             }
         }
 

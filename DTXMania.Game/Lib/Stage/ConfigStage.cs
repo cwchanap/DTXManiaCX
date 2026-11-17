@@ -45,7 +45,6 @@ namespace DTXMania.Game.Lib.Stage
         // (which skip OnActivate) exercise the helpers without NullReferenceException, while real
         // runtime gets structured logging that survives Release builds (Debug.WriteLine is
         // [Conditional("DEBUG")] and compiles out in Release).
-        private ILogger<ConfigStage> _logger = NullLogger<ConfigStage>.Instance;
 
         private IConfigManager _configManager;
         private readonly Func<FfmpegRuntimeAvailability> _ffmpegAvailabilityProvider;
@@ -270,8 +269,7 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
-            _logger = _game.LoggerFactory?.CreateLogger<ConfigStage>() ?? _logger;
-            _logger.LogDebug("Activating Config Stage");
+            Logger.LogDebug("Activating Config Stage");
 
             InitializeGraphics();
             SetupConfigItems();
@@ -371,7 +369,7 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
-            _logger.LogDebug("Deactivating Config Stage");
+            Logger.LogDebug("Deactivating Config Stage");
 
             CancelSongOperationForDeactivation();
             FlushPendingSaveSafely();
@@ -408,7 +406,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (disposing)
             {
-                _logger.LogDebug("Disposing Config Stage resources");
+                Logger.LogDebug("Disposing Config Stage resources");
 
                 CancelSongOperationForDeactivation();
 
@@ -521,11 +519,11 @@ namespace DTXMania.Game.Lib.Stage
         {
             ITexture? texture = null;
             try { texture = _resourceManager.LoadTexture(path); }
-            catch (Exception ex) { _logger.LogDebug(ex, "optional texture unavailable: {Path}", path); return null; }
+            catch (Exception ex) { Logger.LogDebug(ex, "optional texture unavailable: {Path}", path); return null; }
 
             if (texture == null || texture.Width <= 1 || texture.Height <= 1)
             {
-                _logger.LogDebug("optional texture unavailable (asset missing or 1x1 fallback): {Path}", path);
+                Logger.LogDebug("optional texture unavailable (asset missing or 1x1 fallback): {Path}", path);
                 texture?.Dispose();
                 return null;
             }
@@ -1058,14 +1056,14 @@ namespace DTXMania.Game.Lib.Stage
                 // already advanced its private index. Re-pin the index to the
                 // still-effective skin so the next left/right action starts
                 // from the right entry, then keep the current skin.
-                _logger.LogWarning(ex, "Skin switch to '{SkinName}' threw; keeping the current skin", skinName);
+                Logger.LogWarning(ex, "Skin switch to '{SkinName}' threw; keeping the current skin", skinName);
                 _skinDropdown?.ResyncFromCurrent();
                 return;
             }
 
             if (!switched)
             {
-                _logger.LogWarning("Skin switch to '{SkinName}' failed; keeping the current skin", skinName);
+                Logger.LogWarning("Skin switch to '{SkinName}' failed; keeping the current skin", skinName);
                 // DropdownConfigItem.NextValue/PreviousValue advanced the
                 // item's private index to the rejected option before invoking
                 // SwitchSkin. Re-pin it to the still-effective skin so the
@@ -1096,7 +1094,7 @@ namespace DTXMania.Game.Lib.Stage
                 : effectivePath;
             _configManager.SetSkinPath(persistedPath);
 
-            _logger.LogInformation("Switched skin to '{SkinName}'", skinName);
+            Logger.LogInformation("Switched skin to '{SkinName}'", skinName);
 
             // Live reload of this stage's own art. Guarded: headless tests invoke
             // SetupConfigItems without InitializeGraphics, so _resourceManager is null there.
@@ -1252,7 +1250,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception exception)
             {
-                _logger.LogWarning(exception, "ConfigStage: failed to save song folders");
+                Logger.LogWarning(exception, "ConfigStage: failed to save song folders");
                 return new SongFolderApplyResult(
                     SongFolderApplyStatus.PersistenceFailed,
                     roots,
@@ -1333,7 +1331,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception exception)
             {
-                _logger.LogWarning(exception, "ConfigStage: NX import could not be started");
+                Logger.LogWarning(exception, "ConfigStage: NX import could not be started");
                 _importStatus = "NX import could not be started.";
             }
             finally
@@ -1395,7 +1393,7 @@ namespace DTXMania.Game.Lib.Stage
                     // The coordinator installs a fallback terminal continuation
                     // before rethrowing, so ownership remains with the running
                     // task rather than being released early here.
-                    _logger.LogWarning(
+                    Logger.LogWarning(
                         exception,
                         "ConfigStage: terminal observer registration failed for {Operation}",
                         kind);
@@ -1405,7 +1403,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception exception)
             {
-                _logger.LogWarning(
+                Logger.LogWarning(
                     exception,
                     "ConfigStage: failed to start {Operation}",
                     kind);
@@ -1450,7 +1448,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 catch (Exception exception)
                 {
-                    _logger.LogWarning(
+                    Logger.LogWarning(
                         exception,
                         "ConfigStage: NX import committed but song-list refresh failed");
                     return new ConfigSongOperationCompletion(
@@ -1483,7 +1481,7 @@ namespace DTXMania.Game.Lib.Stage
                 else if (completed.IsFaulted)
                 {
                     var exception = completed.Exception?.GetBaseException();
-                    _logger.LogError(
+                    Logger.LogError(
                         exception,
                         "ConfigStage: {Operation} failed",
                         kind);
@@ -1504,7 +1502,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception exception)
             {
-                _logger.LogError(
+                Logger.LogError(
                     exception,
                     "ConfigStage: {Operation} terminal observation failed",
                     kind);
@@ -1717,7 +1715,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void ExitToTitle()
         {
-            _logger.LogDebug("Config: Returning to Title stage");
+            Logger.LogDebug("Config: Returning to Title stage");
             FlushPendingSaveSafely();
             ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
         }
@@ -1755,7 +1753,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "ConfigStage: failed to flush pending save");
+                Logger.LogWarning(ex, "ConfigStage: failed to flush pending save");
             }
         }
 
