@@ -887,15 +887,17 @@ namespace DTXMania.Test.Stage
         public async Task Dispose_WhenEnumerationFaultsAfterDisposal_ShouldNotThrow()
         {
             var stage = CreateControlledStage();
-            var completion = new TaskCompletionSource<SongEnumerationResult>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var faultObserved = new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            // The chain awaits this wrapper (not completion.Task directly), so its
-            // continuation runs only once the worker actually consumed the fault;
-            // waiting on it below synchronizes with the real worker unwind.
-            stage.NextEnumerationTask =
-                ObserveEnumerationOutcomeAsync(completion.Task, faultObserved);
+            // Deliberately NOT RunContinuationsAsynchronously: combined with the
+            // dedicated fault thread below (which has no SynchronizationContext
+            // and the default TaskScheduler), this makes SetException inline the
+            // chain's continuation per the TPL inlining contract, unwinding the
+            // whole chain synchronously — including the exception handler's
+            // fallback guard. (Delivering the fault from the test thread would
+            // queue the unwind instead: xUnit installs AsyncTestSyncContext,
+            // which TPL treats as an invalid inlining location, so any signal
+            // from a test-side wrapper would fire before the handler ran.)
+            var completion = new TaskCompletionSource<SongEnumerationResult>();
+            stage.NextEnumerationTask = completion.Task;
             var scope = stage.InstallTestBackgroundScope();
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
@@ -914,16 +916,20 @@ namespace DTXMania.Test.Stage
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
 
             // The chain faults after disposal; the retired scope drops the result.
-            completion.SetException(new InvalidOperationException("boom"));
-            // Deterministic unwind: wait until the worker actually consumed the
-            // fault. Past that point the fallback guard's inputs are frozen (the
-            // scope token was already canceled by disposal), so no fallback can
-            // run after the signal — the assertion below cannot pass vacuously.
+            // The bare fault thread satisfies TPL's inlining location rules (no
+            // sync context, default scheduler) and the gate task opts into
+            // inlining, so SetException returns only after the chain's exception
+            // handler fully unwound on that thread: a regression that attempted
+            // fallback here would increment BuildHierarchyCalls inside
+            // SetException, before the assertion below — the assertion
+            // synchronizes with actual chain completion and cannot pass
+            // vacuously.
+            var faultThread = new Thread(() =>
+                completion.SetException(new InvalidOperationException("boom")));
+            faultThread.Start();
             Assert.True(
-                SpinWait.SpinUntil(
-                    () => faultObserved.Task.IsCompleted,
-                    TimeSpan.FromSeconds(5)),
-                "the worker did not consume the enumeration fault");
+                faultThread.Join(TimeSpan.FromSeconds(5)),
+                "the fault thread did not complete the chain unwind");
             Assert.Equal(0, stage.BuildHierarchyCalls);
         }
 
@@ -1309,27 +1315,6 @@ namespace DTXMania.Test.Stage
                 TimeSpan.FromSeconds(5));
             Assert.True(started, "the enumeration chain did not start");
             return Task.CompletedTask;
-        }
-
-        /// <summary>
-        /// Wraps an enumeration completion task so a test can observe the moment
-        /// the worker actually consumed its outcome: the wrapper's continuation
-        /// runs only after the wrapped task settled. Waiting on
-        /// <paramref name="outcome"/> is a deterministic unwind signal, unlike a
-        /// grace delay which can assert before the worker resumed.
-        /// </summary>
-        private static async Task<SongEnumerationResult> ObserveEnumerationOutcomeAsync(
-            Task<SongEnumerationResult> enumeration,
-            TaskCompletionSource outcome)
-        {
-            try
-            {
-                return await enumeration.ConfigureAwait(false);
-            }
-            finally
-            {
-                outcome.TrySetResult();
-            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
