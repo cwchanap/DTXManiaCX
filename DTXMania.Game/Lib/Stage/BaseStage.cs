@@ -32,6 +32,12 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture _stageBackgroundTexture;
         private bool _backgroundLoadAttempted = false;
 
+        // Stage-local background work (HPA-799): fresh scope per activation,
+        // drained at the start of Update, retired synchronously before OnDeactivate.
+        #nullable enable
+        private StageBackgroundWorkScope? _backgroundWork;
+        #nullable restore
+
         #endregion
 
         #region Properties
@@ -51,6 +57,17 @@ namespace DTXMania.Game.Lib.Stage
         /// Whether the stage is active (opposite of b活性化してない)
         /// </summary>
         public bool IsActive => _currentPhase != StagePhase.Inactive;
+
+        /// <summary>
+        /// Stage-local background work scope for the current activation (HPA-799).
+        /// Created on Activate, drained by Update before stage logic, and retired
+        /// synchronously before OnDeactivate; null outside an active activation.
+        /// Internal because the scope type is internal; all stage subclasses and
+        /// test fixtures live inside this assembly (plus InternalsVisibleTo).
+        /// </summary>
+        #nullable enable
+        internal StageBackgroundWorkScope? BackgroundWork => _backgroundWork;
+        #nullable restore
 
         #endregion
 
@@ -86,6 +103,11 @@ namespace DTXMania.Game.Lib.Stage
             _isFirstUpdate = true;
             _currentPhase = StagePhase.FadeIn;
 
+            // Fresh stage-local scope per activation, available to OnActivate.
+            // Retire any leftover scope so queued owned results cannot leak.
+            RetireBackgroundWork();
+            _backgroundWork = new StageBackgroundWorkScope();
+
             // Load stage background
             LoadStageBackground();
 
@@ -100,6 +122,10 @@ namespace DTXMania.Game.Lib.Stage
             return;
         }
 
+
+            // Retire queued background work before stage teardown so dropped
+            // results cannot reach disposed UI/resources (HPA-799).
+            RetireBackgroundWork();
 
             // Perform stage-specific deactivation
             OnDeactivate();
@@ -118,12 +144,25 @@ namespace DTXMania.Game.Lib.Stage
             if (_currentPhase == StagePhase.Inactive)
                 return;
 
+            // Apply background-work results before stage logic and input,
+            // capped at a bounded budget per frame (HPA-799).
+            _backgroundWork?.Drain();
+
+            // A drained callback may have triggered a synchronous
+            // InstantTransition/Deactivate; never continue while inactive.
+            if (_currentPhase == StagePhase.Inactive)
+                return;
+
             // Handle first update
             if (_isFirstUpdate)
             {
                 _isFirstUpdate = false;
                 OnFirstUpdate(deltaTime);
             }
+
+            // OnFirstUpdate may also have deactivated the stage synchronously.
+            if (_currentPhase == StagePhase.Inactive)
+                return;
 
             // Update phase-specific logic
             UpdatePhase(deltaTime);
@@ -225,6 +264,33 @@ namespace DTXMania.Game.Lib.Stage
         #nullable restore
         {
             StageManager?.ChangeStage(stageType, transition ?? new InstantTransition(), payload);
+        }
+
+        /// <summary>
+        /// Retires the current background-work scope synchronously (HPA-799); idempotent.
+        /// Called by Deactivate before OnDeactivate; stages overriding Deactivate with
+        /// their own teardown call this first so dropped results cannot reach disposed
+        /// resources.
+        /// </summary>
+        protected void RetireBackgroundWork()
+        {
+            var scope = _backgroundWork;
+            _backgroundWork = null;
+            scope?.Retire();
+        }
+
+        /// <summary>
+        /// Internal headless-test seam (HPA-799): installs a fresh scope without
+        /// activation for stages that cannot call Activate under test (GPU-dependent
+        /// construction). Any previous scope is retired synchronously. Never used by
+        /// production code and intentionally the only such seam.
+        /// </summary>
+        internal StageBackgroundWorkScope InstallTestBackgroundScope()
+        {
+            RetireBackgroundWork();
+            var scope = new StageBackgroundWorkScope();
+            _backgroundWork = scope;
+            return scope;
         }
 
         #endregion
