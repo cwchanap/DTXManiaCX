@@ -882,6 +882,152 @@ public class PerformanceStageDeterministicTests
         }
     }
 
+    #region Final-review regressions: scroll speed apply and pad feedback during preparation
+
+    [Fact]
+    public void StartGameplayInitialization_WhenScrollSpeedChangesDuringPreparation_ShouldApplyCurrentConfigSpeedNotTheSnapshot()
+    {
+        // PageUp/PageDown stay active while loading (HandleInput runs every update),
+        // so the success callback must read the config at apply time on the update
+        // thread. Applying the activation snapshot would snap the renderer back to
+        // the stale value and diverge from the live config and the toast.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var config = new ConfigData { ScrollSpeed = 100 };
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+            var stage = CreateGatedVariantStage(game);
+            stage.InstallTestBackgroundScope();
+            var chart = new ParsedChart("scroll-change.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "scroll-change-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", CreateNoteRenderer());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+
+            StartGameplayInitialization(stage);
+            Assert.True(
+                SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
+                "the worker never reached the variant processor");
+
+            // The user changes the scroll speed while preparation is still in flight.
+            config.ScrollSpeed = 200;
+
+            stage.ReleaseProcessor.TrySetResult();
+            RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+            var renderer = ReflectionHelpers.GetPrivateField<NoteRenderer>(stage, "_noteRenderer");
+            Assert.NotNull(renderer);
+            // 200% → 2.0× the base pixels/ms. The stale 100% snapshot would leave 1.0×.
+            Assert.Equal(
+                PerformanceUILayout.NoteBaseScrollPixelsPerMs * 2.0,
+                renderer!.ScrollPixelsPerMs,
+                8);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WireUpInputEventHandlers_WhenCalledRepeatedly_ShouldSubscribeExactlyOnce()
+    {
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+
+        // Installed at InitializeComponents (before preparation) and again by the
+        // gameplay-manager init; the second call must not double-subscribe.
+        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
+        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
+
+        Assert.Equal(1, CountPadFeedbackSubscribers(stage, inputManager));
+    }
+
+    [Fact]
+    public void OnLaneHitForPadFeedback_DuringLoading_ShouldLightThePad()
+    {
+        // Manual hits during loading/countdown must light the pad: the pad-feedback
+        // handler is wired before preparation starts, and OnLaneHitForPadFeedback
+        // deliberately supports the loading state (no song timer yet).
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", true);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
+        inputManager.TriggerLaneHit(3);
+
+        Assert.Equal(PadState.Pressed, PadStateOf(padRenderer, 3));
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenPreparationFails_ShouldKeepPadFeedbackWired()
+    {
+        // Immediate visual feedback is independent of successful preparation: the
+        // handler installed at component initialization must survive FailLoading so
+        // hits still light pads on the failure screen, with no double subscription.
+        var stage = CreateThrowingAudioVariantStage();
+        stage.InstallTestBackgroundScope();
+        var inputManager = new MockInputManagerCompat();
+        var padRenderer = CreatePadRenderer();
+        var chart = new ParsedChart("failed-prep-pads.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        // Non-default profile makes the worker call the overridden
+        // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
+        StartGameplayInitialization(stage);
+        DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+
+        Assert.Contains(
+            "Audio preparation failed",
+            ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+        inputManager.TriggerLaneHit(3);
+        Assert.Equal(PadState.Pressed, PadStateOf(padRenderer, 3));
+        Assert.Equal(1, CountPadFeedbackSubscribers(stage, inputManager));
+    }
+
+    [Fact]
+    public void CleanupGameplayManagers_ShouldUnsubscribePadFeedback()
+    {
+        // The early install is balanced by the deactivate-time cleanup: no leaked
+        // subscription survives teardown.
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupGameplayManagers");
+
+        Assert.Equal(0, CountPadFeedbackSubscribers(stage, inputManager));
+        inputManager.TriggerLaneHit(3);
+        Assert.Equal(PadState.Idle, PadStateOf(padRenderer, 3));
+    }
+
+    #endregion
+
     [Fact]
     public void PlayMetronomeClick_WhenBeatSoundPersistentlyFails_ShouldReportOncePerRun()
     {
@@ -1632,12 +1778,12 @@ public class PerformanceStageDeterministicTests
         return Path.GetFullPath(path);
     }
 
-    private static GatedVariantStage CreateGatedVariantStage()
+    private static GatedVariantStage CreateGatedVariantStage(BaseGame? game = null)
     {
 #pragma warning disable SYSLIB0050
         var stage = (GatedVariantStage)FormatterServices.GetUninitializedObject(typeof(GatedVariantStage));
 #pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
         ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
         // All gates must exist before any work starts: FormatterServices skips
@@ -6603,6 +6749,30 @@ public class PerformanceStageDeterministicTests
 #pragma warning disable SYSLIB0050
         return (SkillPanelDisplay)FormatterServices.GetUninitializedObject(typeof(SkillPanelDisplay));
 #pragma warning restore SYSLIB0050
+    }
+
+    /// <summary>
+    /// Counts the stage's own handlers subscribed to the ModularInputManager's
+    /// OnLaneHit event via its compiler-generated backing field (same reflection
+    /// trick MockInputManagerCompat.TriggerLaneHit uses to raise it). The manager
+    /// carries unrelated internal subscribers, so entries are filtered by target.
+    /// </summary>
+    private static int CountPadFeedbackSubscribers(
+        object stage,
+        MockInputManagerCompat inputManager)
+    {
+        var field = typeof(ModularInputManager).GetField(
+            "OnLaneHit",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var handler = (EventHandler<LaneHitEventArgs>?)field?.GetValue(inputManager.ModularInputManager);
+        return handler?.GetInvocationList().Count(d => ReferenceEquals(d.Target, stage)) ?? 0;
+    }
+
+    private static PadState PadStateOf(PadRenderer padRenderer, int lane)
+    {
+        var visuals = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+        Assert.NotNull(visuals);
+        return visuals![lane].State;
     }
 
     private static PadRenderer CreatePadRenderer()
