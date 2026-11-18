@@ -117,6 +117,13 @@ namespace DTXMania.Game.Lib.Stage
         // access) to version-guard the worker-side shared-entity revert.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _bookmarkToggleVersion = new();
 
+        // Serializes the bookmark revert decision across threads: the update-thread toggle
+        // bump and the worker-side fault continuation's version check + shared-snapshot
+        // revert hold this same gate, so a newer toggle's bump can never slip between the
+        // stale continuation's version check and its revert (check-then-write atomicity).
+        // Held only for in-memory flag work — never across DB I/O.
+        private readonly object _bookmarkRevertGate = new();
+
         // Pending bookmark reverts are posted into the activation scope by the faulted persist
         // continuation (which runs on a thread-pool thread); the scope drain applies them on
         // the update thread so the in-memory flag and the reconciled lists roll back safely
@@ -3563,8 +3570,12 @@ namespace DTXMania.Game.Lib.Stage
             if (songId <= 0)
                 return;
             // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
-            // from a fault of an older, already-superseded toggle at rollback time.
-            int toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
+            // from a fault of an older, already-superseded toggle at rollback time. The bump
+            // shares _bookmarkRevertGate with the worker-side fault continuation so a stale
+            // check-then-revert can never interleave with this bump.
+            int toggleVersion;
+            lock (_bookmarkRevertGate)
+                toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
 
             // Persist asynchronously, serialized per song so rapid toggles apply in order and
             // the last user intent (the captured newState above) is what lands in the database.
@@ -3595,16 +3606,27 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (task.IsFaulted || task.IsCanceled)
                 {
-                    // A failed write leaves no committed intent: revert the shared
-                    // SongManager entity on this worker even when navigation retired the
-                    // origin scope (whose posted UI rollback was dropped), so reentry starts
-                    // DB-consistent. The bool write is atomic and the version guard leaves a
-                    // newer toggle in ownership of the flag; the per-activation UI lists are
-                    // still only reconciled by the posted rollback on the update thread.
-                    if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
-                        || current == toggleVersion)
+                    // A failed write leaves no committed intent: revert the SHARED library
+                    // entities on this worker even when navigation retired the origin scope
+                    // (whose posted UI rollback was dropped), so reentry starts DB-consistent.
+                    // The shared snapshot — not the captured per-activation entity — is what
+                    // survives navigation and backs the reentry browse tree (Recent/Bookmarks
+                    // nodes hold distinct entity instances from it), and reconciling it by
+                    // song id also covers duplicate SET.def nodes. The version check and the
+                    // reconcile hold the same gate as the update-thread bump, so a newer
+                    // toggle's bump can never slip between this check and its revert; the
+                    // per-activation UI lists are still only reconciled by the posted rollback
+                    // on the update thread.
+                    lock (_bookmarkRevertGate)
                     {
-                        song.IsBookmarked = !newState;
+                        if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
+                            || current == toggleVersion)
+                        {
+                            BookmarkStateReconciler.Apply(
+                                SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                                songId,
+                                !newState);
+                        }
                     }
 
                     // Hand the revert to the origin scope first, then log: the warning says
