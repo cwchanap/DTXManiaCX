@@ -84,8 +84,15 @@ namespace DTXMania.Game.Lib.Stage
         /// retired), <paramref name="onDropped"/> disposes the owned result exactly
         /// once instead. Exceptions thrown by the update-thread callbacks are the
         /// owning stage's responsibility (local try/catch/finally).
+        ///
+        /// Returns the worker task so an owner can observe completion
+        /// deterministically: it completes when the work ends, carrying the
+        /// produced result (even when that result was dropped by retirement) and
+        /// the default value when the work was canceled or faulted. The task never
+        /// faults — all worker exceptions are handled here — so callers may safely
+        /// ignore it.
         /// </summary>
-        public void Run<T>(
+        public Task<T?> Run<T>(
             Func<CancellationToken, T> work,
             Action<T> onSuccess,
             Action<Exception>? onError = null,
@@ -98,11 +105,11 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (_retired)
                 {
-                    return;
+                    return Task.FromResult<T?>(default);
                 }
             }
 
-            _ = Task.Run(() =>
+            return Task.Run<T?>(() =>
             {
                 T result;
                 try
@@ -112,15 +119,16 @@ namespace DTXMania.Game.Lib.Stage
                 catch (OperationCanceledException)
                 {
                     // Expected outcome (e.g. retirement) — observed, nothing queued.
-                    return;
+                    return default;
                 }
                 catch (Exception ex)
                 {
                     EnqueueError(ex, onError);
-                    return;
+                    return default;
                 }
 
                 EnqueueSuccess(result, onSuccess, onDropped);
+                return result;
             });
         }
 

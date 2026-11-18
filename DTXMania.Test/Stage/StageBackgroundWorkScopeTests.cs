@@ -410,6 +410,99 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void Run_ShouldCompleteTheReturnedTaskWithTheResult()
+        {
+            // The worker task returned by Run completes when the work completes,
+            // carrying the produced result, so an owner can observe completion
+            // deterministically instead of polling the queue.
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+
+            var task = scope.Run<string>(_ => "payload", applied.Add);
+
+            Assert.True(task.Wait(TimeSpan.FromSeconds(5)), "worker did not complete");
+            Assert.Equal("payload", task.Result);
+            scope.Drain();
+            Assert.Equal(new[] { "payload" }, applied);
+        }
+
+        [Fact]
+        public void Run_ResultCompletingAfterRetire_ShouldCompleteTheReturnedTaskWithTheResult()
+        {
+            // A result landing after retirement takes the drop-direct path: the
+            // returned task still completes with the result (the observable
+            // terminal of the stale operation), and the drop callback still runs
+            // exactly once.
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+            var dropped = new ConcurrentQueue<string>();
+            var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var task = scope.Run<string>(
+                _ => { gate.Task.Wait(TimeSpan.FromSeconds(5)); return "late"; },
+                applied.Add,
+                onDropped: dropped.Enqueue);
+
+            scope.Retire();
+            gate.SetResult(true);
+            Assert.True(task.Wait(TimeSpan.FromSeconds(5)), "worker did not complete");
+            Assert.Equal("late", task.Result);
+            Assert.Equal(new[] { "late" }, dropped);
+            scope.Drain();
+            Assert.Empty(applied);
+        }
+
+        [Fact]
+        public void Run_Canceled_ShouldCompleteTheReturnedTaskWithDefault()
+        {
+            // Cancellation queues nothing and completes the returned task with the
+            // default result — the task is the silent cancellation's only observable
+            // terminal.
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var task = scope.Run<string>(
+                _ =>
+                {
+                    started.SetResult(true);
+                    SpinWait.SpinUntil(() => scope.Token.IsCancellationRequested, TimeSpan.FromSeconds(5));
+                    throw new OperationCanceledException(scope.Token);
+                },
+                applied.Add);
+
+            SpinUntilTrue(() => started.Task.IsCompleted, "worker did not start");
+            scope.Retire();
+            Assert.True(task.Wait(TimeSpan.FromSeconds(5)), "worker did not complete");
+            Assert.Null(task.Result);
+            scope.Drain();
+            Assert.Empty(applied);
+        }
+
+        [Fact]
+        public void Run_Fault_ShouldCompleteTheReturnedTaskWithDefault()
+        {
+            // A faulted work queues the error callback and completes the returned
+            // task with the default result; the task itself never faults.
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+            Exception? error = null;
+
+            var task = scope.Run<string>(
+                _ => throw new InvalidOperationException("boom"),
+                applied.Add,
+                ex => error = ex);
+
+            Assert.True(task.Wait(TimeSpan.FromSeconds(5)), "worker did not complete");
+            Assert.Null(task.Result);
+            Assert.Null(task.Exception);
+            scope.Drain();
+            Assert.NotNull(error);
+            Assert.Contains("boom", error!.Message);
+            Assert.Empty(applied);
+        }
+
+        [Fact]
         public void Run_LateResultCleanupThrows_ShouldIsolateDirectDropFailure()
         {
             // Regression (HPA-799 review): a result completing after retirement is
