@@ -135,21 +135,25 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Drain_ShouldApplyAtMost64ActionsPerCall()
         {
+            // The 64-callback frame budget is a design contract, so the test pins the
+            // literal rather than deriving it from the implementation constant: a
+            // budget change must consciously update this test.
+            const int budget = 64;
             var scope = new StageBackgroundWorkScope();
             var applied = 0;
-            for (var i = 0; i < StageBackgroundWorkScope.MaxActionsPerDrain + 6; i++)
+            for (var i = 0; i < budget + 6; i++)
             {
                 scope.Post(() => applied++);
             }
 
             scope.Drain();
 
-            Assert.Equal(StageBackgroundWorkScope.MaxActionsPerDrain, applied);
+            Assert.Equal(budget, applied);
             Assert.Equal(6, PendingQueueCount(scope));
 
             scope.Drain();
 
-            Assert.Equal(StageBackgroundWorkScope.MaxActionsPerDrain + 6, applied);
+            Assert.Equal(budget + 6, applied);
             Assert.Equal(0, PendingQueueCount(scope));
         }
 
