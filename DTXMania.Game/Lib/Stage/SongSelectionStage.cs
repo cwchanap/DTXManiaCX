@@ -89,6 +89,11 @@ namespace DTXMania.Game.Lib.Stage
         private int _bookmarksLoadVersion;
         private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync =
             () => SongManager.Instance.GetBookmarkedNodesAsync();
+        // Test seam for the Recent tab's DB query, mirroring _loadBookmarkedNodesAsync:
+        // BeginRecentPlaysLoad invokes it inside the scope worker so the query never
+        // starts on the update thread.
+        private Func<Task<List<SongListNode>>> _loadRecentPlaysNodesAsync =
+            () => SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit);
         // Set when the active tab's list must be repopulated on the next OnUpdate. It is owned
         // by the update thread; background completions queue into the activation scope instead.
         private bool _tabListNeedsRefresh;
@@ -3415,8 +3420,11 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Loads recent-plays nodes on the activation scope. The worker only queues its
-        /// result; the scope drain applies it on the update thread (HPA-799).
+        /// Loads recent-plays nodes on the activation scope. The DB query itself starts
+        /// inside the scope worker (it may execute synchronously and must never stall
+        /// the update thread, and a retirement-cancelled load must not leave an
+        /// orphaned query task behind); the worker only queues a completion, and the
+        /// scope drain applies it on the update thread (HPA-799).
         /// </summary>
         private void BeginRecentPlaysLoad()
         {
@@ -3424,17 +3432,17 @@ namespace DTXMania.Game.Lib.Stage
             if (scope == null)
                 return;
 
-            // Start the load on the update thread so query construction stays ordered with
-            // tab state and bookmark toggles (an async method never throws synchronously);
-            // the scope worker below only waits for it and queues the result (HPA-799).
-            var loadTask = SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit);
             scope.Run<IReadOnlyList<SongListNode>>(
                 token =>
                 {
                     try
                     {
                         token.ThrowIfCancellationRequested();
-                        return CopyTabLoadNodes(loadTask.GetAwaiter().GetResult());
+                        // Invoke the loader here, on the worker: reaching the DB (which
+                        // may run synchronously) must never happen on the update thread,
+                        // matching BeginBookmarksLoad. Same-activation ordering is
+                        // preserved by the scope's FIFO terminal queue.
+                        return CopyTabLoadNodes(_loadRecentPlaysNodesAsync().GetAwaiter().GetResult());
                     }
                     catch (OperationCanceledException) when (!token.IsCancellationRequested)
                     {
