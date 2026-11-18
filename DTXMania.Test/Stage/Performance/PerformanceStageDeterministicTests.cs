@@ -261,7 +261,10 @@ public class PerformanceStageDeterministicTests
     /// Waits for an initialization worker task and returns its result payload (the
     /// private GameplayInitializationResult record, or null when the operation was
     /// canceled/faulted). Completing the task IS the operation's observable terminal
-    /// boundary: every worker continuation has finished unwinding when it returns.
+    /// boundary — every worker continuation has finished unwinding when it returns —
+    /// provided the arrangement parks the worker inside the awaited chain itself;
+    /// an operation detached from the chain (e.g. parked inside the variant cache's
+    /// shared operation) unwinds unobserved and must not rely on this witness.
     /// </summary>
     private static object? AwaitInitializationResult(Task? task)
     {
@@ -513,7 +516,7 @@ public class PerformanceStageDeterministicTests
     public void StartGameplayInitialization_WhenPreparationIsCanceledMidFlight_ShouldLeaveLoadingStateUntouched()
     {
         // Retirement cancels the scope token while the worker is parked inside the
-        // variant processor. The canceled preparation must neither fail the stage nor
+        // audio preparation. The canceled preparation must neither fail the stage nor
         // leave a half-owned audio set behind. A canceled operation ends silently
         // (the scope contract pins that an OCE queues nothing and post-retirement
         // terminals drop — StageBackgroundWorkScopeTests), so the test asserts the
@@ -521,27 +524,46 @@ public class PerformanceStageDeterministicTests
         // (deterministic), waits for the worker task — the canceled chain's actual
         // terminal — to observe the full unwind, and only then starts the fresh
         // activation, so the final unchanged-state assertions cannot run ahead of it.
+        //
+        // The park deliberately sits in the DEFAULT profile (its up-front
+        // load-failure report), with an existing scheduled source keeping a
+        // loop-entry cancellation check in play after the park. The variant path is
+        // unusable here: its cache awaits the underlying processor through a
+        // WaitAsync'd shared operation, so retirement detaches the waiter and lets
+        // the cache caller, preparation and worker unwind while the processor stays
+        // parked — the worker task then completes without witnessing the underlying
+        // unwind. In this arrangement nothing runs detached from the awaited chain,
+        // so the task's completion genuinely establishes that every continuation
+        // finished unwinding.
         var directory = CreateTempDirectory();
         try
         {
-            var stage = CreateGatedVariantStage();
+            var logger = new BlockingLoadFailureLogger(gates: 1);
+            var stage = CreateInspectableStage();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger);
             stage.InstallTestBackgroundScope();
             var chart = new ParsedChart("canceled-prep.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
-            // An existing source makes the variant path engage the gated processor.
-            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "canceled-main.wav");
+            // A missing main source parks the worker in the up-front load-failure
+            // report; the existing scheduled source keeps a loop-entry cancellation
+            // check in play after the park, so the released unwind is a cancellation.
+            chart.BackgroundAudioPath = Path.Combine(directory, "canceled-missing-main.wav");
+            chart.AddBGMEvent(new BGMEvent
+            {
+                AudioFilePath = CreatePlaceholderSource(directory, "canceled-bgm.wav")
+            });
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
             ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             var staleTask = StartGameplayInitialization(stage);
             Assert.True(
-                SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
-                "the worker never reached the variant processor");
+                SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)),
+                "the worker never parked inside its load-failure report");
 
             // Retirement cancels the token synchronously before OnDeactivate while
             // the worker is parked in test code: from this moment the operation's
@@ -556,15 +578,14 @@ public class PerformanceStageDeterministicTests
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
             Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
 
-            stage.ReleaseProcessor.TrySetResult();
+            logger.ReleaseNext();
 
-            // The worker now observes the canceled token and unwinds silently.
-            // Waiting on the returned worker task is the OLD operation's observable
-            // terminal boundary: when it completes, every continuation of the
-            // canceled chain has finished unwinding, so nothing it did (or failed
-            // to do) can race the fresh run below. A canceled operation completes
-            // with the default result (null) — the silent-cancellation contract,
-            // observed end to end.
+            // The released worker hits the remaining loop-entry cancellation check
+            // and unwinds as a silent cancellation. No shared operation is detached
+            // in this arrangement, so the completed worker task IS the whole
+            // chain's terminal: the canceled chain cannot race the fresh run below.
+            // A canceled operation completes with the default result (null) — the
+            // silent-cancellation contract, observed end to end.
             var staleResult = AwaitInitializationResult(staleTask);
             Assert.Null(staleResult);
 
@@ -1628,9 +1649,13 @@ public class PerformanceStageDeterministicTests
 
     /// <summary>
     /// Stage whose variant processor parks on a gate so tests can deterministically
-    /// hold the worker mid-preparation (cancellation and progress coalescing
-    /// cases). Gates are created up front by <see cref="InitializeGates"/>, before
-    /// any worker runs.
+    /// hold the worker mid-preparation (the progress coalescing case). Gates are
+    /// created up front by <see cref="InitializeGates"/>, before any worker runs.
+    /// The mid-flight cancellation case deliberately does NOT use this gate: the
+    /// variant cache awaits the underlying operation through a WaitAsync'd shared
+    /// task, so retirement detaches the waiter and the parked processor's unwind
+    /// is invisible to the worker task — that test parks in the default profile
+    /// instead, whose chain has no detached operation.
     /// </summary>
     private sealed class GatedVariantStage : PerformanceStage
     {
@@ -1682,11 +1707,13 @@ public class PerformanceStageDeterministicTests
             {
                 _stage.ProcessorEntered.TrySetResult();
                 await _stage.ReleaseProcessor.Task.ConfigureAwait(false);
-                // The cancellation check runs after the release so the test's
-                // retire lands while the worker is provably still inside the
-                // preparation chain. Operation completion is observed through the
-                // worker task StartGameplayInitialization returns — no worker-side
-                // signal is needed.
+                // The cancellation check runs after the release so the worker stays
+                // provably inside the preparation chain while the test holds the
+                // gate (progress ordering below). This gate must not be used to
+                // stage a canceled operation: retirement detaches the cache's
+                // WaitAsync waiter from the still-parked processor, so the worker
+                // task would complete without witnessing this continuation (the
+                // cancellation test parks in the default profile instead).
                 cancellationToken.ThrowIfCancellationRequested();
                 return new PreparedAudioArtifact(44100, 1, new byte[8]);
             }
