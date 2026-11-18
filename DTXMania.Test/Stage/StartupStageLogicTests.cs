@@ -16,6 +16,7 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Update;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -87,8 +88,9 @@ namespace DTXMania.Test.Stage
         public void UpdateCurrentPhase_WhenAsyncOperationPending_ShouldStayInCurrentPhase()
         {
             var stage = CreateControlledStage();
-            stage.NextDatabaseTask = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously).Task;
+            var pendingDatabaseTask = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.NextDatabaseTask = pendingDatabaseTask.Task;
             var scope = stage.InstallTestBackgroundScope();
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.SongListDB);
 
@@ -102,6 +104,12 @@ namespace DTXMania.Test.Stage
             scope.Drain();
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
             Assert.Equal(StartupPhase.SongListDB, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+
+            // Settle the parked chain worker before returning: completing the database
+            // task posts the terminal into the still-active scope, and draining it
+            // observes the worker's full unwind (no pending worker outlives the test).
+            pendingDatabaseTask.TrySetResult(true);
+            DrainUntilPostedTerminal(scope, stage);
         }
 
         [Fact]
@@ -428,6 +436,13 @@ namespace DTXMania.Test.Stage
             Assert.Contains(
                 "Scanning",
                 ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
+
+            // Settle the parked chain worker before returning: completing the
+            // enumeration task posts the terminal into the still-active scope,
+            // and draining it observes the worker's full unwind (no pending
+            // worker outlives the test).
+            enumerationCompletion.SetResult(CreateEnumerationResult());
+            DrainUntilPostedTerminal(scope, stage);
         }
 
         [Fact]
@@ -653,6 +668,11 @@ namespace DTXMania.Test.Stage
         {
             var originalFailure = new IOException("enumeration failed");
             var stage = CreateControlledStage();
+            // The posted error callback is the only failure surface (the phase still
+            // advances), so the ORIGINAL exception instance must reach the logger
+            // exactly once — restoring the pre-migration failure-logging assertion.
+            var logger = new Mock<ILogger>();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
             stage.NextNeedsEnumerationResult = true;
             stage.NextEnumerationTask =
                 Task.FromException<SongEnumerationResult>(originalFailure);
@@ -673,6 +693,14 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<string>(
                     stage,
                     "_currentProgressMessage"));
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("EnumerateSongs", StringComparison.Ordinal)),
+                    (Exception?)originalFailure,
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
 
         [Fact]
@@ -694,10 +722,13 @@ namespace DTXMania.Test.Stage
         [Fact]
         public async Task StartSongEnumeration_WhenFallbackFails_ShouldPostOriginalErrorAndReachTerminalOutcome()
         {
+            var originalFailure = new IOException("original enumeration error");
             var stage = CreateControlledStage();
+            var logger = new Mock<ILogger>();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
             stage.NextNeedsEnumerationResult = true;
             stage.NextEnumerationTask =
-                Task.FromException<SongEnumerationResult>(new IOException("original enumeration error"));
+                Task.FromException<SongEnumerationResult>(originalFailure);
             stage.BuildHierarchyException =
                 new InvalidOperationException("cache unavailable");
             var scope = stage.InstallTestBackgroundScope();
@@ -713,6 +744,25 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<StartupPhase>(
                     stage,
                     "_startupPhase"));
+            // The ORIGINAL enumeration failure is what reaches the posted error
+            // callback: the fallback fault is swallowed inside the chain, so exactly
+            // one warning is logged and it carries the first failure's instance.
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception?>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    (Exception?)originalFailure,
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
 
         [Fact]

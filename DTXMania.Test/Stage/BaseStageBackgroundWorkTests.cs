@@ -74,26 +74,30 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Update_ShouldApplyAtMost64ActionsPerFrame()
         {
+            // The 64-callback frame budget is a design contract, so the test pins the
+            // literal rather than deriving it from the implementation constant: a
+            // budget change must consciously update this test.
+            const int budget = 64;
             var stage = CreateStage();
             var order = new List<string>();
             stage.Order = order;
 
             stage.Activate();
             var scope = stage.ActivatedScope!;
-            for (var i = 0; i < StageBackgroundWorkScope.MaxActionsPerDrain + 6; i++)
+            for (var i = 0; i < budget + 6; i++)
             {
                 scope.Post(() => order.Add("w"));
             }
 
             stage.Update(0.016);
 
-            Assert.Equal(StageBackgroundWorkScope.MaxActionsPerDrain, order.Count(entry => entry == "w"));
+            Assert.Equal(budget, order.Count(entry => entry == "w"));
             Assert.Equal(1, order.Count(entry => entry == "first"));
             Assert.Equal(1, order.Count(entry => entry == "update"));
 
             stage.Update(0.016);
 
-            Assert.Equal(StageBackgroundWorkScope.MaxActionsPerDrain + 6, order.Count(entry => entry == "w"));
+            Assert.Equal(budget + 6, order.Count(entry => entry == "w"));
             Assert.Equal(2, order.Count(entry => entry == "update"));
         }
 

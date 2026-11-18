@@ -32,7 +32,7 @@ namespace DTXMania.Game.Lib.Stage
     internal sealed class StageBackgroundWorkScope
     {
         /// <summary>Maximum callbacks applied per <see cref="Drain"/> call (one frame).</summary>
-        public const int MaxActionsPerDrain = 64;
+        private const int MaxActionsPerDrain = 64;
 
         private readonly object _gate = new();
         private readonly List<WorkItem> _queue = new();
