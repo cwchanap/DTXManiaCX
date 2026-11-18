@@ -884,6 +884,46 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void Dispose_WithQueuedOwnedResult_ShouldDropItBeforeReleasingStageResources()
+        {
+            // HPA-799 final review: StartupStage.Dispose must retire the activation
+            // scope BEFORE its own resource cleanup. A completed-but-undrained owned
+            // result is dropped synchronously inside RetireBackgroundWork, so its
+            // onDropped must still see the spriteBatch; retiring afterwards (via
+            // base.Dispose's Deactivate) would drop owned work against
+            // already-released resources.
+            var stage = CreateLifecycleControlledStage();
+            var scope = stage.InstallTestBackgroundScope();
+            var workerReleased = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var spriteBatchAtDrop = new List<bool>();
+            var workerTask = scope.Run<bool>(
+                _ => workerReleased.Task.GetAwaiter().GetResult(),
+                onSuccess: _ => { },
+                onDropped: _ => spriteBatchAtDrop.Add(
+                    ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch") != null));
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", stage.SpriteBatchStub);
+            // An active stage: base.Dispose would Deactivate (and retire) — the
+            // override body itself must retire first.
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+
+            // Produce the result and wait until the worker queued it (Run's task
+            // completes only after the enqueue), so Dispose drops it synchronously.
+            workerReleased.TrySetResult(true);
+            Assert.True(SpinWait.SpinUntil(
+                () => workerTask.IsCompleted,
+                TimeSpan.FromSeconds(5)),
+                "the scope worker never produced its result");
+
+            var exception = Record.Exception(() => InvokeDispose(stage, true));
+
+            Assert.Null(exception);
+            Assert.Equal(new[] { true }, spriteBatchAtDrop);
+            Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+            Assert.True(scope.Token.IsCancellationRequested);
+        }
+
+        [Fact]
         public async Task Dispose_WhenEnumerationFaultsAfterDisposal_ShouldNotThrow()
         {
             var stage = CreateControlledStage();
