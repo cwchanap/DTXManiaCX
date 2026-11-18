@@ -513,6 +513,42 @@ namespace DTXMania.Test.Stage
             Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes")!);
         }
 
+        // The DB query must start on the scope worker, never on the update thread:
+        // an EF/SQLite async call can execute synchronously and stall a frame, and
+        // a retirement-cancelled load must not leave an orphaned query task behind.
+        [Fact]
+        public async Task BeginRecentPlaysLoad_ShouldInvokeLoaderOnWorkerThreadNotUpdateThread()
+        {
+            var stage = CreateStage();
+            AttachCoreUi(stage, new SongListDisplay());
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            stage.InstallTestBackgroundScope();
+
+            var updateThreadId = Environment.CurrentManagedThreadId;
+            int? loaderThreadId = null;
+            var loaderInvoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            SetPrivateField(stage, "_loadRecentPlaysNodesAsync", (Func<Task<List<SongListNode>>>)(() =>
+            {
+                loaderThreadId = Environment.CurrentManagedThreadId;
+                loaderInvoked.TrySetResult();
+                return Task.FromResult(new List<SongListNode>());
+            }));
+
+            InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+
+            Assert.True(
+                loaderInvoked.Task.Wait(TimeSpan.FromSeconds(5)),
+                "the recent-plays loader was never invoked");
+            // The test thread stays alive (blocked on Wait above) while the loader
+            // runs, so a pool thread can never reuse the update thread's id here.
+            Assert.NotEqual(updateThreadId, loaderThreadId!.Value);
+
+            // The queued completion still applies on the drain.
+            await DrainUntilAsync(stage,
+                () => GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes") != null);
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes")!);
+        }
+
         [Fact]
         public void PopulateRecentPlaysList_WhenLoadFailed_DoesNotShowEmptyMessage()
         {
