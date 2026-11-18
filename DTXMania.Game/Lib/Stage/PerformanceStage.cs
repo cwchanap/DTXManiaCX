@@ -582,6 +582,12 @@ namespace DTXMania.Game.Lib.Stage
 
             // HPA-796: the fallback white pixel was already acquired at the top of this
             // method (before the renderers that borrow it); no private 1×1 texture here.
+
+            // Wire pad feedback now, before preparation starts: OnLaneHitForPadFeedback
+            // explicitly supports loading/countdown, so manual hits light pads while the
+            // chart/audio prepare (and after a failed preparation). CleanupGameplayManagers
+            // unsubscribes on teardown, keeping the lifecycle balanced.
+            WireUpInputEventHandlers();
         }
 
         // HPA-509: the three outcomes of a Tab HUD build. NotAttempted means no
@@ -925,7 +931,6 @@ namespace DTXMania.Game.Lib.Stage
             var difficultySnapshot = _selectedDifficulty;
             var playbackModifiers = _playbackModifiers;
             var requestedNoteDisplayStyle = _visualGates.RequestedNoteDisplayStyle;
-            var scrollSpeedSetting = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
             string? fallbackChartPath = null;
             if (chartSnapshot == null)
             {
@@ -966,7 +971,7 @@ namespace DTXMania.Game.Lib.Stage
                     workerLogger,
                     progress,
                     cancellationToken),
-                onSuccess: result => ApplyGameplayInitialization(result, scrollSpeedSetting),
+                onSuccess: result => ApplyGameplayInitialization(result),
                 onError: exception =>
                     FailLoading($"Audio preparation failed: {exception.Message}", exception),
                 onDropped: result => result.AudioSet.Dispose());
@@ -1049,7 +1054,7 @@ namespace DTXMania.Game.Lib.Stage
         /// the load with the original exception. A stale result never reaches this
         /// method (the scope drops it via <c>onDropped</c> instead).
         /// </summary>
-        private void ApplyGameplayInitialization(GameplayInitializationResult result, int scrollSpeedSetting)
+        private void ApplyGameplayInitialization(GameplayInitializationResult result)
         {
             var ownershipTransferred = false;
             try
@@ -1066,9 +1071,13 @@ namespace DTXMania.Game.Lib.Stage
                 ownershipTransferred = true;
                 BindPreparedAudio(result.Chart);
 
-                // Set BPM and scroll speed in note renderer.
+                // Set BPM and scroll speed in note renderer. The scroll speed is read
+                // at apply time, not snapshotted before Run: PageUp/PageDown stay
+                // active during loading, and the stale snapshot would overwrite the
+                // user's change and diverge from the live config and the toast.
                 _noteRenderer?.SetBpm(result.Chart.Bpm);
-                _noteRenderer?.SetScrollSpeed(scrollSpeedSetting);
+                _noteRenderer?.SetScrollSpeed(
+                    _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default);
 
                 // HPA-411: one-shot Tab renderer construction on the update thread
                 // because it owns the Bravura and label font loads. A failure means
@@ -2021,8 +2030,8 @@ namespace DTXMania.Game.Lib.Stage
             // Wire up event handlers for UI binding
             WireUpEventHandlers();
 
-            // Subscribe to input events for immediate pad feedback
-            WireUpInputEventHandlers();
+            // Pad feedback is wired earlier, at InitializeComponents, so hits light
+            // pads during loading/countdown; nothing to subscribe here.
         }
 
         /// <summary>
@@ -2045,13 +2054,17 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Wires up input event handlers for immediate pad feedback
+        /// Wires up input event handlers for immediate pad feedback. Idempotent:
+        /// installed once at component initialization (before preparation starts) so
+        /// hits light pads during loading/countdown and even after a failed
+        /// preparation, and the gameplay-manager init must not double-subscribe.
         /// </summary>
         private void WireUpInputEventHandlers()
         {
             if (_inputManager?.ModularInputManager != null)
             {
                 // Subscribe to lane hit events for immediate visual feedback (before judgement)
+                _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
                 _inputManager.ModularInputManager.OnLaneHit += OnLaneHitForPadFeedback;
             }
         }
