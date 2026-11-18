@@ -515,8 +515,11 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (disposing)
             {
-                // BaseStage.Dispose deactivates first, which retires the scope
-                // synchronously before this hook runs.
+                // This override body runs BEFORE base.Dispose deactivates, so retire
+                // the activation scope here first: pending owned work is dropped before
+                // any resource below is released. Idempotent — a deactivated stage has
+                // already retired its scope.
+                RetireBackgroundWork();
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
                 // Font and cached white pixel refs are released in OnDeactivate (called by
