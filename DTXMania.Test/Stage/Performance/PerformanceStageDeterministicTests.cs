@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -588,6 +589,143 @@ public class PerformanceStageDeterministicTests
             var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
             Assert.NotNull(timer);
             Assert.Equal(preparedSet!.RuntimePitch, timer!.Pitch);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenWorkerReportsSoundLoadFailure_ShouldLogThroughTheLoggerResolvedBeforeRun()
+    {
+        // The worker must not resolve BaseStage.Logger: the property lazily assigns
+        // _logger and reads _game.LoggerFactory, which would mutate stage state from
+        // the worker thread. The logger is resolved on the update thread before Run
+        // and captured into the worker, so every ILoggerFactory.CreateLogger call
+        // must happen on the calling (update) thread and the worker's sound-load
+        // failure report must flow through that captured logger.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var factory = new CapturingLoggerFactory();
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", factory);
+            var stage = CreateStage(game);
+            // Leave _logger unset (null): resolving it is exactly what the test
+            // monitors.
+            ReflectionHelpers.SetPrivateField(stage, "_logger", null);
+            stage.InstallTestBackgroundScope();
+            var chart = new ParsedChart("worker-log.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            // A referenced-but-missing source makes the default-profile preparation
+            // report a load failure through the worker's logging callback.
+            chart.BackgroundAudioPath = Path.Combine(directory, "missing-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+
+            StartGameplayInitialization(stage);
+
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => factory.Errors.Any(entry =>
+                        entry.Message.Contains("Gameplay audio load failed", StringComparison.Ordinal)),
+                    TimeSpan.FromSeconds(5)),
+                "the worker's sound-load failure was never logged");
+            Assert.Equal(1, factory.CreationThreadIds.Count);
+            Assert.Equal(
+                Environment.CurrentManagedThreadId,
+                factory.CreationThreadIds.Single());
+            var (_, exception) = factory.Errors.Single(entry =>
+                entry.Message.Contains("Gameplay audio load failed", StringComparison.Ordinal));
+            Assert.IsType<FileNotFoundException>(exception);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenAFreshActivationSupersedesAQueuedSuccess_ShouldDropTheOldAudioAndLeaveTheNewRunUntouched()
+    {
+        // A successful preparation finishing while the stage has already moved on
+        // must be dropped with its audio disposed exactly once, must leave the
+        // stage untouched, and must not leak into the next activation: installing a
+        // fresh scope retires the old one (exactly what Deactivate does), and the
+        // new run must reach ready with only its own audio applied.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateGatedVariantStage();
+            var staleScope = stage.InstallTestBackgroundScope();
+            var staleChart = new ParsedChart("stale-success.dtx");
+            staleChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            staleChart.FinalizeChart();
+            staleChart.BackgroundAudioPath = CreatePlaceholderSource(directory, "stale-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", staleChart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+
+            StartGameplayInitialization(stage);
+            Assert.True(
+                SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
+                "the worker never reached the variant processor");
+
+            // Complete the stale preparation successfully: the gate release returns
+            // a prepared artifact (no cancellation thrown), so the worker queues a
+            // full success terminal carrying a prepared audio set.
+            stage.ReleaseProcessor.TrySetResult();
+
+            PreparedGameplayAudioSet? staleSet = null;
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => (staleSet = FindQueuedAudioSet(staleScope)) != null,
+                    TimeSpan.FromSeconds(5)),
+                "the stale success was never queued");
+            var staleBackground = staleSet!.MainBackground;
+            Assert.NotNull(staleBackground);
+            Assert.False(staleBackground!.IsDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+
+            // The fresh activation retires the stale scope synchronously, which
+            // drops the queued stale success via onDropped and disposes its audio.
+            var freshChart = new ParsedChart("fresh-success.dtx");
+            freshChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            freshChart.FinalizeChart();
+            freshChart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory, "fresh-main.wav");
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", freshChart);
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+
+            stage.InstallTestBackgroundScope();
+
+            Assert.True(
+                staleBackground!.IsDisposed,
+                "the dropped stale audio set was not disposed");
+            Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+
+            StartGameplayInitialization(stage);
+            RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+            var freshSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            Assert.NotNull(freshSet);
+            // If the stale result had leaked into the fresh activation, the applied
+            // set would be the already-disposed stale one; the applied set's main
+            // background must be live.
+            Assert.False(freshSet!.MainBackground!.IsDisposed);
+            Assert.True(staleBackground.IsDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
         }
         finally
         {
@@ -1336,11 +1474,27 @@ public class PerformanceStageDeterministicTests
     /// </summary>
     private static PreparedGameplayAudioSet? FindQueuedAudioSet(StageBackgroundWorkScope scope)
     {
+        var gate = ReflectionHelpers.GetPrivateField<object>(scope, "_gate");
         var queue = ReflectionHelpers.GetPrivateField<System.Collections.IList>(scope, "_queue");
-        if (queue == null)
+        if (gate == null || queue == null)
             return null;
 
-        foreach (var item in queue)
+        // Snapshot the queue under the scope's own gate: the worker can enqueue
+        // concurrently (progress applies, the terminal) and enumerating the live
+        // List<T> while it mutates throws InvalidOperationException. Items captured
+        // in the snapshot stay safe to inspect afterwards — dropping an item only
+        // detaches it, it never mutates it.
+        object[] snapshot;
+        lock (gate)
+        {
+            snapshot = new object[queue.Count];
+            for (var i = 0; i < queue.Count; i++)
+            {
+                snapshot[i] = queue[i]!;
+            }
+        }
+
+        foreach (var item in snapshot)
         {
             // Drop is an auto-property on the scope's WorkItem; walk the type
             // hierarchy for the property itself (backing fields are renamed).
@@ -1403,13 +1557,18 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
         ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
+        // All gates must exist before any work starts: FormatterServices skips
+        // field initializers, and lazily initializing the gates from both the test
+        // thread and the worker could hand out two different instances.
+        stage.InitializeGates();
         return stage;
     }
 
     /// <summary>
     /// Stage whose variant processor parks on a gate so tests can deterministically
-    /// hold the worker mid-preparation (cancellation and progress coalescing cases).
-    /// Lazy TCS properties because FormatterServices skips property initializers.
+    /// hold the worker mid-preparation (cancellation, progress coalescing and
+    /// stale-success cases). Gates are created up front by
+    /// <see cref="InitializeGates"/>, before any worker runs.
     /// </summary>
     private sealed class GatedVariantStage : PerformanceStage
     {
@@ -1420,16 +1579,30 @@ public class PerformanceStageDeterministicTests
         public GatedVariantStage(BaseGame game)
             : base(game)
         {
+            InitializeGates();
         }
 
-        public TaskCompletionSource ProcessorEntered =>
-            _processorEntered ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>
+        /// Creates all three gates before any work starts. FormatterServices skips
+        /// field initializers, so uninitialized instances would otherwise lazily
+        /// ??= the gates from whichever thread touches them first — and the test
+        /// thread and the worker could each get a different instance.
+        /// </summary>
+        public void InitializeGates()
+        {
+            _processorEntered ??= NewGate();
+            _releaseProcessor ??= NewGate();
+            _processorFinished ??= NewGate();
+        }
 
-        public TaskCompletionSource ReleaseProcessor =>
-            _releaseProcessor ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ProcessorEntered => _processorEntered!;
 
-        public TaskCompletionSource ProcessorFinished =>
-            _processorFinished ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseProcessor => _releaseProcessor!;
+
+        public TaskCompletionSource ProcessorFinished => _processorFinished!;
+
+        private static TaskCompletionSource NewGate() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         protected override IAudioVariantProcessor CreateAudioVariantProcessor() => new GatedProcessor(this);
 
@@ -1451,10 +1624,74 @@ public class PerformanceStageDeterministicTests
             {
                 _stage.ProcessorEntered.TrySetResult();
                 await _stage.ReleaseProcessor.Task.ConfigureAwait(false);
-                _stage.ProcessorFinished.TrySetResult();
-                cancellationToken.ThrowIfCancellationRequested();
-                return new PreparedAudioArtifact(44100, 1, new byte[8]);
+                try
+                {
+                    // The cancellation check runs before the completion signal so a
+                    // test waiting on ProcessorFinished knows the check itself ran
+                    // and not just the processor's exit.
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return new PreparedAudioArtifact(44100, 1, new byte[8]);
+                }
+                finally
+                {
+                    _stage.ProcessorFinished.TrySetResult();
+                }
             }
+        }
+    }
+
+    /// <summary>
+    /// Records which thread created each logger and every warning/error logged
+    /// through it, so tests can prove log resolutions and reports happen on the
+    /// expected thread.
+    /// </summary>
+    private sealed class CapturingLoggerFactory : ILoggerFactory
+    {
+        private readonly ConcurrentQueue<int> _creationThreadIds = new();
+        private readonly ConcurrentQueue<(string Message, Exception? Exception)> _errors = new();
+
+        public IReadOnlyCollection<int> CreationThreadIds => _creationThreadIds.ToArray();
+
+        public IReadOnlyCollection<(string Message, Exception? Exception)> Errors => _errors.ToArray();
+
+        public ILogger CreateLogger(string categoryName)
+        {
+            _creationThreadIds.Enqueue(Environment.CurrentManagedThreadId);
+            return new CapturingLogger(_errors);
+        }
+
+        public void AddProvider(ILoggerProvider provider)
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        private readonly ConcurrentQueue<(string Message, Exception? Exception)> _errors;
+
+        public CapturingLogger(ConcurrentQueue<(string Message, Exception? Exception)> errors) => _errors = errors;
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel < LogLevel.Warning)
+            {
+                return;
+            }
+
+            _errors.Enqueue((formatter(state, exception), exception));
         }
     }
 

@@ -945,6 +945,11 @@ namespace DTXMania.Game.Lib.Stage
             if (scope == null)
                 return;
 
+            // Resolve the logger on this (update) thread: the Logger property lazily
+            // assigns _logger, so resolving it from the worker would mutate stage
+            // state off-thread. The worker reports only through the captured logger.
+            ILogger workerLogger = Logger;
+
             IProgress<AudioPreparationProgress> progress =
                 new InlineProgress<AudioPreparationProgress>(
                     scope.Latest<AudioPreparationProgress>(ApplyAudioPreparationProgress));
@@ -955,6 +960,7 @@ namespace DTXMania.Game.Lib.Stage
                     fallbackChartPath,
                     requestedNoteDisplayStyle,
                     playbackModifiers,
+                    workerLogger,
                     progress,
                     cancellationToken),
                 onSuccess: result => ApplyGameplayInitialization(result, scrollSpeedSetting),
@@ -966,14 +972,17 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// The worker-local preparation chain: parses the fallback chart, builds the
         /// Tab notation chart and prepares the audio set. Every input is a snapshot
-        /// parameter or a method-local; the only stage members touched are the logger
-        /// and the virtual audio-variant seams (both immutable across the run).
+        /// parameter or a method-local; the only stage members touched are the
+        /// virtual audio-variant seams (immutable across the run). Logging uses the
+        /// worker logger resolved before Run — never the lazily assigned
+        /// <see cref="BaseStage.Logger"/>.
         /// </summary>
         private GameplayInitializationResult PrepareGameplayCore(
             ParsedChart? chartSnapshot,
             string? fallbackChartPath,
             DrumsNoteDisplayStyle requestedNoteDisplayStyle,
             PlaybackModifiers playbackModifiers,
+            ILogger workerLogger,
             IProgress<AudioPreparationProgress> progress,
             CancellationToken cancellationToken)
         {
@@ -997,7 +1006,8 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 catch (Exception ex)
                 {
-                    LogPerformanceError(
+                    LogCapturedError(
+                        workerLogger,
                         "PerformanceStage: Tab notation build failed; staying in Lanes for this song.",
                         ex);
                 }
@@ -1020,7 +1030,8 @@ namespace DTXMania.Game.Lib.Stage
                 progress,
                 cancellationToken,
                 reportSoundLoadFailure: (path, ex) =>
-                    LogPerformanceError(
+                    LogCapturedError(
+                        workerLogger,
                         $"PerformanceStage: Gameplay audio load failed ({path})",
                         ex)).GetAwaiter().GetResult();
 
@@ -3022,13 +3033,23 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Routed through the stage logger (Console-backed in production) so
             // the error stays visible in all build configurations.
+            LogCapturedError(Logger, message, exception);
+        }
+
+        /// <summary>
+        /// Logs through a logger captured before the background work started
+        /// (HPA-799): worker code must not touch the lazily assigned stage logger,
+        /// so its reporting uses the captured snapshot instead.
+        /// </summary>
+        private static void LogCapturedError(ILogger logger, string message, Exception? exception = null)
+        {
             if (exception != null)
             {
-                Logger.LogError(exception, "{Message}", message);
+                logger.LogError(exception, "{Message}", message);
             }
             else
             {
-                Logger.LogError("{Message}", message);
+                logger.LogError("{Message}", message);
             }
         }
 
