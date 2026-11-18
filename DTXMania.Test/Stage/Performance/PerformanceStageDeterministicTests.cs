@@ -244,15 +244,38 @@ public class PerformanceStageDeterministicTests
     }
 
     /// <summary>
-    /// Drives the async gameplay initialization through the activation scope: the
-    /// worker only queues its terminal, so the test keeps calling stage.Update (the
-    /// real game-loop drain) with a bounded timeout until the update thread applies it.
+    /// Drives the async gameplay initialization through the activation scope and
+    /// returns the worker task the stage method hands back (HPA-799): the task
+    /// completes when the preparation chain fully unwinds — with the produced
+    /// result, or default when the operation was canceled/faulted — so tests can
+    /// observe the operation's actual terminal deterministically. Most tests
+    /// ignore it and observe through the update loop instead.
     /// </summary>
-    private static void StartGameplayInitialization(PerformanceStage stage)
+    private static Task? StartGameplayInitialization(PerformanceStage stage)
     {
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        ReflectionHelpers.InvokePrivateMethod(stage, "StartGameplayInitialization");
+        return ReflectionHelpers.InvokePrivateMethod(stage, "StartGameplayInitialization") as Task;
     }
+
+    /// <summary>
+    /// Waits for an initialization worker task and returns its result payload (the
+    /// private GameplayInitializationResult record, or null when the operation was
+    /// canceled/faulted). Completing the task IS the operation's observable terminal
+    /// boundary: every worker continuation has finished unwinding when it returns.
+    /// </summary>
+    private static object? AwaitInitializationResult(Task? task)
+    {
+        Assert.NotNull(task);
+        Assert.True(
+            task!.Wait(TimeSpan.FromSeconds(5)),
+            "the initialization worker did not complete within the timeout");
+        return task.GetType().GetProperty("Result")!.GetValue(task);
+    }
+
+    private static PreparedGameplayAudioSet? ResultAudioSet(object? result) =>
+        result == null
+            ? null
+            : (PreparedGameplayAudioSet?)result.GetType().GetProperty("AudioSet")!.GetValue(result);
 
     private static void RunUpdateLoopUntil(PerformanceStage stage, Func<bool> condition)
     {
@@ -444,7 +467,7 @@ public class PerformanceStageDeterministicTests
         try
         {
             var stage = CreateInspectableStage();
-            var scope = stage.InstallTestBackgroundScope();
+            stage.InstallTestBackgroundScope();
             var chart = new ParsedChart("late-drop.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
@@ -458,14 +481,12 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            StartGameplayInitialization(stage);
+            var staleTask = StartGameplayInitialization(stage);
 
-            PreparedGameplayAudioSet? preparedSet = null;
-            Assert.True(
-                SpinWait.SpinUntil(
-                    () => (preparedSet = FindQueuedAudioSet(scope)) != null,
-                    TimeSpan.FromSeconds(5)),
-                "the prepared result was never queued");
+            // The task completes when the worker finishes queueing the result; its
+            // payload hands the test the prepared set that the queued terminal owns.
+            var preparedSet = ResultAudioSet(AwaitInitializationResult(staleTask));
+            Assert.NotNull(preparedSet);
             var mainBackground = preparedSet!.MainBackground;
             Assert.NotNull(mainBackground);
             Assert.False(mainBackground!.IsDisposed);
@@ -495,12 +516,11 @@ public class PerformanceStageDeterministicTests
         // variant processor. The canceled preparation must neither fail the stage nor
         // leave a half-owned audio set behind. A canceled operation ends silently
         // (the scope contract pins that an OCE queues nothing and post-retirement
-        // terminals drop — StageBackgroundWorkScopeTests), so its own unwind has no
-        // signal; the test therefore asserts the untouched state while the operation
-        // is still fully alive and parked (deterministic), and then again only after
-        // an observable terminal boundary — a fresh activation driven to ready on
-        // the same stage — so the final unchanged-state assertions cannot run ahead
-        // of the canceled unwind.
+        // terminals drop — StageBackgroundWorkScopeTests), so the test asserts the
+        // untouched state while the operation is still fully alive and parked
+        // (deterministic), waits for the worker task — the canceled chain's actual
+        // terminal — to observe the full unwind, and only then starts the fresh
+        // activation, so the final unchanged-state assertions cannot run ahead of it.
         var directory = CreateTempDirectory();
         try
         {
@@ -518,7 +538,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
 
-            StartGameplayInitialization(stage);
+            var staleTask = StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
                 "the worker never reached the variant processor");
@@ -539,8 +559,17 @@ public class PerformanceStageDeterministicTests
             stage.ReleaseProcessor.TrySetResult();
 
             // The worker now observes the canceled token and unwinds silently.
+            // Waiting on the returned worker task is the OLD operation's observable
+            // terminal boundary: when it completes, every continuation of the
+            // canceled chain has finished unwinding, so nothing it did (or failed
+            // to do) can race the fresh run below. A canceled operation completes
+            // with the default result (null) — the silent-cancellation contract,
+            // observed end to end.
+            var staleResult = AwaitInitializationResult(staleTask);
+            Assert.Null(staleResult);
+
             // Re-establish the fields CleanupComponents nulled, then run a fresh
-            // activation to ready — the observable terminal boundary.
+            // activation to its own observed terminal and ready state.
             var freshChart = new ParsedChart("canceled-fresh.dtx");
             freshChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             freshChart.FinalizeChart();
@@ -552,19 +581,20 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             stage.InstallTestBackgroundScope();
-            StartGameplayInitialization(stage);
+            var freshTask = StartGameplayInitialization(stage);
+            AwaitInitializationResult(freshTask);
             RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
-            // Final unchanged-state assertions, after the terminal: the canceled
-            // unwind reported nothing and leaked nothing into the fresh run.
+            // Final unchanged-state assertions, after both terminals: the canceled
+            // operation provably unwound before the fresh run started, and the
+            // fresh run applied only its own audio.
             var freshSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
             Assert.NotNull(freshSet);
             Assert.NotNull(freshSet!.MainBackground);
             Assert.False(freshSet.MainBackground!.IsDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
-            // Give any terminal the canceled unwind could ever have queued room to
-            // land, then re-assert stability (it cannot queue: the stale scope is
-            // retired forever).
+            // Both operations are terminally complete, so nothing can land anymore;
+            // a few extra update frames plus a re-assert keep that property pinned.
             for (var i = 0; i < 8; i++)
             {
                 stage.Update(0.016);
@@ -707,11 +737,14 @@ public class PerformanceStageDeterministicTests
         // must take the retired scope's drop-direct path (onDropped disposes its
         // audio set, exactly once per result) and never touch the fresh run.
         //
-        // A directly-dropped result exposes no handle, so the test proves the
-        // invariant with a zero-BPM landmine on the stale chart: a real
-        // NoteRenderer whose SetBpm(0) throws means ANY regression that applies
-        // the stale result — whenever it lands — fails the stage with a sticky
-        // load-error message that the post-terminal assertions catch.
+        // Both properties are observed directly, not inferred: the stage method
+        // returns the worker task, so waiting on the stale task IS the stale
+        // operation's terminal (no drain loop can run ahead of an unscheduled
+        // worker), and the task's payload hands the test the dropped set whose
+        // real loaded main background must be disposed. A zero-BPM landmine on
+        // the stale chart (a real NoteRenderer whose SetBpm(0) throws) remains as
+        // a tripwire: ANY regression that applies the stale result — whenever it
+        // lands — fails the stage with a sticky load error the assertions catch.
         var directory = CreateTempDirectory();
         try
         {
@@ -724,12 +757,20 @@ public class PerformanceStageDeterministicTests
             staleChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             staleChart.FinalizeChart();
             staleChart.Bpm = 0.0;
-            // A single existing-but-unloadable source: the worker parks inside the
-            // in-loop load-failure report of the only loop iteration, so no
-            // cancellation check remains between the park and the return — the
-            // release below deterministically produces a success result whenever
-            // retirement happened.
-            staleChart.BackgroundAudioPath = CreatePlaceholderSource(directory, "late-success-main.wav");
+            // A real loadable main plus an existing-but-unloadable scheduled BGM:
+            // the sources are visited main-first (the scope collects them into a
+            // set in main, then scheduled order), so the corrupt BGM's in-loop
+            // load-failure report parks the worker in the FINAL loop iteration —
+            // after the last cancellation check — and the prepared set owns the
+            // real main background whose disposal the drop must produce. (If the
+            // order ever changed, the released worker would hit the next
+            // iteration's cancellation check and complete with no result — the
+            // assertions below fail loudly, not flakily.)
+            staleChart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory, "late-success-main.wav");
+            staleChart.AddBGMEvent(new BGMEvent
+            {
+                AudioFilePath = CreatePlaceholderSource(directory, "late-success-bgm.wav")
+            });
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", staleChart);
             ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
@@ -738,7 +779,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            StartGameplayInitialization(stage);
+            var staleTask = StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)),
                 "the stale worker never parked inside its load-failure report");
@@ -766,28 +807,46 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", freshChart);
 
             stage.InstallTestBackgroundScope();
-            StartGameplayInitialization(stage);
+            var freshTask = StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 2, TimeSpan.FromSeconds(5)),
                 "the fresh worker never parked mid-run");
 
-            // Release the stale park: the superseded preparation completes after
-            // the fresh activation started and is dropped by the retired scope.
-            // Then release the fresh park and drive the fresh run to ready.
+            // Release the stale park only: the superseded preparation runs to its
+            // return — no cancellation check remains after the park — and its
+            // result lands on the retired scope's drop-direct path. Waiting on the
+            // returned worker task OBSERVES the stale completion itself; it
+            // completes strictly before the fresh park is released.
             logger.ReleaseNext();
-            logger.ReleaseNext();
+            var staleResult = AwaitInitializationResult(staleTask);
 
+            // The late success was dropped, not applied — and its disposal, the
+            // wiring under test, is observed on the real captured sound.
+            var staleAudioSet = ResultAudioSet(staleResult);
+            Assert.NotNull(staleAudioSet);
+            Assert.NotNull(staleAudioSet!.MainBackground);
+            Assert.True(
+                staleAudioSet.MainBackground!.IsDisposed,
+                "the dropped stale audio set's real main background was not disposed");
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+            // Now release the fresh park and drive the fresh run to its observed
+            // terminal and ready state.
+            logger.ReleaseNext();
+            AwaitInitializationResult(freshTask);
             DrainScopeUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
             // Post-terminal assertions: the fresh run applied only its own live
-            // audio and the late success never landed anywhere.
+            // audio and the late success never landed anywhere. Both operations
+            // have observed terminals, so nothing can land anymore; a few extra
+            // drains plus a re-assert keep that property pinned.
             var freshSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
             Assert.NotNull(freshSet);
             Assert.NotNull(freshSet!.MainBackground);
             Assert.False(freshSet.MainBackground!.IsDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
             Assert.Same(freshChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
-            // Give any late terminal room to land, then re-assert stability.
             for (var i = 0; i < 8; i++)
             {
                 stage.BackgroundWork?.Drain();
@@ -1536,72 +1595,6 @@ public class PerformanceStageDeterministicTests
 
     #endregion
 
-    /// <summary>
-    /// Locates the queued-but-unapplied initialization terminal inside the scope's
-    /// queue by inspecting each item's Drop callback closure for a payload carrying a
-    /// PreparedGameplayAudioSet. Returns null while the terminal is still in flight.
-    /// </summary>
-    private static PreparedGameplayAudioSet? FindQueuedAudioSet(StageBackgroundWorkScope scope)
-    {
-        var gate = ReflectionHelpers.GetPrivateField<object>(scope, "_gate");
-        var queue = ReflectionHelpers.GetPrivateField<System.Collections.IList>(scope, "_queue");
-        if (gate == null || queue == null)
-            return null;
-
-        // Snapshot the queue under the scope's own gate: the worker can enqueue
-        // concurrently (progress applies, the terminal) and enumerating the live
-        // List<T> while it mutates throws InvalidOperationException. Items captured
-        // in the snapshot stay safe to inspect afterwards — dropping an item only
-        // detaches it, it never mutates it.
-        object[] snapshot;
-        lock (gate)
-        {
-            snapshot = new object[queue.Count];
-            for (var i = 0; i < queue.Count; i++)
-            {
-                snapshot[i] = queue[i]!;
-            }
-        }
-
-        foreach (var item in snapshot)
-        {
-            // Drop is an auto-property on the scope's WorkItem; walk the type
-            // hierarchy for the property itself (backing fields are renamed).
-            var type = item!.GetType();
-            Delegate? drop = null;
-            while (type != null && drop == null)
-            {
-                drop = type.GetProperty(
-                    "Drop",
-                    System.Reflection.BindingFlags.Instance |
-                    System.Reflection.BindingFlags.Public |
-                    System.Reflection.BindingFlags.NonPublic)?
-                    .GetValue(item) as Delegate;
-                type = type.BaseType;
-            }
-
-            if (drop?.Target == null)
-                continue;
-
-            foreach (var field in drop.Target.GetType().GetFields(
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic))
-            {
-                var audioSetProperty = field.FieldType.GetProperty("AudioSet");
-                if (audioSetProperty == null)
-                    continue;
-                var payload = field.GetValue(drop.Target);
-                if (payload == null)
-                    continue;
-                if (audioSetProperty.GetValue(payload) is PreparedGameplayAudioSet set)
-                    return set;
-            }
-        }
-
-        return null;
-    }
-
     private static string CreateTempDirectory()
     {
         var directory = Path.Combine(
@@ -1691,9 +1684,9 @@ public class PerformanceStageDeterministicTests
                 await _stage.ReleaseProcessor.Task.ConfigureAwait(false);
                 // The cancellation check runs after the release so the test's
                 // retire lands while the worker is provably still inside the
-                // preparation chain. Signaling here would fire before the cache,
-                // preparation and scope frames unwind — it would not establish
-                // operation completion, so no such signal exists.
+                // preparation chain. Operation completion is observed through the
+                // worker task StartGameplayInitialization returns — no worker-side
+                // signal is needed.
                 cancellationToken.ThrowIfCancellationRequested();
                 return new PreparedAudioArtifact(44100, 1, new byte[8]);
             }

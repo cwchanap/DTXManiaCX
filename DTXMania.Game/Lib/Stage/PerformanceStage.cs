@@ -330,7 +330,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Start chart/audio preparation on the activation's background-work scope;
             // every activation input is snapshotted on this (update) thread before Run.
-            StartGameplayInitialization();
+            _ = StartGameplayInitialization();
 
             var configManager = _game?.ConfigManager;
             if (configManager != null)
@@ -906,8 +906,11 @@ namespace DTXMania.Game.Lib.Stage
         /// managers, notation and audio bindings and the error callback fails the
         /// load. Progress streams through a Latest reporter so at most one report is
         /// queued per frame.
+        /// Returns the scope worker task (see <see cref="StageBackgroundWorkScope.Run{T}"/>)
+        /// so callers can observe the preparation chain's actual terminal; null when
+        /// validation failed or no scope is installed (nothing was started).
         /// </summary>
-        private void StartGameplayInitialization()
+        private Task<GameplayInitializationResult?>? StartGameplayInitialization()
         {
             var scope = BackgroundWork;
 
@@ -929,21 +932,21 @@ namespace DTXMania.Game.Lib.Stage
                 if (songSnapshot == null)
                 {
                     FailLoading("No song was selected.");
-                    return;
+                    return null;
                 }
 
                 var chartPath = songSnapshot.GetCurrentDifficultyChart(difficultySnapshot)?.FilePath;
                 if (string.IsNullOrEmpty(chartPath))
                 {
                     FailLoading("The selected chart path is unavailable.");
-                    return;
+                    return null;
                 }
 
                 fallbackChartPath = chartPath;
             }
 
             if (scope == null)
-                return;
+                return null;
 
             // Resolve the logger on this (update) thread: the Logger property lazily
             // assigns _logger, so resolving it from the worker would mutate stage
@@ -954,7 +957,7 @@ namespace DTXMania.Game.Lib.Stage
                 new InlineProgress<AudioPreparationProgress>(
                     scope.Latest<AudioPreparationProgress>(ApplyAudioPreparationProgress));
 
-            scope.Run(
+            return scope.Run(
                 cancellationToken => PrepareGameplayCore(
                     chartSnapshot,
                     fallbackChartPath,
