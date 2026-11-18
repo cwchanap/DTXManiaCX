@@ -112,8 +112,9 @@ namespace DTXMania.Game.Lib.Stage
         // Monotonic per-song toggle generation. Bumped on every toggle so a persist fault from
         // an older toggle can be detected and its rollback discarded when a newer toggle has
         // since changed the in-memory flag (otherwise a stale fault would override a successful
-        // later toggle). Accessed only on the update thread; the value is captured immutably by
-        // the background write continuation.
+        // later toggle). Bumped and read on the update thread; the value is captured immutably
+        // by the background write continuation, which also reads it (thread-safe dictionary
+        // access) to version-guard the worker-side shared-entity revert.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _bookmarkToggleVersion = new();
 
         // Pending bookmark reverts are posted into the activation scope by the faulted persist
@@ -3594,6 +3595,18 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (task.IsFaulted || task.IsCanceled)
                 {
+                    // A failed write leaves no committed intent: revert the shared
+                    // SongManager entity on this worker even when navigation retired the
+                    // origin scope (whose posted UI rollback was dropped), so reentry starts
+                    // DB-consistent. The bool write is atomic and the version guard leaves a
+                    // newer toggle in ownership of the flag; the per-activation UI lists are
+                    // still only reconciled by the posted rollback on the update thread.
+                    if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
+                        || current == toggleVersion)
+                    {
+                        song.IsBookmarked = !newState;
+                    }
+
                     // Hand the revert to the origin scope first, then log: the warning says
                     // "reverting", so it must describe a hand-off that already happened
                     // (do-then-log); this order also makes the warning a post-posting signal

@@ -364,8 +364,11 @@ namespace DTXMania.Test.Stage
 
         // A committed bookmark persistence task may outlive navigation; only the stale UI
         // rollback is dropped (the stage's scope retired on Deactivate), never the write itself.
+        // On a FAILED write there is no committed intent to preserve: the shared SongManager
+        // entity must revert to the pre-toggle state it matches in the database, while the
+        // per-activation UI lists stay untouched (their rollback was dropped with the scope).
         [Fact]
-        public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_DropsRollbackOnly()
+        public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_RevertsSharedEntityButDropsUiRollback()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_drop_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -390,23 +393,35 @@ namespace DTXMania.Test.Stage
                 var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
                 roots.Clear();
                 roots.Add(node);
+                // A distinct entity in a per-activation UI list: the dropped rollback must
+                // never reach it (only the shared entity reverts on the worker).
+                var recentEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Recent", IsBookmarked = false };
+                SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode>
+                {
+                    new() { Type = NodeType.Score, Title = "Recent", DatabaseSong = recentEntity }
+                });
 
                 InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong"); // optimistic flip to true
                 Assert.True(nodeEntity.IsBookmarked);
+                Assert.True(recentEntity.IsBookmarked);
 
                 // Navigate away before the persist fault lands: Deactivate retires the
-                // scope before tearing down, so the stale rollback cannot be applied.
+                // scope before tearing down, so the stale UI rollback cannot be applied.
                 SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
                 stage.Deactivate();
 
                 var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
                 try { await pending[songId]; } catch { /* expected persist fault */ }
 
-                // Grace wait: cosmetic — a retired scope structurally cannot apply the rollback.
-                await Task.Delay(300);
+                // The shared entity reverts on the worker (version-guarded), so reentry
+                // starts DB-consistent instead of keeping the state the DB rejected.
+                Assert.True(
+                    SpinWait.SpinUntil(() => !nodeEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
+                    "the shared SongManager entity was not reverted after the failed persist");
 
-                // The stale UI rollback was dropped; the in-memory flag keeps the optimistic value.
-                Assert.True(nodeEntity.IsBookmarked);
+                // The per-activation UI list keeps its optimistic value: its rollback was
+                // dropped with the retired scope, exactly as the design allows.
+                Assert.True(recentEntity.IsBookmarked);
             }
             finally
             {
@@ -455,6 +470,13 @@ namespace DTXMania.Test.Stage
                 var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
                 roots.Clear();
                 roots.Add(node);
+                // A distinct entity in B's per-activation UI list: the stale rollback must
+                // never reach it, while the shared entity itself is reverted on the worker.
+                var recentEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Recent", IsBookmarked = false };
+                SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode>
+                {
+                    new() { Type = NodeType.Score, Title = "Recent", DatabaseSong = recentEntity }
+                });
 
                 // The fault continuation posts the rollback into the origin scope FIRST and
                 // logs the "Bookmark save failed" warning immediately after, on the same
@@ -498,15 +520,23 @@ namespace DTXMania.Test.Stage
                         TimeSpan.FromSeconds(5)),
                     "the fault continuation never reached its rollback posting point");
 
-                // Drain B exactly as the game loop would. The stale rollback must never
-                // apply here: it was posted into A's retired scope and dropped there.
+                // Drain B exactly as the game loop would. The stale UI rollback must never
+                // apply here: it was posted into A's retired scope and dropped there, so B's
+                // per-activation lists are untouched. The shared entity, however, is reverted
+                // on the worker (version-guarded): a failed write leaves no committed intent,
+                // so reentry starts DB-consistent instead of keeping the rejected state.
                 for (var attempt = 0; attempt < 5; attempt++)
                 {
                     stage.BackgroundWork?.Drain();
-                    Assert.True(nodeEntity.IsBookmarked, "the stale rollback leaked into the new activation");
+                    Assert.True(
+                        recentEntity.IsBookmarked,
+                        "the stale UI rollback leaked into the new activation's lists");
                     Assert.Equal(0, Interlocked.CompareExchange(ref bookmarkLoads, 0, 0));
                     await Task.Delay(10);
                 }
+                Assert.True(
+                    SpinWait.SpinUntil(() => !nodeEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
+                    "the shared entity was not reverted after the failed persist");
             }
             finally
             {
