@@ -656,9 +656,34 @@ namespace DTXMania.Test.Stage
                 "the cache hierarchy build did not start");
             scope.Retire();
             buildRelease.SetResult(true);
-            // Let the retired worker unwind: the canceled token check after the
-            // build skips the post, and any queued items stay dropped.
-            await Task.Delay(100);
+            // Await the retired worker itself instead of a settle delay: Run's
+            // task completes after the canceled token check skips the post, so
+            // the assertion below cannot pass before the chain finishes.
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            scope.Drain();
+
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Null(stage.PublishedHierarchy);
+        }
+
+        [Fact]
+        public async Task StartSongEnumeration_WhenRetiredAfterCachePublishQueued_ShouldNotPublishHierarchy()
+        {
+            // Stronger ordering of the retirement fence: the worker finishes and
+            // its publish post is already queued when the activation retires, so
+            // the queued callback itself must be dropped — not merely skipped by
+            // the canceled-token check.
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+            var scope = stage.InstallTestBackgroundScope();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            // Run's task completes only after the chain's posts are enqueued,
+            // so this await proves the publish callback sits in the queue.
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            scope.Retire();
             scope.Drain();
 
             Assert.Equal(1, stage.BuildHierarchyCalls);
@@ -685,7 +710,35 @@ namespace DTXMania.Test.Stage
             await WaitForEnumerationStartedAsync(stage);
             scope.Retire();
             enumerationCompletion.SetResult(stage.NextEnumerationResult);
-            await Task.Delay(100);
+            // Await the retired worker itself instead of a settle delay: Run's
+            // task completes after the canceled token check skips the post, so
+            // the assertion below cannot pass before the chain finishes.
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            scope.Drain();
+
+            Assert.Equal(1, stage.EnumerateSongsCalls);
+            Assert.Equal(0, stage.PublishEmptyLibraryCalls);
+        }
+
+        [Fact]
+        public async Task StartSongEnumeration_WhenRetiredAfterEmptyLibraryPublishQueued_ShouldNotPublishEmptyLibrary()
+        {
+            // Stronger ordering of the retirement fence: the worker finishes and
+            // its publish post is already queued when the activation retires, so
+            // the queued callback itself must be dropped — not merely skipped by
+            // the canceled-token check.
+            var stage = CreateControlledStage(songPaths: ["MissingRoot"]);
+            stage.NextEnumerationResult = CreateEnumerationResult(
+                outcome: SongEnumerationOutcome.NoActiveRoots,
+                activeRoots: Array.Empty<string>());
+            var scope = stage.InstallTestBackgroundScope();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            // Run's task completes only after the chain's posts are enqueued,
+            // so this await proves the publish callback sits in the queue.
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            scope.Retire();
             scope.Drain();
 
             Assert.Equal(1, stage.EnumerateSongsCalls);
@@ -849,9 +902,10 @@ namespace DTXMania.Test.Stage
 
             stage.Activate();
             oldCompletion.SetResult(staleResult);
-            // The retired scope can never apply the stale success; let the worker
-            // settle before asserting (nothing it does can mutate the stage).
-            await Task.Delay(100);
+            // The retired scope can never apply the stale success; await the
+            // worker itself so the chain's dropped enqueue provably ran before
+            // asserting (nothing it does can mutate the stage).
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Equal(
                 StartupPhase.SystemSounds,
@@ -895,7 +949,7 @@ namespace DTXMania.Test.Stage
             stage.Deactivate();
             stage.Activate();
             oldCompletion.SetException(original);
-            await Task.Delay(100);
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.Equal(
@@ -920,7 +974,7 @@ namespace DTXMania.Test.Stage
             stage.Deactivate();
             stage.Activate();
             oldCompletion.SetCanceled(oldToken);
-            await Task.Delay(100);
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.Equal(
@@ -1502,6 +1556,19 @@ namespace DTXMania.Test.Stage
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// The song-load worker task StartSongEnumeration stores on the stage
+        /// (HPA-799): Run's contract completes it only after the chain's posts
+        /// are enqueued or the chain unwinds on retirement, so awaiting it
+        /// synchronizes retired/stale-worker tests without fixed delays.
+        /// </summary>
+        private static Task GetSongLoadWorker(StartupStage stage)
+        {
+            var worker = ReflectionHelpers.GetPrivateField<Task>(stage, "_songLoadWorker");
+            Assert.NotNull(worker);
+            return worker;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static async Task<WeakReference>
             CreateAbandonedFaultedLoadAsync()
@@ -1522,8 +1589,8 @@ namespace DTXMania.Test.Stage
                 new InvalidOperationException("abandoned failure"));
 
             // The chain's worker observed (and the retired scope dropped) the fault;
-            // settling the worker keeps the GC probe below deterministic.
-            await Task.Delay(100);
+            // awaiting it keeps the GC probe below deterministic.
+            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
 
             return new WeakReference(completion.Task);
         }
