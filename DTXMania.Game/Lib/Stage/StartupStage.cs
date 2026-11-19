@@ -80,6 +80,11 @@ namespace DTXMania.Game.Lib.Stage
         // Null until the posted result applies.
         private bool? _asyncPhaseSucceeded;
 
+        // The song-load chain's Run task (HPA-799): it completes only after the
+        // chain's posts are enqueued (or the chain unwinds on retirement), so the
+        // stage and its tests can observe the worker deterministically.
+        private Task? _songLoadWorker;
+
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
@@ -830,7 +835,7 @@ namespace DTXMania.Game.Lib.Stage
             IProgress<EnumerationProgress> progress = new InlineProgress<EnumerationProgress>(
                 scope.Latest<EnumerationProgress>(ApplyEnumerationProgress));
 
-            scope.Run<bool>(
+            _songLoadWorker = scope.Run<bool>(
                 _ =>
                 {
                     try
