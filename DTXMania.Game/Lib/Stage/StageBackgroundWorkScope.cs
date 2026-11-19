@@ -13,16 +13,23 @@ namespace DTXMania.Game.Lib.Stage
     /// synchronously before <see cref="BaseStage.OnDeactivate"/>.
     ///
     /// Public surface is exactly: <see cref="Token"/>, <see cref="Post"/>,
-    /// <see cref="Latest{T}"/>, <see cref="Run{T}"/>, <see cref="Drain"/>,
-    /// <see cref="Retire"/>.
+    /// <see cref="Latest{T}"/>, <see cref="Run{T}"/>, <see cref="RunAsync{T}"/>,
+    /// <see cref="Drain"/>, <see cref="Retire"/>.
     ///
     /// - <see cref="Post"/> queues FIFO terminal callbacks; never coalesced.
     /// - <see cref="Latest{T}"/> coalesces per reporter: the newest report replaces
     ///   the pending one (superseded values drop immediately), so at most one apply
     ///   is queued per reporter.
-    /// - <see cref="Run{T}"/> executes work on the thread pool; success and fault
-    ///   results are queued FIFO for the update thread; cancellation is observed
-    ///   silently, so no faulted task is left unobserved.
+    /// - <see cref="Run{T}"/> / <see cref="RunAsync{T}"/> execute work on the thread
+    ///   pool; success and fault results are queued FIFO for the update thread.
+    ///   Only a cancellation caused by this scope (<see cref="Retire"/>) is observed
+    ///   silently; an <see cref="OperationCanceledException"/> raised while the scope
+    ///   is still live (a decoder or process backend giving up) is a real failure and
+    ///   goes to <c>onError</c>, so no faulted task is left unobserved and no stage is
+    ///   left waiting forever.
+    /// - <see cref="Drain"/> isolates callback failures: an exception thrown by a
+    ///   queued callback is reported through the scope's fault handler and never
+    ///   reaches <c>Game.Update</c>.
     /// - <see cref="Retire"/> marks the scope retired, synchronously detaches every
     ///   queued item and invokes its drop callback outside the lock (one failing
     ///   cleanup never skips the rest). Results arriving after retirement drop
@@ -37,27 +44,55 @@ namespace DTXMania.Game.Lib.Stage
         private readonly object _gate = new();
         private readonly List<WorkItem> _queue = new();
         private readonly CancellationTokenSource _cts = new();
+        private readonly Action<Exception>? _onCallbackFault;
         private bool _retired;
+
+        /// <param name="onCallbackFault">
+        /// Receives exceptions thrown by update-thread callbacks applied by
+        /// <see cref="Drain"/> (the owning stage logs them). Optional: without it a
+        /// failing callback is still contained, just unreported.
+        /// </param>
+        public StageBackgroundWorkScope(Action<Exception>? onCallbackFault = null)
+        {
+            _onCallbackFault = onCallbackFault;
+        }
 
         /// <summary>Canceled by <see cref="Retire"/>; observed by worker code.</summary>
         public CancellationToken Token => _cts.Token;
 
         /// <summary>
         /// Queues a FIFO terminal callback applied on the update thread by
-        /// <see cref="Drain"/>. No-op after retirement.
+        /// <see cref="Drain"/>. After retirement the callback is never applied; if
+        /// <paramref name="onDropped"/> is given it runs instead — immediately when
+        /// the scope is already retired, or from <see cref="Retire"/> when the item
+        /// was still queued. It runs on whichever thread observes the retirement and
+        /// must be thread-safe. One failing drop never skips the rest.
         /// </summary>
-        public void Post(Action action)
+        public void Post(Action action, Action? onDropped = null)
         {
             ArgumentNullException.ThrowIfNull(action);
 
             lock (_gate)
             {
-                if (_retired)
+                if (!_retired)
                 {
+                    _queue.Add(new WorkItem(action, onDropped));
                     return;
                 }
+            }
 
-                _queue.Add(new WorkItem(action, null));
+            if (onDropped == null)
+            {
+                return;
+            }
+
+            try
+            {
+                onDropped();
+            }
+            catch
+            {
+                // Same isolation as Retire's per-item drops.
             }
         }
 
@@ -78,15 +113,16 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Runs <paramref name="work"/> on the thread pool with <see cref="Token"/>.
         /// A successful result queues <paramref name="onSuccess"/>; a fault queues
-        /// <paramref name="onError"/>; cancellation queues nothing. Both are FIFO
-        /// terminal callbacks applied by <see cref="Drain"/> on the update thread.
-        /// If the result arrives after <see cref="Retire"/> (or the scope is already
-        /// retired), <paramref name="onDropped"/> disposes the owned result exactly
-        /// once instead. Exceptions thrown by the update-thread callbacks are the
-        /// owning stage's responsibility (local try/catch/finally).
+        /// <paramref name="onError"/>; cancellation caused by <see cref="Retire"/>
+        /// queues nothing. An <see cref="OperationCanceledException"/> thrown while
+        /// the scope was never canceled (e.g. a killed decoder process) is a fault,
+        /// not a retirement, and is routed to <paramref name="onError"/>. Both are
+        /// FIFO terminal callbacks applied by <see cref="Drain"/> on the update
+        /// thread. If the result arrives after <see cref="Retire"/> (or the scope is
+        /// already retired), <paramref name="onDropped"/> disposes the owned result
+        /// exactly once instead.
         ///
-        /// Returns the worker task so an owner can observe completion
-        /// deterministically: it completes when the work ends, carrying the
+        /// Returns the worker task. It completes when the work ends, carrying the
         /// produced result (even when that result was dropped by retirement) and
         /// the default value when the work was canceled or faulted. The task never
         /// faults — all worker exceptions are handled here — so callers may safely
@@ -94,6 +130,26 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         public Task<T?> Run<T>(
             Func<CancellationToken, T> work,
+            Action<T> onSuccess,
+            Action<Exception>? onError = null,
+            Action<T>? onDropped = null)
+        {
+            ArgumentNullException.ThrowIfNull(work);
+
+            return RunAsync(
+                token => Task.FromResult(work(token)),
+                onSuccess,
+                onError,
+                onDropped);
+        }
+
+        /// <summary>
+        /// Asynchronous counterpart of <see cref="Run{T}"/> with identical terminal
+        /// semantics. The work is awaited rather than blocked on, so a long wait
+        /// (e.g. a modal folder dialog) does not pin a thread-pool thread.
+        /// </summary>
+        public Task<T?> RunAsync<T>(
+            Func<CancellationToken, Task<T>> work,
             Action<T> onSuccess,
             Action<Exception>? onError = null,
             Action<T>? onDropped = null)
@@ -109,16 +165,16 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            return Task.Run<T?>(() =>
+            return Task.Run<T?>(async () =>
             {
                 T result;
                 try
                 {
-                    result = work(_cts.Token);
+                    result = await work(_cts.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
                 {
-                    // Expected outcome (e.g. retirement) — observed, nothing queued.
+                    // Cancellation caused by retirement — observed, nothing queued.
                     return default;
                 }
                 catch (Exception ex)
@@ -156,7 +212,14 @@ namespace DTXMania.Game.Lib.Stage
                     item.Detached = true;
                 }
 
-                item.Apply?.Invoke();
+                try
+                {
+                    item.Apply?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    ReportCallbackFault(ex);
+                }
             }
         }
 
@@ -212,6 +275,18 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // One failed cleanup must not skip the remaining owned results.
                 }
+            }
+        }
+
+        private void ReportCallbackFault(Exception ex)
+        {
+            try
+            {
+                _onCallbackFault?.Invoke(ex);
+            }
+            catch
+            {
+                // The fault reporter must never turn a contained failure into a crash.
             }
         }
 

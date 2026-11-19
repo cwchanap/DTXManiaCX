@@ -626,6 +626,113 @@ namespace DTXMania.Test.Stage
             Assert.Equal(0, PendingQueueCount(scope));
         }
 
+        [Fact]
+        public async Task Run_WhenWorkThrowsOperationCanceledWithoutScopeRetirement_ShouldRouteToOnError()
+        {
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+            Exception? captured = null;
+
+            var task = scope.Run<string>(
+                _ => throw new OperationCanceledException("external cancellation"),
+                applied.Add,
+                ex => captured = ex);
+
+            var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(result);
+            scope.Drain();
+
+            Assert.Empty(applied);
+            Assert.IsType<OperationCanceledException>(captured);
+        }
+
+        [Fact]
+        public async Task RunAsync_WhenWorkThrowsOperationCanceledWithoutScopeRetirement_ShouldRouteToOnError()
+        {
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+            Exception? captured = null;
+
+            var task = scope.RunAsync<string>(
+                async _ =>
+                {
+                    await Task.Yield();
+                    throw new OperationCanceledException("external async cancellation");
+                },
+                applied.Add,
+                ex => captured = ex);
+
+            var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(result);
+            scope.Drain();
+
+            Assert.Empty(applied);
+            Assert.IsType<OperationCanceledException>(captured);
+        }
+
+        [Fact]
+        public async Task RunAsync_WhenScopeRetiresDuringAwait_ShouldObserveSilently()
+        {
+            var scope = new StageBackgroundWorkScope();
+            var applied = new List<string>();
+            var errored = false;
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var task = scope.RunAsync<string>(
+                async token =>
+                {
+                    await gate.Task.WaitAsync(token);
+                    return "done";
+                },
+                applied.Add,
+                _ => errored = true);
+
+            scope.Retire();
+            var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(result);
+            scope.Drain();
+
+            Assert.Empty(applied);
+            Assert.False(errored);
+        }
+
+        [Fact]
+        public void Drain_WhenCallbackThrows_ShouldReportFaultAndContinueRemainingCallbacks()
+        {
+            var faults = new List<Exception>();
+            var scope = new StageBackgroundWorkScope(faults.Add);
+            var applied = new List<string>();
+            var failure = new InvalidOperationException("callback boom");
+
+            scope.Post(() => applied.Add("first"));
+            scope.Post(() => throw failure);
+            scope.Post(() => applied.Add("third"));
+
+            var drainEx = Record.Exception(scope.Drain);
+
+            Assert.Null(drainEx);
+            Assert.Equal(new[] { "first", "third" }, applied);
+            Assert.Equal(new Exception[] { failure }, faults);
+        }
+
+        [Fact]
+        public void Post_WithOnDropped_ShouldDropOnRetireOrWhenAlreadyRetired()
+        {
+            var scope = new StageBackgroundWorkScope();
+            var applied = 0;
+            var dropped = 0;
+
+            scope.Post(() => applied++, () => dropped++);
+            scope.Retire();
+            scope.Drain();
+            Assert.Equal(0, applied);
+            Assert.Equal(1, dropped);
+
+            scope.Post(() => applied++, () => dropped++);
+            Assert.Equal(0, applied);
+            Assert.Equal(2, dropped);
+        }
+
         #endregion
     }
 }

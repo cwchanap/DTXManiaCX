@@ -7,6 +7,7 @@ using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -303,6 +304,34 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(before, gameQueue.Count);
             Assert.Equal(0, gameQueue.Count);
+        }
+
+        [Fact]
+        public void Update_WhenPostedCallbackThrows_ShouldLogErrorAndContinueStageUpdate()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var logger = new Mock<ILogger>();
+            var loggerFactory = new Mock<ILoggerFactory>();
+            loggerFactory.Setup(f => f.CreateLogger(It.IsAny<string>())).Returns(logger.Object);
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory.Object);
+
+            var stage = new TestStage(game, StageType.Title, null);
+            stage.Activate();
+            var boom = new InvalidOperationException("posted failure");
+            stage.ActivatedScope!.Post(() => throw boom);
+
+            var updateEx = Record.Exception(() => stage.Update(0.016));
+
+            Assert.Null(updateEx);
+            Assert.Equal(1, stage.UpdateCalls);
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    boom,
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
 
         #endregion

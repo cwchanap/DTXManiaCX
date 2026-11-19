@@ -7,9 +7,12 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using Xunit;
@@ -462,7 +465,7 @@ namespace DTXMania.Test.Stage
         // a result that arrives after the activation scope retired is dropped and must
         // not overwrite fresh state from a newer activation.
         [Fact]
-        public async Task BeginRecentPlaysLoad_WhenScopeRetires_PreservesExistingNodes()
+        public async Task BeginRecentPlaysLoad_WhenScopeRetires_ShouldPreserveExistingNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -494,7 +497,7 @@ namespace DTXMania.Test.Stage
         // overwrites _recentPlayNodes when the scope stays active. Without this test,
         // the guarded test could pass simply because the load never completed.
         [Fact]
-        public async Task BeginRecentPlaysLoad_WhenScopeActive_AppliesResultOnDrain()
+        public async Task BeginRecentPlaysLoad_WhenScopeActive_ShouldApplyResultOnDrain()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -519,34 +522,51 @@ namespace DTXMania.Test.Stage
         [Fact]
         public async Task BeginRecentPlaysLoad_ShouldInvokeLoaderOnWorkerThreadNotUpdateThread()
         {
-            var stage = CreateStage();
-            AttachCoreUi(stage, new SongListDisplay());
-            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
-            stage.InstallTestBackgroundScope();
+            using var connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
+            connection.Open();
+            var options = new DbContextOptionsBuilder<SongDbContext>()
+                .UseSqlite(connection)
+                .Options;
+            using (var schema = new SongDbContext(options))
+                schema.Database.EnsureCreated();
 
             var updateThreadId = Environment.CurrentManagedThreadId;
             int? loaderThreadId = null;
-            var loaderInvoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            SetPrivateField(stage, "_loadRecentPlaysNodesAsync", (Func<Task<List<SongListNode>>>)(() =>
+            using var loaderInvoked = new ManualResetEventSlim(false);
+            using var dbService = new SongDatabaseService(options, () =>
             {
                 loaderThreadId = Environment.CurrentManagedThreadId;
-                loaderInvoked.TrySetResult();
-                return Task.FromResult(new List<SongListNode>());
-            }));
+                loaderInvoked.Set();
+                return new SongDbContext(options);
+            });
 
-            InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+            SongManager.ResetInstanceForTesting();
+            SetPrivateField(SongManager.Instance, "_databaseService", dbService);
+            try
+            {
+                var stage = CreateStage();
+                AttachCoreUi(stage, new SongListDisplay());
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+                stage.InstallTestBackgroundScope();
 
-            Assert.True(
-                loaderInvoked.Task.Wait(TimeSpan.FromSeconds(5)),
-                "the recent-plays loader was never invoked");
-            // The test thread stays alive (blocked on Wait above) while the loader
-            // runs, so a pool thread can never reuse the update thread's id here.
-            Assert.NotEqual(updateThreadId, loaderThreadId!.Value);
+                InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
 
-            // The queued completion still applies on the drain.
-            await DrainUntilAsync(stage,
-                () => GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes") != null);
-            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes")!);
+                Assert.True(
+                    loaderInvoked.Wait(TimeSpan.FromSeconds(5)),
+                    "the recent-plays DB query was never invoked");
+                // The test thread stays alive (blocked on Wait above) while the query
+                // runs, so a pool thread can never reuse the update thread's id here.
+                Assert.NotEqual(updateThreadId, loaderThreadId!.Value);
+
+                // The queued completion still applies on the drain.
+                await DrainUntilAsync(stage,
+                    () => GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes") != null);
+                Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes")!);
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+            }
         }
 
         [Fact]
@@ -665,7 +685,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginRecentPlaysLoad_WhenScopeRetiresBeforeFault_DropsStaleFault()
+        public async Task BeginRecentPlaysLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_stale_fault_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -743,7 +763,7 @@ namespace DTXMania.Test.Stage
         // faults set _bookmarksLoadFailed only while the activation is still current.
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenCompletionArrives_DefersStageMutationUntilDrain()
+        public async Task BeginBookmarksLoad_WhenCompletionArrives_ShouldDeferStageMutationUntilDrain()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -788,7 +808,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeCompletion_DropsQueuedResult()
+        public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeCompletion_ShouldDropQueuedResult()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -1080,7 +1100,7 @@ namespace DTXMania.Test.Stage
         // settle) each start a load; the per-load version fence must make the newest load's
         // result win even when the older load completes last.
         [Fact]
-        public async Task BeginBookmarksLoad_RapidSameActivationRequests_NewestLoadWins()
+        public async Task BeginBookmarksLoad_RapidSameActivationRequests_ShouldApplyNewestLoad()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();

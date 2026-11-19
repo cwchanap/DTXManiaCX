@@ -89,11 +89,6 @@ namespace DTXMania.Game.Lib.Stage
         private int _bookmarksLoadVersion;
         private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync =
             () => SongManager.Instance.GetBookmarkedNodesAsync();
-        // Test seam for the Recent tab's DB query, mirroring _loadBookmarkedNodesAsync:
-        // BeginRecentPlaysLoad invokes it inside the scope worker so the query never
-        // starts on the update thread.
-        private Func<Task<List<SongListNode>>> _loadRecentPlaysNodesAsync =
-            () => SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit);
         // Set when the active tab's list must be repopulated on the next OnUpdate. It is owned
         // by the update thread; background completions queue into the activation scope instead.
         private bool _tabListNeedsRefresh;
@@ -785,22 +780,11 @@ namespace DTXMania.Game.Lib.Stage
                     PopulateSongList();
                     ReapplyPersistedFilterIfActive();
 
-                    // The worker only signals completion into the activation scope; the
-                    // newest coherent snapshot is fetched on the update thread when the
-                    // queued terminal applies (HPA-799), so an old initializer read can
-                    // never overwrite a newer library publication.
-                    BackgroundWork?.Run<object?>(
-                        token =>
-                        {
-                            token.ThrowIfCancellationRequested();
-                            return null;
-                        },
-                        onSuccess: _ => ApplyInitializedLibrarySnapshot(),
-                        onError: ex =>
-                        {
-                            Logger.LogWarning(ex, "Song library snapshot read failed; showing an empty song list");
-                            ApplyLibraryInitializationFailure();
-                        });
+                    // Apply the newest coherent snapshot on the update thread at the next
+                    // drain (HPA-799), fetched when the callback runs so an old initializer
+                    // read can never overwrite a newer library publication. No worker is
+                    // needed: the fetch is a cheap in-memory read.
+                    BackgroundWork?.Post(ApplyInitializedLibrarySnapshot);
                 }
                 else
                 {
@@ -3443,21 +3427,15 @@ namespace DTXMania.Game.Lib.Stage
             scope.Run<IReadOnlyList<SongListNode>>(
                 token =>
                 {
-                    try
-                    {
-                        token.ThrowIfCancellationRequested();
-                        // Invoke the loader here, on the worker: reaching the DB (which
-                        // may run synchronously) must never happen on the update thread,
-                        // matching BeginBookmarksLoad. Same-activation ordering is
-                        // preserved by the scope's FIFO terminal queue.
-                        return CopyTabLoadNodes(_loadRecentPlaysNodesAsync().GetAwaiter().GetResult());
-                    }
-                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
-                    {
-                        // A cancellation independent of retirement is a real load failure.
-                        throw new InvalidOperationException(
-                            "The recent-plays load was canceled independently of the stage scope");
-                    }
+                    token.ThrowIfCancellationRequested();
+                    // Query here, on the worker: reaching the DB (which may run
+                    // synchronously) must never happen on the update thread, matching
+                    // BeginBookmarksLoad. Results apply in completion order, not request
+                    // order: a slower older load can land after (and overwrite) a newer
+                    // one, unlike the version-guarded bookmark load.
+                    return CopyTabLoadNodes(
+                        SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
+                            .GetAwaiter().GetResult());
                 },
                 onSuccess: nodes =>
                 {
@@ -3495,19 +3473,10 @@ namespace DTXMania.Game.Lib.Stage
             scope.Run<IReadOnlyList<SongListNode>>(
                 token =>
                 {
-                    try
-                    {
-                        token.ThrowIfCancellationRequested();
-                        // Invoke the loader here, on the worker: reaching the DB (which may
-                        // run synchronously) must never happen on the update thread.
-                        return CopyTabLoadNodes(loadBookmarkedNodesAsync().GetAwaiter().GetResult());
-                    }
-                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
-                    {
-                        // A cancellation independent of retirement is a real load failure.
-                        throw new InvalidOperationException(
-                            "The bookmark load was canceled independently of the stage scope");
-                    }
+                    token.ThrowIfCancellationRequested();
+                    // Invoke the loader here, on the worker: reaching the DB (which may
+                    // run synchronously) must never happen on the update thread.
+                    return CopyTabLoadNodes(loadBookmarkedNodesAsync().GetAwaiter().GetResult());
                 },
                 onSuccess: nodes =>
                 {
@@ -3553,7 +3522,6 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             bool newState = !song.IsBookmarked;
-            song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
             // Prefer the persisted id over the in-memory entity id. When re-enumerating
             // SET.def songs that already exist in the DB, AddSongAsync returns the existing
             // id without assigning it to the parsed SongEntity.Id (left at 0), while
@@ -3568,7 +3536,10 @@ namespace DTXMania.Game.Lib.Stage
             // node above already refreshed its star marker, so bail out before touching the
             // shared persistence/reconciliation state to leave unrelated nodes untouched.
             if (songId <= 0)
+            {
+                song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
                 return;
+            }
             // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
             // from a fault of an older, already-superseded toggle at rollback time. The bump
             // shares _bookmarkRevertGate with the worker-side fault continuation so a stale
@@ -3580,6 +3551,10 @@ namespace DTXMania.Game.Lib.Stage
             lock (_bookmarkRevertGate)
             {
                 toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
+                // Immediate, in-memory flip (the star refreshes next draw). It joins the
+                // gate with the version bump so a worker-side shared revert can never
+                // interleave between the two writes.
+                song.IsBookmarked = newState;
                 BookmarkStateReconciler.Apply(
                     _appliedLibrarySnapshot?.RootSongs
                         ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
@@ -3622,34 +3597,30 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (task.IsFaulted || task.IsCanceled)
                 {
-                    // A failed write leaves no committed intent: revert the SHARED library
-                    // entities on this worker even when navigation retired the origin scope
-                    // (whose posted UI rollback was dropped), so reentry starts DB-consistent.
-                    // The shared snapshot — not the captured per-activation entity — is what
-                    // survives navigation and backs the reentry browse tree (Recent/Bookmarks
-                    // nodes hold distinct entity instances from it), and reconciling it by
-                    // song id also covers duplicate SET.def nodes. The version check and the
-                    // reconcile hold the same gate as the update-thread bump, so a newer
-                    // toggle's bump can never slip between this check and its revert; the
-                    // per-activation UI lists are still only reconciled by the posted rollback
-                    // on the update thread.
-                    lock (_bookmarkRevertGate)
+                    // A failed write leaves no committed intent. While the origin scope
+                    // is live the whole revert — shared library entities, Recent and
+                    // Bookmarks lists — is applied on the update thread, so no worker
+                    // ever writes IsBookmarked while the player may be toggling.
+                    // If navigation retired the origin scope first, the posted rollback
+                    // is dropped and the drop callback still reverts the SHARED library
+                    // entities (the snapshot backs the reentry browse tree), so reentry
+                    // starts DB-consistent; that path takes the same gate as the
+                    // update-thread toggle bump, so it cannot interleave with a toggle.
+                    // Hand the revert off first, then log: the warning says
+                    // "reverting", so it must describe a hand-off that already happened
+                    // (do-then-log); this order also makes the warning a post-posting
+                    // signal for observers of the log stream.
+                    if (originScope != null)
                     {
-                        if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
-                            || current == toggleVersion)
-                        {
-                            BookmarkStateReconciler.Apply(
-                                SongManager.Instance.GetLibrarySnapshot().RootSongs,
-                                songId,
-                                !newState);
-                        }
+                        originScope.Post(
+                            () => ApplyBookmarkRevert(songId, !newState, toggleVersion),
+                            onDropped: () => RevertSharedBookmark(songId, !newState, toggleVersion));
+                    }
+                    else
+                    {
+                        RevertSharedBookmark(songId, !newState, toggleVersion);
                     }
 
-                    // Hand the revert to the origin scope first, then log: the warning says
-                    // "reverting", so it must describe a hand-off that already happened
-                    // (do-then-log); this order also makes the warning a post-posting signal
-                    // for observers of the log stream.
-                    originScope?.Post(() => ApplyBookmarkRevert(songId, !newState, toggleVersion));
                     Logger.LogWarning(
                         task.Exception?.GetBaseException(),
                         "Bookmark save failed for song {SongId} (target state {Bookmarked}); reverting",
@@ -3669,6 +3640,29 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             PlayCursorMoveSound();
+        }
+
+        /// <summary>
+        /// Reverts the SHARED library entities (the manager's current snapshot, which
+        /// survives navigation and backs the reentry browse tree) for a failed persist,
+        /// unless a newer toggle has superseded it. The version check and the reconcile
+        /// hold the same gate as the update-thread toggle bump, so a newer toggle can
+        /// never slip between the check and the revert. Reconciling by song id also
+        /// covers duplicate SET.def nodes.
+        /// </summary>
+        private void RevertSharedBookmark(int songId, bool revertTo, int toggleVersion)
+        {
+            lock (_bookmarkRevertGate)
+            {
+                if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
+                    || current == toggleVersion)
+                {
+                    BookmarkStateReconciler.Apply(
+                        SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                        songId,
+                        revertTo);
+                }
+            }
         }
 
         /// <summary>
@@ -3693,6 +3687,9 @@ namespace DTXMania.Game.Lib.Stage
                     ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
                 songId,
                 revertTo);
+            // The manager's current snapshot may be a newer publication than the one
+            // this activation applied; revert it too (idempotent when they match).
+            RevertSharedBookmark(songId, revertTo, toggleVersion);
             BookmarkStateReconciler.Apply(_recentPlayNodes, songId, revertTo);
             BookmarkStateReconciler.Apply(_bookmarkNodes, songId, revertTo);
 

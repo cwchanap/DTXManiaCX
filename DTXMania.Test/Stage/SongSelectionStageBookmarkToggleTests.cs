@@ -368,7 +368,7 @@ namespace DTXMania.Test.Stage
         // entity must revert to the pre-toggle state it matches in the database, while the
         // per-activation UI lists stay untouched (their rollback was dropped with the scope).
         [Fact]
-        public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_RevertsSharedEntityButDropsUiRollback()
+        public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_ShouldRevertSharedEntityButDropUiRollback()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_drop_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -601,7 +601,7 @@ namespace DTXMania.Test.Stage
         // The newer toggle's optimistic value here (true) differs from the stale revert
         // value (false), so a missing version guard flips the assertion deterministically.
         [Fact]
-        public async Task ToggleBookmarkFromRecentTab_WhenNewerToggleSupersedesFailedWrite_SharedSnapshotKeepsNewerIntent()
+        public async Task ToggleBookmarkFromRecentTab_WhenNewerToggleSupersedesFailedWrite_ShouldKeepNewerIntentInSharedSnapshot()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_newer_wins_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -1103,7 +1103,7 @@ namespace DTXMania.Test.Stage
         // Stale-revert guard: a revert from an older, superseded toggle must be skipped so it
         // cannot override a newer toggle's in-memory flag.
         [Fact]
-        public void ApplyBookmarkRevert_WhenSupersededByNewerToggle_SkipsStaleRevert()
+        public void ApplyBookmarkRevert_WhenSupersededByNewerToggle_ShouldSkipStaleRevert()
         {
             var stage = CreateStage();
             var recentSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 7, IsBookmarked = true };
