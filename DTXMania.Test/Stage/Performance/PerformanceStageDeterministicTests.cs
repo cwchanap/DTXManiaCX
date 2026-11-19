@@ -243,10 +243,11 @@ public class PerformanceStageDeterministicTests
         Assert.False(telemetry.PerformanceReady);
     }
 
-    private static void StartGameplayInitialization(PerformanceStage stage)
+    private static Task<PreparedGameplayAudioSet?> StartGameplayInitialization(PerformanceStage stage)
     {
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        ReflectionHelpers.InvokePrivateMethod(stage, "StartGameplayInitialization");
+        return ReflectionHelpers.InvokePrivateMethod<Task<PreparedGameplayAudioSet?>>(
+            stage, "StartGameplayInitialization")!;
     }
 
     private static PreparedGameplayAudioSet WaitForQueuedAudioSet(StageBackgroundWorkScope scope)
@@ -448,9 +449,24 @@ public class PerformanceStageDeterministicTests
                 ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            StartGameplayInitialization(stage);
-            DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+            // Awaiting the worker task IS the audio terminal: the chart post and the
+            // terminal WorkItem are both queued by the time the task completes, so a
+            // single drain applies them FIFO — the chart-setup failure, then the
+            // early-returned audio apply whose finally disposes the prepared set.
+            var run = StartGameplayInitialization(stage);
+            Assert.True(
+                run.Wait(TimeSpan.FromSeconds(5)),
+                "the audio preparation worker did not complete in time");
+            var preparedSet = run.Result;
+            Assert.NotNull(preparedSet);
+            var mainBackground = preparedSet!.MainBackground;
+            Assert.NotNull(mainBackground);
 
+            stage.BackgroundWork?.Drain();
+
+            Assert.True(
+                mainBackground!.IsDisposed,
+                "the prepared set was not disposed after the chart-setup failure");
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
             Assert.Contains(
                 "Chart setup failed",
@@ -613,7 +629,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            StartGameplayInitialization(stage);
+            var canceledRun = StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)),
                 "the worker never parked inside its load-failure report");
@@ -631,8 +647,13 @@ public class PerformanceStageDeterministicTests
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
             Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
 
+            // Awaiting the released worker's task observes the full unwind — the
+            // canceled chain's real terminal — before the replacement run starts.
             logger.ReleaseNext();
-            Thread.Sleep(50);
+            Assert.True(
+                canceledRun.Wait(TimeSpan.FromSeconds(5)),
+                "the canceled worker did not unwind in time");
+            Assert.Null(canceledRun.Result);
 
             // Re-establish the fields CleanupComponents nulled, then run a fresh
             // activation to its own observed terminal and ready state.
@@ -844,7 +865,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            StartGameplayInitialization(stage);
+            var staleRun = StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)),
                 "the stale worker never parked inside its load-failure report");
@@ -878,9 +899,19 @@ public class PerformanceStageDeterministicTests
                 "the fresh worker never parked mid-run");
 
             // Release the stale park only: the superseded preparation runs to its
-            // return on the retired scope and drops directly.
+            // return on the retired scope and drops directly. The worker task is
+            // the stale operation's terminal, and its payload is the dropped set —
+            // its disposal is observed, not inferred.
             logger.ReleaseNext();
-            Thread.Sleep(50);
+            Assert.True(
+                staleRun.Wait(TimeSpan.FromSeconds(5)),
+                "the stale worker did not complete after its park was released");
+            var staleSet = staleRun.Result;
+            Assert.NotNull(staleSet);
+            Assert.NotNull(staleSet!.MainBackground);
+            Assert.True(
+                staleSet.MainBackground!.IsDisposed,
+                "the retired scope did not dispose the superseded audio set");
 
             Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
