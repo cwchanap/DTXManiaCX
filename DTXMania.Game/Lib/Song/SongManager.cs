@@ -1648,10 +1648,41 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         internal async Task BuildHierarchyFromDatabaseOnceAsync(string[] searchPaths)
         {
+            var hierarchy =
+                await PrepareHierarchyFromDatabaseOnceAsync(searchPaths)
+                    .ConfigureAwait(false);
+            if (hierarchy == null)
+            {
+                return;
+            }
+
+            try
+            {
+                PublishDatabaseHierarchy(
+                    hierarchy.RootNodes,
+                    hierarchy.ActiveRoots,
+                    hierarchy.ActiveChartCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error building song list from database");
+            }
+        }
+
+        /// <summary>
+        /// Builds the database hierarchy without publishing it. Returns null when
+        /// there is no database, no available root, or the build fails. The caller
+        /// commits the result via <see cref="PublishDatabaseHierarchy(SongDatabaseHierarchy)"/>,
+        /// which lets activation-scoped stages defer publication to their update
+        /// thread and drop it entirely if the activation retired first.
+        /// </summary>
+        internal async Task<SongDatabaseHierarchy?> PrepareHierarchyFromDatabaseOnceAsync(
+            string[] searchPaths)
+        {
             var db = GetDatabaseServiceSnapshot();
             if (db == null)
             {
-                return;
+                return null;
             }
 
             try
@@ -1667,7 +1698,7 @@ namespace DTXMania.Game.Lib.Song
 
                 if (availableRoots.Length == 0)
                 {
-                    return;
+                    return null;
                 }
 
                 var activeChartCount = 0;
@@ -1710,7 +1741,7 @@ namespace DTXMania.Game.Lib.Song
                     newRootNodes.Add(rootBox);
                 }
 
-                PublishDatabaseHierarchy(
+                return new SongDatabaseHierarchy(
                     newRootNodes,
                     availableRoots,
                     activeChartCount);
@@ -1718,7 +1749,23 @@ namespace DTXMania.Game.Lib.Song
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error building song list from database");
+                return null;
             }
+        }
+
+        /// <summary>
+        /// Commits a hierarchy prepared by
+        /// <see cref="PrepareHierarchyFromDatabaseOnceAsync"/> to the shared
+        /// library. Callers that defer publication (e.g. a stage posting to its
+        /// activation scope) invoke this from the thread that owns the commit.
+        /// </summary>
+        internal void PublishDatabaseHierarchy(SongDatabaseHierarchy hierarchy)
+        {
+            ArgumentNullException.ThrowIfNull(hierarchy);
+            PublishDatabaseHierarchy(
+                hierarchy.RootNodes,
+                hierarchy.ActiveRoots,
+                hierarchy.ActiveChartCount);
         }
 
         private void PublishDatabaseHierarchy(

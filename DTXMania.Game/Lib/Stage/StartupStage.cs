@@ -726,10 +726,27 @@ namespace DTXMania.Game.Lib.Stage
                 cancellationToken);
         }
 
-        protected virtual Task BuildHierarchyFromDatabaseOnceCoreAsync(
-            string[] songPaths)
+        /// <summary>
+        /// Builds the database hierarchy off the update thread without touching
+        /// shared library state. The returned plan is committed by
+        /// <see cref="PublishDatabaseHierarchyCore"/> from a scope-posted
+        /// callback, so a retired activation can never publish it.
+        /// </summary>
+        protected virtual Task<SongDatabaseHierarchy?>
+            PrepareHierarchyFromDatabaseOnceCoreAsync(
+                string[] songPaths)
         {
-            return _songManager.BuildHierarchyFromDatabaseOnceAsync(songPaths);
+            return _songManager.PrepareHierarchyFromDatabaseOnceAsync(songPaths);
+        }
+
+        /// <summary>
+        /// Commits a prepared database hierarchy to the shared library. Runs on
+        /// the update thread inside the activation scope — never on the worker.
+        /// </summary>
+        protected virtual void PublishDatabaseHierarchyCore(
+            SongDatabaseHierarchy hierarchy)
+        {
+            _songManager.PublishDatabaseHierarchy(hierarchy);
         }
 
         protected virtual void MarkSongManagerInitialized()
@@ -818,7 +835,7 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     try
                     {
-                        return RunSongLoadChainAsync(songPaths, progress, scope.Token)
+                        return RunSongLoadChainAsync(songPaths, progress, scope)
                             .GetAwaiter()
                             .GetResult();
                     }
@@ -855,15 +872,17 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// The worker-local enumeration chain. Activation fencing is the scope
-        /// token: retirement cancels it, and every checkpoint after an await
-        /// rethrows cancellation so stale results are never applied.
+        /// The worker-local enumeration chain. Activation fencing is the scope:
+        /// retirement cancels its token, and shared-library commits are posted
+        /// back into it — a retired scope drops the post, so a stale chain can
+        /// never publish over a newer activation's library.
         /// </summary>
         private async Task<bool> RunSongLoadChainAsync(
             string[] songPaths,
             IProgress<EnumerationProgress> progress,
-            CancellationToken cancellationToken)
+            StageBackgroundWorkScope scope)
         {
+            var cancellationToken = scope.Token;
             // Chain-local guard state: the chain runs once per activation, so a
             // local preserves the exactly-once cache-fallback contract.
             var cacheLoadPathSelected = false;
@@ -873,7 +892,7 @@ namespace DTXMania.Game.Lib.Stage
                 if (songPaths.Length == 0)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    PublishEmptyLibraryCore();
+                    scope.Post(PublishEmptyLibraryCore);
                     return true;
                 }
 
@@ -885,9 +904,15 @@ namespace DTXMania.Game.Lib.Stage
 
                 if (!needsEnumeration)
                 {
-                    await BuildHierarchyFromDatabaseOnceCoreAsync(songPaths)
-                        .ConfigureAwait(false);
+                    var prepared =
+                        await PrepareHierarchyFromDatabaseOnceCoreAsync(songPaths)
+                            .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (prepared != null)
+                    {
+                        scope.Post(() =>
+                            PublishDatabaseHierarchyCore(prepared));
+                    }
                     return true;
                 }
 
@@ -907,7 +932,7 @@ namespace DTXMania.Game.Lib.Stage
                     SongEnumerationOutcome.NoActiveRoots)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    PublishEmptyLibraryCore();
+                    scope.Post(PublishEmptyLibraryCore);
                 }
 
                 return true;
@@ -931,8 +956,14 @@ namespace DTXMania.Game.Lib.Stage
                 cacheFallbackAttempted = true;
                 try
                 {
-                    await BuildHierarchyFromDatabaseOnceCoreAsync(songPaths)
-                        .ConfigureAwait(false);
+                    var prepared =
+                        await PrepareHierarchyFromDatabaseOnceCoreAsync(songPaths)
+                            .ConfigureAwait(false);
+                    if (prepared != null)
+                    {
+                        scope.Post(() =>
+                            PublishDatabaseHierarchyCore(prepared));
+                    }
                 }
                 catch
                 {

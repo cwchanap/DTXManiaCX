@@ -3253,6 +3253,7 @@ public class ConfigStageLogicTests
             using var cts = new CancellationTokenSource();
             cts.Cancel();
             var canceledTask = Task.FromCanceled<ConfigSongOperationCompletion>(cts.Token);
+            SetActiveSongOperation(stage, lease, cts);
 
             InvokePrivate(
                 stage,
@@ -3281,6 +3282,7 @@ public class ConfigStageLogicTests
             using var cts = new CancellationTokenSource();
             var faultedTask = Task.FromException<ConfigSongOperationCompletion>(
                 new InvalidOperationException("reload exploded"));
+            SetActiveSongOperation(stage, lease, cts);
 
             InvokePrivate(
                 stage,
@@ -3309,6 +3311,7 @@ public class ConfigStageLogicTests
             using var cts = new CancellationTokenSource();
             var successTask = Task.FromResult(
                 new ConfigSongOperationCompletion("Reloaded 3 song charts."));
+            SetActiveSongOperation(stage, lease, cts);
 
             InvokePrivate(
                 stage,
@@ -3337,6 +3340,7 @@ public class ConfigStageLogicTests
             using var cts = new CancellationTokenSource();
             cts.Cancel();
             var canceledTask = Task.FromCanceled<ConfigSongOperationCompletion>(cts.Token);
+            SetActiveSongOperation(stage, lease, cts);
 
             InvokePrivate(
                 stage,
@@ -3350,6 +3354,49 @@ public class ConfigStageLogicTests
             scope.Drain();
             var importStatus = GetPrivateField<string>(stage, "_importStatus");
             Assert.Contains("NX import cancelled", importStatus, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void CompleteSongOperation_WhenLeaseSuperseded_ShouldNotApplyTerminalStatus()
+    {
+        var (stage, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var scope = stage.InstallTestBackgroundScope();
+            var coordinator = GetCoordinator(stage);
+            var staleLease = coordinator.TryAcquire(ConfigSongOperationKind.SongFolderReload)!;
+            using var staleCts = new CancellationTokenSource();
+            var staleTask = Task.FromResult(
+                new ConfigSongOperationCompletion("Reloaded 9 song charts."));
+
+            // The lease is released worker-side before the queued terminal post
+            // drains; a newer operation then acquires the slot and clears the
+            // folder status field.
+            staleLease.Dispose();
+            var freshLease = coordinator.TryAcquire(ConfigSongOperationKind.NxScoreImport)!;
+            using var freshCts = new CancellationTokenSource();
+            SetPrivateField(stage, "_songFolderStatus", "");
+            SetPrivateField(stage, "_importStatus", "Importing NX scores...");
+            SetActiveSongOperation(stage, freshLease, freshCts);
+
+            InvokePrivate(
+                stage,
+                "CompleteSongOperation",
+                staleTask,
+                scope,
+                staleLease,
+                staleCts,
+                ConfigSongOperationKind.SongFolderReload);
+
+            scope.Drain();
+
+            // The superseded terminal must not repaint the cleared field or
+            // evict the current operation's handles.
+            Assert.Equal("", GetPrivateField<string>(stage, "_songFolderStatus"));
+            Assert.Equal("Importing NX scores...", GetPrivateField<string>(stage, "_importStatus"));
+            Assert.Same(freshCts, GetPrivateField<CancellationTokenSource>(stage, "_songOperationCts"));
+            freshLease.Dispose();
         }
     }
 
@@ -3407,6 +3454,22 @@ public class ConfigStageLogicTests
             name, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(stage, args);
+    }
+
+    // Terminal posts apply only while their lease still owns the operation
+    // handle, so direct CompleteSongOperation tests must install one first.
+    private static void SetActiveSongOperation(
+        ConfigStage stage,
+        ConfigSongOperationLease lease,
+        CancellationTokenSource cts)
+    {
+        var handleType = typeof(ConfigStage).GetNestedType(
+            "ActiveSongOperation", BindingFlags.NonPublic)!;
+        SetPrivateField(
+            stage,
+            "_activeSongOperation",
+            Activator.CreateInstance(handleType, lease, cts));
+        SetPrivateField(stage, "_songOperationCts", cts);
     }
 
     private static T GetPrivateField<T>(object target, string name) =>

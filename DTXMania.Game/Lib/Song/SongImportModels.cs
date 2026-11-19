@@ -61,6 +61,16 @@ namespace DTXMania.Game.Lib.Song
         public List<ChartInventoryEntry> Directories { get; } = new();
     }
 
+    /// <summary>
+    /// A hierarchy built from database entries whose shared-library publication
+    /// is deferred to the caller, so an activation-scoped stage can commit it
+    /// only while its activation is still current.
+    /// </summary>
+    public sealed record SongDatabaseHierarchy(
+        IReadOnlyList<SongListNode> RootNodes,
+        IReadOnlyList<string> ActiveRoots,
+        int ActiveChartCount);
+
     internal enum SongBulkImportMilestone
     {
         PreloadStarted,

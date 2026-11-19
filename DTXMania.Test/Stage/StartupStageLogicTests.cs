@@ -634,6 +634,65 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task StartSongEnumeration_WhenRetiredBeforeCachePublishDrains_ShouldNotPublishHierarchy()
+        {
+            // The prepared hierarchy commits through a scope post: retire before
+            // the worker's build completes and the publish must be discarded
+            // rather than reach the shared library from a stale activation.
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+            var buildRelease = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.NextBuildHierarchyTask = buildRelease.Task;
+            var scope = stage.InstallTestBackgroundScope();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => stage.BuildHierarchyCalls >= 1,
+                    TimeSpan.FromSeconds(5)),
+                "the cache hierarchy build did not start");
+            scope.Retire();
+            buildRelease.SetResult(true);
+            // Let the retired worker unwind: the canceled token check after the
+            // build skips the post, and any queued items stay dropped.
+            await Task.Delay(100);
+            scope.Drain();
+
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Null(stage.PublishedHierarchy);
+        }
+
+        [Fact]
+        public async Task StartSongEnumeration_WhenRetiredBeforeEmptyLibraryPublishDrains_ShouldNotPublishEmptyLibrary()
+        {
+            // A NoActiveRoots outcome posts PublishEmptyLibraryCore through the
+            // scope; a retired activation must discard the decision instead of
+            // clearing the shared library after the stage is gone.
+            var stage = CreateControlledStage(songPaths: ["MissingRoot"]);
+            var enumerationCompletion = new TaskCompletionSource<SongEnumerationResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.NextEnumerationTask = enumerationCompletion.Task;
+            stage.NextEnumerationResult = CreateEnumerationResult(
+                outcome: SongEnumerationOutcome.NoActiveRoots,
+                activeRoots: Array.Empty<string>());
+            var scope = stage.InstallTestBackgroundScope();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            await WaitForEnumerationStartedAsync(stage);
+            scope.Retire();
+            enumerationCompletion.SetResult(stage.NextEnumerationResult);
+            await Task.Delay(100);
+            scope.Drain();
+
+            Assert.Equal(1, stage.EnumerateSongsCalls);
+            Assert.Equal(0, stage.PublishEmptyLibraryCalls);
+        }
+
+        [Fact]
         public void ForceEnumeration_InProduction_ShouldLetTheFreshnessCheckChooseTheCache()
         {
             var stage = CreateStage();
@@ -922,15 +981,31 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.SongListDB, 0.0);
             // BaseStage.Dispose deactivates an active stage, which retires the scope.
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => stage.InitializeDatabaseCalls >= 1,
+                    TimeSpan.FromSeconds(5)),
+                "the database operation never started");
 
-            var exception = Record.Exception(() => InvokeDispose(stage, true));
-
-            Assert.Null(exception);
-            Assert.True(scope.Token.IsCancellationRequested);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
-
-            // The abandoned worker completes later without escaping any exception.
-            pendingCompletion.TrySetResult(true);
+            Exception? exception = null;
+            var disposal = Task.Run(
+                () => exception = Record.Exception(() => InvokeDispose(stage, true)));
+            try
+            {
+                Assert.True(
+                    disposal.Wait(TimeSpan.FromSeconds(5)),
+                    "Dispose blocked on the pending worker");
+                Assert.Null(exception);
+                Assert.True(scope.Token.IsCancellationRequested);
+                Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+            }
+            finally
+            {
+                // The abandoned worker completes later without escaping any
+                // exception; release it even if disposal timed out so a
+                // regression fails instead of hanging the run.
+                pendingCompletion.TrySetResult(true);
+            }
         }
 
         [Fact]
@@ -1015,11 +1090,11 @@ namespace DTXMania.Test.Stage
             var fault = new InvalidOperationException("boom");
             var completion = new TaskCompletionSource<SongEnumerationResult>();
             stage.NextEnumerationTask = completion.Task;
-            var cancellation = new CancellationTokenSource();
+            var scope = stage.InstallTestBackgroundScope();
 
             // InvokePrivateMethodAsync invokes the async chain synchronously on
             // this thread up to the enumeration await, so the await continuation
-            // is registered before the helper suspends on the chain task. Canceling
+            // is registered before the helper suspends on the chain task. Retiring
             // and faulting only afterwards reproduces the post-disposal ordering
             // (retire → fault) with no completion-versus-registration race.
             var chainTask = ReflectionHelpers.InvokePrivateMethodAsync<bool>(
@@ -1027,9 +1102,9 @@ namespace DTXMania.Test.Stage
                 "RunSongLoadChainAsync",
                 new[] { "Songs" },
                 new InlineProgress<EnumerationProgress>(_ => { }),
-                cancellation.Token);
+                scope);
 
-            cancellation.Cancel();
+            scope.Retire();
             completion.SetException(fault);
 
             // Awaiting the chain synchronizes with its actual completion: the
@@ -1728,17 +1803,32 @@ namespace DTXMania.Test.Stage
                 return resultTask;
             }
 
-            protected override Task BuildHierarchyFromDatabaseOnceCoreAsync(
-                string[] songPaths)
+            protected override async Task<SongDatabaseHierarchy?>
+                PrepareHierarchyFromDatabaseOnceCoreAsync(
+                    string[] songPaths)
             {
                 BuildHierarchyCalls++;
                 LastSongPaths = songPaths;
                 if (BuildHierarchyException != null)
                 {
-                    return Task.FromException(BuildHierarchyException);
+                    throw BuildHierarchyException;
                 }
-                PublishedHierarchy = new SongListNode { Title = "Rebuilt" };
-                return NextBuildHierarchyTask ?? Task.CompletedTask;
+                if (NextBuildHierarchyTask != null)
+                {
+                    await NextBuildHierarchyTask;
+                }
+                return new SongDatabaseHierarchy(
+                    new SongListNode[] { new() { Title = "Rebuilt" } },
+                    songPaths,
+                    0);
+            }
+
+            protected override void PublishDatabaseHierarchyCore(
+                SongDatabaseHierarchy hierarchy)
+            {
+                PublishedHierarchy = hierarchy.RootNodes.Count > 0
+                    ? hierarchy.RootNodes[0]
+                    : null;
             }
 
             protected override void MarkSongManagerInitialized()
@@ -1962,19 +2052,34 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Dispose_WithRunningTask_ShouldCancelWithoutWaiting()
         {
-            var tcs = new TaskCompletionSource<bool>();
+            var tcs = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
             var stage = CreateControlledStage();
             stage.NextDatabaseTask = tcs.Task;
             stage.InstallTestBackgroundScope();
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.SongListDB);
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.SongListDB, 0.0);
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Inactive);
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => stage.InitializeDatabaseCalls >= 1,
+                    TimeSpan.FromSeconds(5)),
+                "the database operation never started");
 
-            InvokeDispose(stage, true);
-
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
-
-            tcs.TrySetResult(true);
+            var disposal = Task.Run(() => InvokeDispose(stage, true));
+            try
+            {
+                Assert.True(
+                    disposal.Wait(TimeSpan.FromSeconds(5)),
+                    "Dispose blocked on the pending worker");
+                // Surface any disposal exception (reflection invoke wraps it).
+                disposal.GetAwaiter().GetResult();
+                Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+            }
+            finally
+            {
+                tcs.TrySetResult(true);
+            }
         }
 
         [Fact]
