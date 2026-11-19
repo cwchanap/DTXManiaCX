@@ -80,11 +80,6 @@ namespace DTXMania.Game.Lib.Stage
         // Null until the posted result applies.
         private bool? _asyncPhaseSucceeded;
 
-        // The song-load chain's Run task (HPA-799): it completes only after the
-        // chain's posts are enqueued (or the chain unwinds on retirement), so the
-        // stage and its tests can observe the worker deterministically.
-        private Task? _songLoadWorker;
-
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
@@ -835,27 +830,11 @@ namespace DTXMania.Game.Lib.Stage
             IProgress<EnumerationProgress> progress = new InlineProgress<EnumerationProgress>(
                 scope.Latest<EnumerationProgress>(ApplyEnumerationProgress));
 
-            _songLoadWorker = scope.Run<bool>(
-                _ =>
-                {
-                    try
-                    {
-                        return RunSongLoadChainAsync(songPaths, progress, scope)
-                            .GetAwaiter()
-                            .GetResult();
-                    }
-                    catch (OperationCanceledException cancellation)
-                        when (!scope.Token.IsCancellationRequested)
-                    {
-                        // Cancellation independent of stage retirement (e.g.
-                        // SongManager.CancelEnumeration) must still publish a
-                        // terminal outcome or the phase would never advance;
-                        // retirement stays silent (Run swallows that OCE).
-                        throw new InvalidOperationException(
-                            "Song enumeration was canceled.",
-                            cancellation);
-                    }
-                },
+            // A cancellation that is not a stage retirement (e.g.
+            // SongManager.CancelEnumeration) reaches onError via the scope, so the
+            // phase still gets a terminal outcome and advances.
+            scope.RunAsync(
+                _ => RunSongLoadChainAsync(songPaths, progress, scope),
                 onSuccess: _ =>
                 {
                     _asyncPhaseSucceeded = true;
@@ -1225,23 +1204,6 @@ namespace DTXMania.Game.Lib.Stage
         BuildSongLists = 7,      // 7
         SaveSongsDB = 8,         // 8
         Complete = 9             // 9
-    }
-
-    /// <summary>
-    /// Synchronous <see cref="IProgress{T}"/> adapter that hands each report to the
-    /// stage scope's Latest reporter, so at most one status update per frame is
-    /// queued for the update thread (no SynchronizationContext involved).
-    /// </summary>
-    internal sealed class InlineProgress<T> : IProgress<T>
-    {
-        private readonly Action<T> _report;
-
-        public InlineProgress(Action<T> report)
-        {
-            _report = report ?? throw new ArgumentNullException(nameof(report));
-        }
-
-        public void Report(T value) => _report(value);
     }
 }
 

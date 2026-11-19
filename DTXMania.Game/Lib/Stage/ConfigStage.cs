@@ -2192,16 +2192,5 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         #endregion
-
-        /// <summary>
-        /// Synchronous <see cref="IProgress{T}"/> that invokes the callback inline on the calling
-        /// thread, preventing stale queued progress from overwriting the final import status.
-        /// </summary>
-        private sealed class InlineProgress<T> : IProgress<T>
-        {
-            private readonly Action<T> _callback;
-            public InlineProgress(Action<T> callback) => _callback = callback;
-            public void Report(T value) => _callback(value);
-        }
     }
 }

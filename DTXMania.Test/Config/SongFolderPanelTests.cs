@@ -596,7 +596,7 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
-    public async Task AddFolder_WhenPickerRestartsAfterCloseAndReopen_OnlyTheNewPickApplies()
+    public async Task AddFolder_WhenPickerRestartsAfterCloseAndReopen_ShouldApplyOnlyTheNewPick()
     {
         using var root = TemporaryDirectory.Create();
         using var staleFolder = TemporaryDirectory.Create();

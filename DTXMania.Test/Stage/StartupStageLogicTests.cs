@@ -656,10 +656,7 @@ namespace DTXMania.Test.Stage
                 "the cache hierarchy build did not start");
             scope.Retire();
             buildRelease.SetResult(true);
-            // Await the retired worker itself instead of a settle delay: Run's
-            // task completes after the canceled token check skips the post, so
-            // the assertion below cannot pass before the chain finishes.
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(50);
             scope.Drain();
 
             Assert.Equal(1, stage.BuildHierarchyCalls);
@@ -667,7 +664,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task StartSongEnumeration_WhenRetiredAfterCachePublishQueued_ShouldNotPublishHierarchy()
+        public void StartSongEnumeration_WhenRetiredAfterCachePublishQueued_ShouldNotPublishHierarchy()
         {
             // Stronger ordering of the retirement fence: the worker finishes and
             // its publish post is already queued when the activation retires, so
@@ -680,9 +677,9 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
-            // Run's task completes only after the chain's posts are enqueued,
-            // so this await proves the publish callback sits in the queue.
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(
+                SpinWait.SpinUntil(() => PendingQueueCount(scope) >= 2, TimeSpan.FromSeconds(5)),
+                "the publish and terminal callbacks were not queued");
             scope.Retire();
             scope.Drain();
 
@@ -710,10 +707,7 @@ namespace DTXMania.Test.Stage
             await WaitForEnumerationStartedAsync(stage);
             scope.Retire();
             enumerationCompletion.SetResult(stage.NextEnumerationResult);
-            // Await the retired worker itself instead of a settle delay: Run's
-            // task completes after the canceled token check skips the post, so
-            // the assertion below cannot pass before the chain finishes.
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(50);
             scope.Drain();
 
             Assert.Equal(1, stage.EnumerateSongsCalls);
@@ -721,7 +715,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task StartSongEnumeration_WhenRetiredAfterEmptyLibraryPublishQueued_ShouldNotPublishEmptyLibrary()
+        public void StartSongEnumeration_WhenRetiredAfterEmptyLibraryPublishQueued_ShouldNotPublishEmptyLibrary()
         {
             // Stronger ordering of the retirement fence: the worker finishes and
             // its publish post is already queued when the activation retires, so
@@ -735,9 +729,9 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
-            // Run's task completes only after the chain's posts are enqueued,
-            // so this await proves the publish callback sits in the queue.
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(
+                SpinWait.SpinUntil(() => PendingQueueCount(scope) >= 2, TimeSpan.FromSeconds(5)),
+                "the empty-library publish and terminal callbacks were not queued");
             scope.Retire();
             scope.Drain();
 
@@ -902,10 +896,7 @@ namespace DTXMania.Test.Stage
 
             stage.Activate();
             oldCompletion.SetResult(staleResult);
-            // The retired scope can never apply the stale success; await the
-            // worker itself so the chain's dropped enqueue provably ran before
-            // asserting (nothing it does can mutate the stage).
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(50);
 
             Assert.Equal(
                 StartupPhase.SystemSounds,
@@ -949,7 +940,7 @@ namespace DTXMania.Test.Stage
             stage.Deactivate();
             stage.Activate();
             oldCompletion.SetException(original);
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(50);
 
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.Equal(
@@ -974,7 +965,7 @@ namespace DTXMania.Test.Stage
             stage.Deactivate();
             stage.Activate();
             oldCompletion.SetCanceled(oldToken);
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(50);
 
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.Equal(
@@ -982,6 +973,63 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<StartupPhase>(
                     stage,
                     "_startupPhase"));
+        }
+
+        [Fact]
+        public void StartSongEnumeration_WhenEnumerationThrowsNonRetirementCancellation_ShouldPostErrorAndAdvancePhase()
+        {
+            var stage = CreateControlledStage();
+            var logger = new Mock<ILogger>();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationTask = Task.FromException<SongEnumerationResult>(
+                new OperationCanceledException("external cancellation"));
+            var scope = stage.InstallTestBackgroundScope();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            DrainUntilPostedTerminal(scope, stage);
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(StartupPhase.BuildSongLists,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Contains("Error",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("EnumerateSongs", StringComparison.Ordinal)),
+                    It.IsAny<OperationCanceledException>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public void StartSongEnumeration_WhenPublishCallbackThrowsDuringDrain_ShouldLogErrorAndAdvancePhase()
+        {
+            var stage = CreateControlledStage(songPaths: Array.Empty<string>());
+            var logger = new Mock<ILogger>();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+            stage.PublishEmptyLibraryException = new InvalidOperationException("publish failed");
+            var scope = stage.InstallTestBackgroundScope();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
+            var ex = Record.Exception(() => DrainUntilPostedTerminal(scope, stage));
+            Assert.Null(ex);
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(StartupPhase.BuildSongLists,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    stage.PublishEmptyLibraryException,
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
 
         [Fact]
@@ -1556,17 +1604,12 @@ namespace DTXMania.Test.Stage
             return Task.CompletedTask;
         }
 
-        /// <summary>
-        /// The song-load worker task StartSongEnumeration stores on the stage
-        /// (HPA-799): Run's contract completes it only after the chain's posts
-        /// are enqueued or the chain unwinds on retirement, so awaiting it
-        /// synchronizes retired/stale-worker tests without fixed delays.
-        /// </summary>
-        private static Task GetSongLoadWorker(StartupStage stage)
+        private static int PendingQueueCount(StageBackgroundWorkScope scope)
         {
-            var worker = ReflectionHelpers.GetPrivateField<Task>(stage, "_songLoadWorker");
-            Assert.NotNull(worker);
-            return worker;
+            var queue = typeof(StageBackgroundWorkScope)
+                .GetField("_queue", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(scope) as System.Collections.ICollection;
+            return queue?.Count ?? 0;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1588,9 +1631,7 @@ namespace DTXMania.Test.Stage
             completion.SetException(
                 new InvalidOperationException("abandoned failure"));
 
-            // The chain's worker observed (and the retired scope dropped) the fault;
-            // awaiting it keeps the GC probe below deterministic.
-            await GetSongLoadWorker(stage).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(50);
 
             return new WeakReference(completion.Task);
         }
@@ -1799,6 +1840,7 @@ namespace DTXMania.Test.Stage
 
             public Exception? BuildHierarchyException { get; set; }
             public Task? NextBuildHierarchyTask { get; set; }
+            public Exception? PublishEmptyLibraryException { get; set; }
 
             protected override bool ForceEnumeration =>
                 ForceEnumerationForTest;
@@ -1906,6 +1948,10 @@ namespace DTXMania.Test.Stage
             protected override void PublishEmptyLibraryCore()
             {
                 PublishEmptyLibraryCalls++;
+                if (PublishEmptyLibraryException != null)
+                {
+                    throw PublishEmptyLibraryException;
+                }
             }
 
         }

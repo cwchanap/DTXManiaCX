@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -345,8 +346,8 @@ namespace DTXMania.Game.Lib.Stage.Config
             var initialDirectory = _selectedRootIndex >= 0 && _selectedRootIndex < _draftRoots.Count
                 ? _draftRoots[_selectedRootIndex]
                 : null;
-            _backgroundWork.Run(
-                _ => PickFolderBlocking(cancellation, initialDirectory),
+            _backgroundWork.RunAsync(
+                _ => PickFolderAsync(cancellation, initialDirectory),
                 onSuccess: result => ApplyPickerCompletion(cancellation, result),
                 onDropped: _ => cancellation.Dispose());
         }
@@ -354,18 +355,18 @@ namespace DTXMania.Game.Lib.Stage.Config
         /// <summary>
         /// Worker-side pick. Every outcome — including cancellation and failure —
         /// maps to a <see cref="FolderPickerResult"/>, so the terminal result always
-        /// queues for the update thread through the parent scope.
+        /// queues for the update thread through the parent scope. Awaited rather than
+        /// blocked on, so the open dialog does not hold a thread-pool thread.
         /// </summary>
-        private FolderPickerResult PickFolderBlocking(
+        private async Task<FolderPickerResult> PickFolderAsync(
             CancellationTokenSource cancellation,
             string? initialDirectory)
         {
             try
             {
-                return _folderPicker
+                return await _folderPicker
                     .PickFolderAsync(initialDirectory, cancellation.Token)
-                    .GetAwaiter()
-                    .GetResult()
+                    .ConfigureAwait(false)
                     ?? FolderPickerResult.Failed("The folder picker returned no result.");
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

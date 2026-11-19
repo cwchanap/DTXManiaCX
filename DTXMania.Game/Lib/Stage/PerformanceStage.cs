@@ -209,22 +209,14 @@ namespace DTXMania.Game.Lib.Stage
             DrumsNoteDisplayStyle RequestedNoteDisplayStyle);
 
         // HPA-411 Tab mode. The pure notation chart is built once on the activation
-        // worker (when the requested style is Tab) and carried in the initialization
-        // result; the renderer (which owns the font loads) is constructed exactly once
-        // on the update thread in the success callback. The effective style is derived
-        // from the _notationStrip reference alone — non-null means Tab, null means
-        // Lanes; a failed attempt means Lanes for the rest of the song.
+        // worker (when the requested style is Tab) and published together with the
+        // parsed chart BEFORE audio preparation starts (ApplyParsedChart), so the
+        // right playfield is on screen for the whole LOADING phase; the renderer
+        // (which owns the font loads) is constructed exactly once on the update
+        // thread there. The effective style is derived from the _notationStrip
+        // reference alone — non-null means Tab, null means Lanes; a failed attempt
+        // means Lanes for the rest of the song.
         private NotationStripRenderer? _notationStrip;
-
-        /// <summary>
-        /// Worker-local result of gameplay preparation. The worker owns the audio set
-        /// until the update-thread success callback transfers it to the stage; the
-        /// scope's drop callback disposes it if the result is never applied.
-        /// </summary>
-        private sealed record GameplayInitializationResult(
-            ParsedChart Chart,
-            PreparedGameplayAudioSet AudioSet,
-            NotationChart? NotationChart);
 
         // Skin art borrowed by the strip and the Tab HUD; released on cleanup.
         private TabModeArt? _tabModeArt;
@@ -330,7 +322,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Start chart/audio preparation on the activation's background-work scope;
             // every activation input is snapshotted on this (update) thread before Run.
-            _ = StartGameplayInitialization();
+            StartGameplayInitialization();
 
             var configManager = _game?.ConfigManager;
             if (configManager != null)
@@ -907,16 +899,15 @@ namespace DTXMania.Game.Lib.Stage
         /// (HPA-799). Every activation input is snapshotted on this (update) thread
         /// before Run, so the worker and its continuations never read stage fields
         /// that <see cref="CleanupComponents"/> nulls. The worker parses the fallback
-        /// chart, builds the Tab notation chart and prepares the audio set into a
-        /// local result; the update-thread success callback publishes chart,
-        /// managers, notation and audio bindings and the error callback fails the
-        /// load. Progress streams through a Latest reporter so at most one report is
-        /// queued per frame.
-        /// Returns the scope worker task (see <see cref="StageBackgroundWorkScope.Run{T}"/>)
-        /// so callers can observe the preparation chain's actual terminal; null when
-        /// validation failed or no scope is installed (nothing was started).
+        /// chart and builds the Tab notation chart, immediately posts them to the
+        /// update thread (<see cref="ApplyParsedChart"/>: chart, managers and the Tab
+        /// strip, so the correct playfield shows while audio is still preparing),
+        /// then prepares the audio set into a local result. The update-thread success
+        /// callback binds the audio and flips the stage to ready; the error callback
+        /// fails the load. Progress streams through a Latest reporter so at most one
+        /// report is queued per frame.
         /// </summary>
-        private Task<GameplayInitializationResult?>? StartGameplayInitialization()
+        private void StartGameplayInitialization()
         {
             var scope = BackgroundWork;
 
@@ -937,21 +928,21 @@ namespace DTXMania.Game.Lib.Stage
                 if (songSnapshot == null)
                 {
                     FailLoading("No song was selected.");
-                    return null;
+                    return;
                 }
 
                 var chartPath = songSnapshot.GetCurrentDifficultyChart(difficultySnapshot)?.FilePath;
                 if (string.IsNullOrEmpty(chartPath))
                 {
                     FailLoading("The selected chart path is unavailable.");
-                    return null;
+                    return;
                 }
 
                 fallbackChartPath = chartPath;
             }
 
             if (scope == null)
-                return null;
+                return;
 
             // Resolve the logger on this (update) thread: the Logger property lazily
             // assigns _logger, so resolving it from the worker would mutate stage
@@ -962,7 +953,12 @@ namespace DTXMania.Game.Lib.Stage
                 new InlineProgress<AudioPreparationProgress>(
                     scope.Latest<AudioPreparationProgress>(ApplyAudioPreparationProgress));
 
-            return scope.Run(
+            // The chart publication is a FIFO post, so it always applies before this
+            // run's terminal callback; a retired scope drops it (nothing owned).
+            Action<ParsedChart, NotationChart?> publishChart = (chart, notationChart) =>
+                scope.Post(() => ApplyParsedChart(chart, notationChart));
+
+            scope.Run(
                 cancellationToken => PrepareGameplayCore(
                     chartSnapshot,
                     fallbackChartPath,
@@ -970,28 +966,30 @@ namespace DTXMania.Game.Lib.Stage
                     playbackModifiers,
                     workerLogger,
                     progress,
+                    publishChart,
                     cancellationToken),
-                onSuccess: result => ApplyGameplayInitialization(result),
+                onSuccess: audioSet => ApplyPreparedAudio(audioSet),
                 onError: exception =>
                     FailLoading($"Audio preparation failed: {exception.Message}", exception),
-                onDropped: result => result.AudioSet.Dispose());
+                onDropped: audioSet => audioSet.Dispose());
         }
 
         /// <summary>
         /// The worker-local preparation chain: parses the fallback chart, builds the
-        /// Tab notation chart and prepares the audio set. Every input is a snapshot
-        /// parameter or a method-local; the only stage members touched are the
-        /// virtual audio-variant seams (immutable across the run). Logging uses the
-        /// worker logger resolved before Run — never the lazily assigned
-        /// <see cref="BaseStage.Logger"/>.
+        /// Tab notation chart, hands both to <paramref name="publishChart"/> and then
+        /// prepares the audio set. Every input is a snapshot parameter or a
+        /// method-local; the only stage members touched are the virtual audio-variant
+        /// seams (immutable across the run). Logging uses the worker logger resolved
+        /// before Run — never the lazily assigned <see cref="BaseStage.Logger"/>.
         /// </summary>
-        private GameplayInitializationResult PrepareGameplayCore(
+        private PreparedGameplayAudioSet PrepareGameplayCore(
             ParsedChart? chartSnapshot,
             string? fallbackChartPath,
             DrumsNoteDisplayStyle requestedNoteDisplayStyle,
             PlaybackModifiers playbackModifiers,
             ILogger workerLogger,
             IProgress<AudioPreparationProgress> progress,
+            Action<ParsedChart, NotationChart?> publishChart,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1003,7 +1001,7 @@ namespace DTXMania.Game.Lib.Stage
             // HPA-411: build the pure notation chart on the worker when the requested
             // style is Tab. Fonts are never touched here: the fallback ParseAsync above
             // can resume on a thread-pool thread, so resource loads are deferred to the
-            // update-thread success callback. A build failure is logged locally and
+            // update-thread publication. A build failure is logged locally and
             // gameplay continues in Lanes.
             NotationChart? notationChart = null;
             if (requestedNoteDisplayStyle == DrumsNoteDisplayStyle.Tab)
@@ -1021,6 +1019,11 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
+            // Everything the playfield needs is ready: publish it now so the right
+            // playfield is drawn behind LOADING while the (possibly slow) audio
+            // preparation below runs.
+            publishChart(chart, notationChart);
+
             var noteWavIds = new HashSet<string>(
                 chart.Notes.Select(n => n.Value)
                     .Where(v => !string.IsNullOrEmpty(v)));
@@ -1028,7 +1031,7 @@ namespace DTXMania.Game.Lib.Stage
                 .Where(kvp => noteWavIds.Contains(kvp.Key))
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-            var audioSet = PreparedGameplayAudioSet.PrepareAsync(
+            return PreparedGameplayAudioSet.PrepareAsync(
                 chart.BackgroundAudioPath,
                 chart.BGMEvents.Select(bgm => bgm.AudioFilePath),
                 noteWavDefs,
@@ -1042,48 +1045,67 @@ namespace DTXMania.Game.Lib.Stage
                         workerLogger,
                         $"PerformanceStage: Gameplay audio load failed ({path})",
                         ex)).GetAwaiter().GetResult();
-
-            return new GameplayInitializationResult(chart, audioSet, notationChart);
         }
 
         /// <summary>
-        /// Update-thread success callback: publishes the local chart and prepared
-        /// audio as stage state. The prepared audio set's ownership transfers to the
-        /// stage inside the try block; the finally disposes the locally owned set on
-        /// every failure path that did not transfer ownership, and the catch fails
-        /// the load with the original exception. A stale result never reaches this
-        /// method (the scope drops it via <c>onDropped</c> instead).
+        /// Update-thread publication of the parsed chart ahead of audio preparation:
+        /// the chart, <see cref="ChartManager"/>, gameplay managers, note renderer
+        /// tempo/scroll speed and (Tab) the notation strip. A failure fails the load with a chart-setup message; the
+        /// terminal audio callback then discards its audio instead of binding it.
         /// </summary>
-        private void ApplyGameplayInitialization(GameplayInitializationResult result)
+        private void ApplyParsedChart(ParsedChart chart, NotationChart? notationChart)
         {
-            var ownershipTransferred = false;
             try
             {
-                _parsedChart = result.Chart;
-                _chartManager = new ChartManager(result.Chart);
+                _parsedChart = chart;
+                _chartManager = new ChartManager(chart);
 
                 // Initialize gameplay managers
                 InitializeGameplayManagers();
-
-                // Bind the prepared audio: ownership moves to the stage here, so from
-                // this point CleanupComponents (not the finally below) disposes it.
-                _preparedAudioSet = result.AudioSet;
-                ownershipTransferred = true;
-                BindPreparedAudio(result.Chart);
 
                 // Set BPM and scroll speed in note renderer. The scroll speed is read
                 // at apply time, not snapshotted before Run: PageUp/PageDown stay
                 // active during loading, and the stale snapshot would overwrite the
                 // user's change and diverge from the live config and the toast.
-                _noteRenderer?.SetBpm(result.Chart.Bpm);
+                _noteRenderer?.SetBpm(chart.Bpm);
                 _noteRenderer?.SetScrollSpeed(
                     _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default);
 
                 // HPA-411: one-shot Tab renderer construction on the update thread
                 // because it owns the Bravura and label font loads. A failure means
                 // Lanes for the rest of the song.
-                if (result.NotationChart != null)
-                    TryConstructNotationStrip(result.NotationChart, result.Chart.MeasureLines);
+                if (notationChart != null)
+                    TryConstructNotationStrip(notationChart, chart.MeasureLines);
+            }
+            catch (Exception ex)
+            {
+                FailLoading($"Chart setup failed: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Update-thread success callback: binds the prepared audio to the already
+        /// published chart and flips the stage to ready. The audio set's ownership
+        /// transfers to the stage inside the try block; the finally disposes the
+        /// locally owned set on every path that did not transfer ownership, and the
+        /// catch fails the load with the original exception. A stale result never
+        /// reaches this method (the scope drops it via <c>onDropped</c> instead).
+        /// </summary>
+        private void ApplyPreparedAudio(PreparedGameplayAudioSet audioSet)
+        {
+            var ownershipTransferred = false;
+            try
+            {
+                // The chart publication failed (or never arrived): the load is
+                // already failed, so there is nothing to bind the audio to.
+                if (_loadErrorMessage != null || _parsedChart == null)
+                    return;
+
+                // Bind the prepared audio: ownership moves to the stage here, so from
+                // this point CleanupComponents (not the finally below) disposes it.
+                _preparedAudioSet = audioSet;
+                ownershipTransferred = true;
+                BindPreparedAudio(_parsedChart);
 
                 _isLoading = false;
                 _isReady = true;
@@ -1095,7 +1117,7 @@ namespace DTXMania.Game.Lib.Stage
             finally
             {
                 if (!ownershipTransferred)
-                    result.AudioSet.Dispose();
+                    audioSet.Dispose();
             }
         }
 
@@ -3067,22 +3089,6 @@ namespace DTXMania.Game.Lib.Stage
             {
                 logger.LogError("{Message}", message);
             }
-        }
-
-        /// <summary>
-        /// Reports preparation progress synchronously so the Latest reporter coalesces
-        /// them on the activation scope: at most one apply is queued per frame.
-        /// </summary>
-        private sealed class InlineProgress<T> : IProgress<T>
-        {
-            private readonly Action<T> _callback;
-
-            public InlineProgress(Action<T> callback)
-            {
-                _callback = callback ?? throw new ArgumentNullException(nameof(callback));
-            }
-
-            public void Report(T value) => _callback(value);
         }
 
         #endregion

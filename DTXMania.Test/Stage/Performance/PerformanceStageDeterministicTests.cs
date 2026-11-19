@@ -243,42 +243,49 @@ public class PerformanceStageDeterministicTests
         Assert.False(telemetry.PerformanceReady);
     }
 
-    /// <summary>
-    /// Drives the async gameplay initialization through the activation scope and
-    /// returns the worker task the stage method hands back (HPA-799): the task
-    /// completes when the preparation chain fully unwinds — with the produced
-    /// result, or default when the operation was canceled/faulted — so tests can
-    /// observe the operation's actual terminal deterministically. Most tests
-    /// ignore it and observe through the update loop instead.
-    /// </summary>
-    private static Task? StartGameplayInitialization(PerformanceStage stage)
+    private static void StartGameplayInitialization(PerformanceStage stage)
     {
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        return ReflectionHelpers.InvokePrivateMethod(stage, "StartGameplayInitialization") as Task;
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartGameplayInitialization");
     }
 
-    /// <summary>
-    /// Waits for an initialization worker task and returns its result payload (the
-    /// private GameplayInitializationResult record, or null when the operation was
-    /// canceled/faulted). Completing the task IS the operation's observable terminal
-    /// boundary — every worker continuation has finished unwinding when it returns —
-    /// provided the arrangement parks the worker inside the awaited chain itself;
-    /// an operation detached from the chain (e.g. parked inside the variant cache's
-    /// shared operation) unwinds unobserved and must not rely on this witness.
-    /// </summary>
-    private static object? AwaitInitializationResult(Task? task)
+    private static PreparedGameplayAudioSet WaitForQueuedAudioSet(StageBackgroundWorkScope scope)
     {
-        Assert.NotNull(task);
-        Assert.True(
-            task!.Wait(TimeSpan.FromSeconds(5)),
-            "the initialization worker did not complete within the timeout");
-        return task.GetType().GetProperty("Result")!.GetValue(task);
-    }
+        var gate = ReflectionHelpers.GetPrivateField<object>(scope, "_gate")!;
+        var queue = ReflectionHelpers.GetPrivateField<System.Collections.IList>(scope, "_queue")!;
+        PreparedGameplayAudioSet? captured = null;
+        var queued = SpinWait.SpinUntil(
+            () =>
+            {
+                lock (gate)
+                {
+                    foreach (var item in queue)
+                    {
+                        var drop = item?.GetType().GetProperty("Drop")?.GetValue(item) as Action;
+                        var target = drop?.Target;
+                        if (target == null)
+                            continue;
 
-    private static PreparedGameplayAudioSet? ResultAudioSet(object? result) =>
-        result == null
-            ? null
-            : (PreparedGameplayAudioSet?)result.GetType().GetProperty("AudioSet")!.GetValue(result);
+                        foreach (var field in target.GetType().GetFields(
+                            System.Reflection.BindingFlags.Instance |
+                            System.Reflection.BindingFlags.Public |
+                            System.Reflection.BindingFlags.NonPublic))
+                        {
+                            if (field.GetValue(target) is PreparedGameplayAudioSet audioSet)
+                            {
+                                captured = audioSet;
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            },
+            TimeSpan.FromSeconds(5));
+        Assert.True(queued, "the prepared audio set was not queued on the scope in time");
+        return captured!;
+    }
 
     private static void RunUpdateLoopUntil(PerformanceStage stage, Func<bool> condition)
     {
@@ -346,13 +353,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenSetBpmThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
+    public void StartGameplayInitialization_WhenAudioBindingThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
     {
-        // Preparation succeeds on the worker; the binding then throws (zero-BPM chart
-        // makes NoteRenderer.SetBpm throw ArgumentException on the update thread). The
-        // onSuccess catch must call FailLoading with the original exception, and since
-        // ownership was already transferred to the stage, the stage — not the finally
-        // block — owns the set: CleanupComponents disposes it exactly once.
+        // Preparation succeeds on the worker; binding then throws (null _audioLoader
+        // makes BindPreparedAudio throw NullReferenceException on the update thread
+        // AFTER _preparedAudioSet ownership transferred to the stage). The catch must
+        // call FailLoading with "Audio binding failed" and the original exception, and
+        // CleanupComponents disposes the stage-owned set once.
         var directory = CreateTempDirectory();
         try
         {
@@ -360,26 +367,20 @@ public class PerformanceStageDeterministicTests
             stage.InstallTestBackgroundScope();
             var logger = new Mock<ILogger<PerformanceStage>>();
             ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
-            var chart = new ParsedChart("bad-bpm.dtx");
+            var chart = new ParsedChart("binding-fail.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
-            // Force a zero BPM so SetBpm throws during the success binding.
-            chart.Bpm = 0.0;
             // A real loadable WAV makes the prepared set's disposal observable.
             chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(
                 directory,
-                "bad-bpm-main.wav");
+                "binding-fail-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
-            // Null input manager makes InitializeGameplayManagers return early so we reach
-            // the SetBpm call without needing the full manager wiring.
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", null);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
                 ReflectionHelpers.CreateUninitialized<NoteRenderer>());
-            // Default playback profile: preparation succeeds and the failure really
-            // comes from the update-thread binding (SetBpm), not the variant path.
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             StartGameplayInitialization(stage);
@@ -395,7 +396,7 @@ public class PerformanceStageDeterministicTests
                     It.IsAny<EventId>(),
                     It.Is<It.IsAnyType>((state, _) =>
                         state.ToString()!.Contains("Audio binding failed", StringComparison.Ordinal)),
-                    It.Is<Exception>(failure => failure is ArgumentException),
+                    It.Is<Exception>(failure => failure is NullReferenceException),
                     It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.Once);
 
@@ -411,6 +412,59 @@ public class PerformanceStageDeterministicTests
 
             Assert.True(mainBackground.IsDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenChartSetupThrowsBeforeAudioBinding_ShouldFailWithChartSetupErrorAndDisposePreparedAudio()
+    {
+        // Zero BPM makes NoteRenderer.SetBpm throw during ApplyParsedChart (before
+        // audio binding). That failure must be logged as "Chart setup failed" rather
+        // than "Audio binding failed", and ApplyPreparedAudio must not retain the audio.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateInspectableStage();
+            stage.InstallTestBackgroundScope();
+            var logger = new Mock<ILogger<PerformanceStage>>();
+            ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+            var chart = new ParsedChart("bad-bpm.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            chart.Bpm = 0.0;
+            chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(
+                directory,
+                "bad-bpm-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
+                ReflectionHelpers.CreateUninitialized<NoteRenderer>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+
+            StartGameplayInitialization(stage);
+            DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.Contains(
+                "Chart setup failed",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            logger.Verify(
+                l => l.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((state, _) =>
+                        state.ToString()!.Contains("Chart setup failed", StringComparison.Ordinal)),
+                    It.Is<Exception>(failure => failure is ArgumentException),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
         finally
         {
@@ -484,13 +538,12 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            var staleTask = StartGameplayInitialization(stage);
+            var scope = stage.BackgroundWork!;
+            StartGameplayInitialization(stage);
 
-            // The task completes when the worker finishes queueing the result; its
-            // payload hands the test the prepared set that the queued terminal owns.
-            var preparedSet = ResultAudioSet(AwaitInitializationResult(staleTask));
-            Assert.NotNull(preparedSet);
-            var mainBackground = preparedSet!.MainBackground;
+            // Wait until the worker queues its terminal WorkItem on the scope.
+            var preparedSet = WaitForQueuedAudioSet(scope);
+            var mainBackground = preparedSet.MainBackground;
             Assert.NotNull(mainBackground);
             Assert.False(mainBackground!.IsDisposed);
             // The result is queued but never applied.
@@ -560,12 +613,12 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            var staleTask = StartGameplayInitialization(stage);
+            StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)),
                 "the worker never parked inside its load-failure report");
 
-            // Retirement cancels the token synchronously before OnDeactivate while
+            // Retirement cancels the scope token synchronously before OnDeactivate while
             // the worker is parked in test code: from this moment the operation's
             // fate (silent cancellation) is deterministic.
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
@@ -579,15 +632,7 @@ public class PerformanceStageDeterministicTests
             Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
 
             logger.ReleaseNext();
-
-            // The released worker hits the remaining loop-entry cancellation check
-            // and unwinds as a silent cancellation. No shared operation is detached
-            // in this arrangement, so the completed worker task IS the whole
-            // chain's terminal: the canceled chain cannot race the fresh run below.
-            // A canceled operation completes with the default result (null) — the
-            // silent-cancellation contract, observed end to end.
-            var staleResult = AwaitInitializationResult(staleTask);
-            Assert.Null(staleResult);
+            Thread.Sleep(50);
 
             // Re-establish the fields CleanupComponents nulled, then run a fresh
             // activation to its own observed terminal and ready state.
@@ -602,8 +647,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             stage.InstallTestBackgroundScope();
-            var freshTask = StartGameplayInitialization(stage);
-            AwaitInitializationResult(freshTask);
+            StartGameplayInitialization(stage);
             RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
             // Final unchanged-state assertions, after both terminals: the canceled
@@ -800,7 +844,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-            var staleTask = StartGameplayInitialization(stage);
+            StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)),
                 "the stale worker never parked inside its load-failure report");
@@ -828,34 +872,23 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", freshChart);
 
             stage.InstallTestBackgroundScope();
-            var freshTask = StartGameplayInitialization(stage);
+            StartGameplayInitialization(stage);
             Assert.True(
                 SpinWait.SpinUntil(() => logger.ParkedCount >= 2, TimeSpan.FromSeconds(5)),
                 "the fresh worker never parked mid-run");
 
             // Release the stale park only: the superseded preparation runs to its
-            // return — no cancellation check remains after the park — and its
-            // result lands on the retired scope's drop-direct path. Waiting on the
-            // returned worker task OBSERVES the stale completion itself; it
-            // completes strictly before the fresh park is released.
+            // return on the retired scope and drops directly.
             logger.ReleaseNext();
-            var staleResult = AwaitInitializationResult(staleTask);
+            Thread.Sleep(50);
 
-            // The late success was dropped, not applied — and its disposal, the
-            // wiring under test, is observed on the real captured sound.
-            var staleAudioSet = ResultAudioSet(staleResult);
-            Assert.NotNull(staleAudioSet);
-            Assert.NotNull(staleAudioSet!.MainBackground);
-            Assert.True(
-                staleAudioSet.MainBackground!.IsDisposed,
-                "the dropped stale audio set's real main background was not disposed");
             Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
 
             // Now release the fresh park and drive the fresh run to its observed
             // terminal and ready state.
             logger.ReleaseNext();
-            AwaitInitializationResult(freshTask);
             DrainScopeUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
             // Post-terminal assertions: the fresh run applied only its own live
@@ -1444,6 +1477,92 @@ public class PerformanceStageDeterministicTests
         // No GraphicsDevice in headless coverage: the HUD attempt reports NotAttempted
         // and the strip stays published.
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenTabRequestedAndAudioStillPreparing_ShouldPublishChartAndNotationStripBeforeReady()
+    {
+        // Tab playfield (chart, ChartManager and NotationStripRenderer) must publish
+        // ahead of audio preparation so LOADING renders over Tab instead of Lanes.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+            var stage = CreateGatedVariantStage(game);
+            stage.InstallTestBackgroundScope();
+
+            var chart = CreateFinalizedTabChart();
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "tab-early-main.wav");
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", CreateNotationResourceManager(completeBravura: true).Object);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+
+            StartGameplayInitialization(stage);
+            Assert.True(
+                SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)),
+                "the worker never reached the variant processor");
+
+            // While audio preparation is still parked, draining publishes the chart
+            // and Tab notation strip so the Tab playfield renders behind LOADING.
+            DrainScopeUntil(stage, () => ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip") != null);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<ChartManager>(stage, "_chartManager"));
+            var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
+            Assert.NotNull(strip);
+            Assert.True(strip!.IsReady);
+
+            // Release the audio gate (it returns empty bytes -> CreatePreparedSound throws
+            // NoAudioHardwareException or succeeds cleanly; either way the stage exits loading
+            // and never hangs).
+            stage.ReleaseProcessor.TrySetResult();
+            DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenAudioPreparationThrowsOperationCanceledWithoutRetirement_ShouldFailLoading()
+    {
+        // A non-retirement OperationCanceledException (e.g. a killed decoder/ffmpeg
+        // process) must route to onError so _isLoading clears and the error screen shows,
+        // instead of hanging on LOADING forever.
+        var directory = CreateTempDirectory();
+        try
+        {
+            var stage = CreateCancelingAudioVariantStage();
+            stage.InstallTestBackgroundScope();
+            var chart = new ParsedChart("canceled-decoder.dtx");
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.FinalizeChart();
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "canceled-decoder-main.wav");
+
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
+
+            StartGameplayInitialization(stage);
+            DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.Contains(
+                "Audio preparation failed",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -6711,6 +6830,17 @@ public class PerformanceStageDeterministicTests
         return stage;
     }
 
+    private static CancelingAudioVariantStage CreateCancelingAudioVariantStage()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (CancelingAudioVariantStage)FormatterServices.GetUninitializedObject(typeof(CancelingAudioVariantStage));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
+        return stage;
+    }
+
     private static InspectablePerformanceStage CreateInspectableStage(BaseGame? game = null)
     {
 #pragma warning disable SYSLIB0050
@@ -7007,6 +7137,31 @@ public class PerformanceStageDeterministicTests
                 new InvalidDataException("inner chain"));
 
         protected override IAudioVariantProcessor CreateAudioVariantProcessor() => throw Failure;
+    }
+
+    private sealed class CancelingAudioVariantStage : PerformanceStage
+    {
+        public CancelingAudioVariantStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        protected override IAudioVariantProcessor CreateAudioVariantProcessor() => new CancelingProcessor();
+
+        protected override PlaybackAudioVariantCache CreateAudioVariantCache() =>
+            new(Path.Combine(
+                Path.GetTempPath(),
+                "DTXMania_PerformanceStage_CancelCache_" + Guid.NewGuid().ToString("N")));
+
+        private sealed class CancelingProcessor : IAudioVariantProcessor
+        {
+            public Task<PreparedAudioArtifact> PrepareAsync(
+                string sourcePath,
+                PlaybackModifiers modifiers,
+                CancellationToken cancellationToken)
+                => Task.FromException<PreparedAudioArtifact>(
+                    new OperationCanceledException("Simulated external decoder cancellation"));
+        }
     }
 
     private sealed class InspectablePerformanceStage : PerformanceStage

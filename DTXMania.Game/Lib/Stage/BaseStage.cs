@@ -106,7 +106,7 @@ namespace DTXMania.Game.Lib.Stage
             // Fresh stage-local scope per activation, available to OnActivate.
             // Retire any leftover scope so queued owned results cannot leak.
             RetireBackgroundWork();
-            _backgroundWork = new StageBackgroundWorkScope();
+            _backgroundWork = CreateBackgroundWorkScope();
 
             // Load stage background
             LoadStageBackground();
@@ -288,10 +288,20 @@ namespace DTXMania.Game.Lib.Stage
         internal StageBackgroundWorkScope InstallTestBackgroundScope()
         {
             RetireBackgroundWork();
-            var scope = new StageBackgroundWorkScope();
+            var scope = CreateBackgroundWorkScope();
             _backgroundWork = scope;
             return scope;
         }
+
+        /// <summary>
+        /// Creates a scope whose update-thread callback failures are logged instead of
+        /// escaping Drain into Game.Update (HPA-799).
+        /// </summary>
+        private StageBackgroundWorkScope CreateBackgroundWorkScope() =>
+            new(exception => Logger.LogError(
+                exception,
+                "{Stage}: a background-work callback failed on the update thread",
+                GetType().Name));
 
         #endregion
 
