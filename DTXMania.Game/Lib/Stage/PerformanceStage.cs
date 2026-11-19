@@ -905,9 +905,11 @@ namespace DTXMania.Game.Lib.Stage
         /// then prepares the audio set into a local result. The update-thread success
         /// callback binds the audio and flips the stage to ready; the error callback
         /// fails the load. Progress streams through a Latest reporter so at most one
-        /// report is queued per frame.
+        /// report is queued per frame. Returns the scope's worker task so tests can
+        /// await the real terminal (result payload included) instead of inferring
+        /// completion from stage state; production callers safely ignore it.
         /// </summary>
-        private void StartGameplayInitialization()
+        private Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
         {
             var scope = BackgroundWork;
 
@@ -928,21 +930,21 @@ namespace DTXMania.Game.Lib.Stage
                 if (songSnapshot == null)
                 {
                     FailLoading("No song was selected.");
-                    return;
+                    return Task.FromResult<PreparedGameplayAudioSet?>(null);
                 }
 
                 var chartPath = songSnapshot.GetCurrentDifficultyChart(difficultySnapshot)?.FilePath;
                 if (string.IsNullOrEmpty(chartPath))
                 {
                     FailLoading("The selected chart path is unavailable.");
-                    return;
+                    return Task.FromResult<PreparedGameplayAudioSet?>(null);
                 }
 
                 fallbackChartPath = chartPath;
             }
 
             if (scope == null)
-                return;
+                return Task.FromResult<PreparedGameplayAudioSet?>(null);
 
             // Resolve the logger on this (update) thread: the Logger property lazily
             // assigns _logger, so resolving it from the worker would mutate stage
@@ -958,7 +960,7 @@ namespace DTXMania.Game.Lib.Stage
             Action<ParsedChart, NotationChart?> publishChart = (chart, notationChart) =>
                 scope.Post(() => ApplyParsedChart(chart, notationChart));
 
-            scope.Run(
+            return scope.Run(
                 cancellationToken => PrepareGameplayCore(
                     chartSnapshot,
                     fallbackChartPath,
@@ -970,7 +972,16 @@ namespace DTXMania.Game.Lib.Stage
                     cancellationToken),
                 onSuccess: audioSet => ApplyPreparedAudio(audioSet),
                 onError: exception =>
-                    FailLoading($"Audio preparation failed: {exception.Message}", exception),
+                {
+                    // An earlier failure (e.g. chart setup) already recorded the
+                    // load outcome: keep its root-cause message and log this later
+                    // audio fault alongside it instead of overwriting it.
+                    if (_loadErrorMessage == null)
+                        FailLoading($"Audio preparation failed: {exception.Message}", exception);
+                    else
+                        LogPerformanceError(
+                            $"Audio preparation failed: {exception.Message}", exception);
+                },
                 onDropped: audioSet => audioSet.Dispose());
         }
 
