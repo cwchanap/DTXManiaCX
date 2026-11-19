@@ -3547,6 +3547,7 @@ namespace DTXMania.Game.Lib.Stage
             // shared-library flip must join the same critical section, before the write is
             // even scheduled: a persist that faults immediately could otherwise run its
             // worker-side revert first and then be overwritten by the rejected value here.
+            Interlocked.Increment(ref _bookmarksLoadVersion);
             int toggleVersion;
             lock (_bookmarkRevertGate)
             {
