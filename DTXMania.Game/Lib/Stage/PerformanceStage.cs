@@ -1346,9 +1346,6 @@ namespace DTXMania.Game.Lib.Stage
             _fontJudgementTextPopupManager?.Update(deltaTime);
             _hitTimingFeedbackDisplay?.Update(deltaTime);
 
-            // Update pad renderer
-            _padRenderer?.Update(deltaTime);
-
             // Handle BGM event scheduling and gameplay managers
             if (_songTimer != null && _songTimer.IsPlaying)
             {
@@ -2520,6 +2517,11 @@ namespace DTXMania.Game.Lib.Stage
             // frame — UpdateGameplay returns early during loading and the READY
             // countdown, which would leave a triggered flash lit at full alpha.
             _tabHudDisplay?.Update(deltaTime);
+
+            // Same gating: pad presses fire during loading/countdown (see
+            // OnLaneHitForPadFeedback), so the 90 ms decay must tick here or a
+            // press would stay lit until gameplay starts.
+            _padRenderer?.Update(deltaTime);
 
             // Update gauge display
         }
