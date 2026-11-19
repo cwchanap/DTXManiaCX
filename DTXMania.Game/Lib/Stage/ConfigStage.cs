@@ -1534,12 +1534,15 @@ namespace DTXMania.Game.Lib.Stage
                 // FIFO terminal post: lands after any queued progress of the same
                 // operation, and after retirement the scope drops it (the fields it
                 // would clear are reset by OnActivate on the next visit). The status
-                // applies within the activation — only handle-clearing is lease-checked.
+                // applies only while this operation is still current: the lease is
+                // released worker-side before this post drains, so a newer operation
+                // (e.g. an NX import that just cleared _songFolderStatus) may already
+                // own the slot — a superseded terminal must not repaint its field.
                 scope.Post(() =>
                 {
-                    ApplySongOperationStatus(kind, status ?? string.Empty);
                     if (ReferenceEquals(_activeSongOperation?.Lease, lease))
                     {
+                        ApplySongOperationStatus(kind, status ?? string.Empty);
                         _activeSongOperation = null;
                         _songOperationCts = null;
                     }

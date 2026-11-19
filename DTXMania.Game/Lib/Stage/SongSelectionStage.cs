@@ -3572,10 +3572,26 @@ namespace DTXMania.Game.Lib.Stage
             // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
             // from a fault of an older, already-superseded toggle at rollback time. The bump
             // shares _bookmarkRevertGate with the worker-side fault continuation so a stale
-            // check-then-revert can never interleave with this bump.
+            // check-then-revert can never interleave with this bump. The optimistic
+            // shared-library flip must join the same critical section, before the write is
+            // even scheduled: a persist that faults immediately could otherwise run its
+            // worker-side revert first and then be overwritten by the rejected value here.
             int toggleVersion;
             lock (_bookmarkRevertGate)
+            {
                 toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
+                BookmarkStateReconciler.Apply(
+                    _appliedLibrarySnapshot?.RootSongs
+                        ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                    songId,
+                    newState);
+            }
+            // Reconcile the flag across every in-memory representation of this song (Recent
+            // list, Bookmarks list) so the star marker stays consistent across tabs without
+            // a reload — each surface holds a distinct node/entity instance. These lists are
+            // update-thread owned, so they stay outside the gate.
+            BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
+            BookmarkStateReconciler.Apply(_bookmarkNodes, songId, newState);
 
             // Persist asynchronously, serialized per song so rapid toggles apply in order and
             // the last user intent (the captured newState above) is what lands in the database.
@@ -3641,17 +3657,6 @@ namespace DTXMania.Game.Lib.Stage
                         newState);
                 }
             }, TaskScheduler.Default);
-
-            // Reconcile the flag across every in-memory representation of this song (browse
-            // tree, Recent list, Bookmarks list) so the star marker stays consistent across
-            // tabs without a reload — each surface holds a distinct node/entity instance.
-            BookmarkStateReconciler.Apply(
-                _appliedLibrarySnapshot?.RootSongs
-                    ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
-                songId,
-                newState);
-            BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
-            BookmarkStateReconciler.Apply(_bookmarkNodes, songId, newState);
 
             // On the Bookmarks tab, an un-bookmark should drop the row from view.
             if (_activeTab == SongSelectionTab.Bookmarks && !newState)

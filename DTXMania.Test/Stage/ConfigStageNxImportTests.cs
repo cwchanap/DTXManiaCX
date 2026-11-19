@@ -707,7 +707,7 @@ public class ConfigStageNxImportTests : IDisposable
             stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
-            await importStarted.Task;
+            await importStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "CancelSongOperationForDeactivation");
             importCompletion.TrySetCanceled(operationToken);
@@ -742,7 +742,7 @@ public class ConfigStageNxImportTests : IDisposable
             stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
-            await importStarted.Task;
+            await importStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             // Queued progress applies before the FIFO-posted terminal, so the
             // terminal status wins the drain.
