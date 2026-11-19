@@ -1153,6 +1153,49 @@ namespace DTXMania.Test.Stage
             Assert.Empty(nodes);
         }
 
+        [Fact]
+        public async Task ToggleBookmarkFromBookmarksTab_WhenStaleLoadCompletesAfterUnbookmark_ShouldKeepRowRemoved()
+        {
+            var stage = CreateStage();
+            var node = Score("Song", 42, "/c/song.dtx");
+            node.DatabaseSong!.IsBookmarked = true;
+            var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            SetPrivateField(stage, "_bookmarkNodes", new List<SongListNode> { node });
+            SetPrivateField(stage, "_uiManager", null);
+            var loadStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseLoad = new TaskCompletionSource<List<SongListNode>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            SetPrivateField(stage, "_loadBookmarkedNodesAsync",
+                new Func<Task<List<SongListNode>>>(() =>
+                {
+                    loadStarted.TrySetResult(true);
+                    return releaseLoad.Task;
+                }));
+            stage.InstallTestBackgroundScope();
+
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
+            await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
+                stage, "_pendingBookmarkWrites");
+            var releaseWrite = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            pending[42] = releaseWrite.Task;
+
+            InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
+
+            releaseLoad.SetResult(new List<SongListNode> { node });
+            DrainAfterTerminalQueued(stage);
+
+            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
+            releaseWrite.SetResult(true);
+            await pending[42].WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
         // Fake InputManager that reports Tab key pressed on the first poll.
         private sealed class TabKeyDetectInputManager : DTXMania.Game.Lib.Input.InputManager
         {
