@@ -286,8 +286,12 @@ public class LanesPlayfieldStageIntegrationTests
         var resources = CreateResources();
         var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object) { ThrowOnScoreDispose = true };
         var pixel = new Mock<ITexture>();
+        int pixelRefs = 1;
+        pixel.SetupGet(p => p.ReferenceCount).Returns(() => pixelRefs);
+        pixel.Setup(p => p.AddReference()).Callback(() => pixelRefs++);
         pixel.Setup(p => p.RemoveReference()).Callback(() =>
         {
+            if (--pixelRefs != 0) return;
             Assert.Equal(new[] { "line", "score", "combo", "panel", "meter", "notes", "pads" }, visuals.Disposals);
             throw new InvalidOperationException("pixel release failed");
         });
@@ -305,14 +309,15 @@ public class LanesPlayfieldStageIntegrationTests
         var failure = Assert.Throws<InvalidOperationException>(() => stage.Deactivate());
 
         Assert.Equal("score dispose failed", failure.Message);
-        pixel.Verify(p => p.RemoveReference(), Times.Once);
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        Assert.Equal(0, pixel.Object.ReferenceCount);
         Assert.Null(stage.AudioSession);
         Assert.Null(rules.ChartManager);
         Assert.Null(session.Timer);
         input.TriggerLaneHit(4);
         Assert.Empty(visuals.Pads.Presses);
         stage.Deactivate();
-        pixel.Verify(p => p.RemoveReference(), Times.Once);
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
     }
 
     [Theory]
@@ -439,8 +444,12 @@ public class LanesPlayfieldStageIntegrationTests
         resources.Setup(r => r.LoadFont("ShareTechMono", It.IsAny<int>())).Returns(font.Object);
         var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object);
         var pixel = new Mock<ITexture>();
+        int pixelRefs = 1;
+        pixel.SetupGet(p => p.ReferenceCount).Returns(() => pixelRefs);
+        pixel.Setup(p => p.AddReference()).Callback(() => pixelRefs++);
         pixel.Setup(p => p.RemoveReference()).Callback(() =>
         {
+            if (--pixelRefs != 0) return;
             Assert.False(hud.IsReady);
             Assert.Equal(new[] { "line", "score", "combo", "panel", "meter", "notes", "pads" }, visuals.Disposals);
         });
@@ -461,7 +470,8 @@ public class LanesPlayfieldStageIntegrationTests
         stage.Deactivate();
 
         Assert.Equal(2, stripReleaseChecks);
-        pixel.Verify(p => p.RemoveReference(), Times.Once);
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        Assert.Equal(0, pixel.Object.ReferenceCount);
         Assert.False(hud.IsReady);
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -714,7 +724,8 @@ public class LanesPlayfieldStageIntegrationTests
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override ITexture? CreateFallbackWhiteTexture() => Pixel;
         protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) => create();
-        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) => TabHud;
+        internal override TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
+            string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art) => TabHud;
         protected override IPerformancePlayfield CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) =>
             new LanesPlayfield(_resources, _config, _visuals);
     }

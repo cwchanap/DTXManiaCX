@@ -1750,7 +1750,8 @@ public class PerformanceStageDeterministicTests
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) => Playfield;
         protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) =>
             TabFactory == null ? create() : TabFactory();
-        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) =>
+        internal override TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
+            string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art) =>
             LastHud = CreateReadyHeadlessTabHud();
 
         private static TaskCompletionSource NewGate() =>
@@ -6654,7 +6655,8 @@ public class PerformanceStageDeterministicTests
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) => Playfield;
         protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) => create();
-        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) =>
+        internal override TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
+            string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art) =>
             LastHud = MakeHud?.Invoke() ?? CreateReadyHeadlessTabHud();
         protected override IChartVideoPlayer CreateChartVideoPlayer() =>
             throw new InvalidOperationException("Headless activation must not create a video player.");
