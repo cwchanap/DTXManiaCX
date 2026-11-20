@@ -4302,6 +4302,375 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, second.DisposeCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void VideoFactory_DeactivationRetiresCandidateAndDoesNotContinueActivation(bool returnNull)
+    {
+        using var input = new MockInputManagerCompat();
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
+        var config = Mock.Get(game.ConfigManager);
+        var oldPlayfield = new Mock<IPerformancePlayfield>();
+        var candidate = new RecordingChartVideoPlayer();
+        using var stage = new HeadlessPerformanceStage(game) { Playfield = oldPlayfield.Object };
+        StageBackgroundWorkScope? oldScope = null;
+        stage.VideoFactory = () =>
+        {
+            oldScope = stage.BackgroundWork;
+            stage.Deactivate();
+            return returnNull ? null : candidate;
+        };
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, CreateVideoChart()));
+
+        Assert.NotNull(oldScope);
+        Assert.True(oldScope.Token.IsCancellationRequested);
+        Assert.Null(stage.BackgroundWork);
+        Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+        Assert.Equal(returnNull ? 0 : 1, candidate.DisposeCount);
+        oldPlayfield.Verify(p => p.Dispose(), Times.Once);
+        Assert.Empty(stage.PreparationScopes);
+        config.VerifyAdd(m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(), Times.Never);
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        Assert.Empty(candidate.DrawCalls);
+
+        var freshPlayer = new RecordingChartVideoPlayer();
+        var freshPlayfield = new Mock<IPerformancePlayfield>();
+        stage.Playfield = freshPlayfield.Object;
+        stage.VideoFactory = () => freshPlayer;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, CreateVideoChart()));
+        Assert.Same(stage.BackgroundWork, Assert.Single(stage.PreparationScopes));
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        Assert.Single(freshPlayer.DrawCalls);
+        stage.Deactivate();
+        Assert.Equal(1, freshPlayer.DisposeCount);
+        Assert.Equal(returnNull ? 0 : 1, candidate.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void VideoFactory_ReactivationKeepsFreshOwnerSchedulePreparationAndHandlers(bool returnNull)
+    {
+        using var input = new MockInputManagerCompat();
+        input.ModularInputManager.KeyBindings.BindButton("Test.VideoFactory", 3);
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
+        var config = Mock.Get(game.ConfigManager);
+        var oldPlayfield = new Mock<IPerformancePlayfield>();
+        var freshPlayfield = new Mock<IPerformancePlayfield>();
+        var order = new List<string>();
+        freshPlayfield.Setup(p => p.OnLaneInput(3)).Callback(() => order.Add("stage"));
+        var oldPlayer = new RecordingChartVideoPlayer();
+        var freshPlayer = new RecordingChartVideoPlayer();
+        var scopes = new List<StageBackgroundWorkScope?>();
+        using var stage = new HeadlessPerformanceStage(game) { Playfield = oldPlayfield.Object };
+        var freshChart = CreateVideoChart(VideoEvent(100, "fresh.avi"));
+        stage.VideoFactory = () =>
+        {
+            scopes.Add(stage.BackgroundWork);
+            if (scopes.Count == 2)
+                return freshPlayer;
+            stage.Deactivate();
+            stage.Playfield = freshPlayfield.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, freshChart));
+            UpdateUntil(stage, () => stage.AudioSession != null);
+            stage.Update(1);
+            stage.Update(0.2);
+            Assert.Equal(new[] { "fresh.avi" }, freshPlayer.StartedPaths);
+            input.ModularInputManager.OnLaneHit += (_, _) => order.Add("observer");
+            return returnNull ? null : oldPlayer;
+        };
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, CreateVideoChart()));
+
+        Assert.Equal(2, scopes.Count);
+        Assert.NotNull(scopes[0]);
+        Assert.NotNull(scopes[1]);
+        Assert.NotSame(scopes[0], scopes[1]);
+        Assert.True(scopes[0]!.Token.IsCancellationRequested);
+        Assert.False(scopes[1]!.Token.IsCancellationRequested);
+        Assert.Same(scopes[1], stage.BackgroundWork);
+        Assert.Same(scopes[1], Assert.Single(stage.PreparationScopes));
+        Assert.Equal(returnNull ? 0 : 1, oldPlayer.DisposeCount);
+        Assert.Equal(0, freshPlayer.DisposeCount);
+        oldPlayfield.Verify(p => p.Dispose(), Times.Once);
+        config.VerifyAdd(m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(), Times.Once);
+        config.Raise(m => m.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(100, 200));
+        freshPlayfield.Verify(p => p.OnScrollSpeedChanged(200), Times.Once);
+        Assert.True(input.ModularInputManager.InjectButton("Test.VideoFactory", true));
+        input.ModularInputManager.Update();
+        Assert.Equal(new[] { "stage", "observer" }, order);
+        stage.Update(0.1);
+        Assert.Equal(new[] { "fresh.avi" }, freshPlayer.StartedPaths);
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        Assert.Single(freshPlayer.DrawCalls);
+        Assert.Empty(oldPlayer.StartedPaths);
+        Assert.Empty(oldPlayer.DrawCalls);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal("Fresh", telemetry.SelectedSongTitle);
+
+        stage.Deactivate();
+        Assert.Equal(1, freshPlayer.DisposeCount);
+        Assert.Equal(returnNull ? 0 : 1, oldPlayer.DisposeCount);
+        config.Raise(m => m.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(200, 225));
+        freshPlayfield.Verify(p => p.OnScrollSpeedChanged(225), Times.Never);
+        Assert.True(input.ModularInputManager.InjectButton("Test.VideoFactory", false));
+        input.ModularInputManager.Update();
+        Assert.True(input.ModularInputManager.InjectButton("Test.VideoFactory", true));
+        input.ModularInputManager.Update();
+        freshPlayfield.Verify(p => p.OnLaneInput(3), Times.Once);
+    }
+
+    [Fact]
+    public void VideoFactory_NestedReactivationsDisposeEachRetiredCandidateWithoutOverwritingNewest()
+    {
+        var players = new[] { new RecordingChartVideoPlayer(), new RecordingChartVideoPlayer(), new RecordingChartVideoPlayer() };
+        var scopes = new List<StageBackgroundWorkScope?>();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.VideoFactory = () =>
+        {
+            var index = scopes.Count;
+            scopes.Add(stage.BackgroundWork);
+            if (index < 2)
+            {
+                stage.Deactivate();
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = $"Run {index + 1}" }, 0, CreateVideoChart()));
+            }
+            return players[index];
+        };
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Run 0" }, 0, CreateVideoChart()));
+
+        Assert.Equal(3, scopes.Count);
+        Assert.True(scopes[0]!.Token.IsCancellationRequested);
+        Assert.True(scopes[1]!.Token.IsCancellationRequested);
+        Assert.False(scopes[2]!.Token.IsCancellationRequested);
+        Assert.Same(scopes[2], stage.BackgroundWork);
+        Assert.Same(scopes[2], Assert.Single(stage.PreparationScopes));
+        Assert.Equal(new[] { 1, 1, 0 }, players.Select(p => p.DisposeCount));
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        Assert.Empty(players[0].DrawCalls);
+        Assert.Empty(players[1].DrawCalls);
+        Assert.Single(players[2].DrawCalls);
+        stage.Deactivate();
+        Assert.Equal(new[] { 1, 1, 1 }, players.Select(p => p.DisposeCount));
+    }
+
+    [Fact]
+    public void VideoFactory_ActiveNullStillStartsPreparationAndSubscribes()
+    {
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        var playfield = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessPerformanceStage(game) { Playfield = playfield.Object, VideoFactory = () => null };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "No video" }, 0, CreateVideoChart()));
+        Assert.Same(stage.BackgroundWork, Assert.Single(stage.PreparationScopes));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        Mock.Get(game.ConfigManager).Raise(m => m.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(100, 200));
+        playfield.Verify(p => p.OnScrollSpeedChanged(200), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void VideoFactory_ThrowPreservesOriginalExceptionAndDoesNotStartOldPreparation(bool retire, bool reactivate)
+    {
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        var config = Mock.Get(game.ConfigManager);
+        var oldPlayfield = new Mock<IPerformancePlayfield>();
+        var freshPlayer = new RecordingChartVideoPlayer();
+        var error = new InvalidOperationException("factory failure");
+        var calls = 0;
+        StageBackgroundWorkScope? oldScope = null;
+        using var stage = new HeadlessPerformanceStage(game) { Playfield = oldPlayfield.Object };
+        stage.VideoFactory = () =>
+        {
+            if (++calls == 2) return freshPlayer;
+            oldScope = stage.BackgroundWork;
+            if (retire)
+            {
+                stage.Deactivate();
+                if (reactivate)
+                {
+                    stage.Playfield = new Mock<IPerformancePlayfield>().Object;
+                    stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, CreateVideoChart()));
+                }
+            }
+            throw error;
+        };
+
+        Assert.Same(error, Assert.Throws<InvalidOperationException>(() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, CreateVideoChart()))));
+        Assert.NotNull(oldScope);
+        Assert.Equal(retire, oldScope.Token.IsCancellationRequested);
+        Assert.Equal(reactivate ? 1 : 0, stage.PreparationScopes.Count);
+        config.VerifyAdd(m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(),
+            reactivate ? Times.Once() : Times.Never());
+        if (reactivate)
+        {
+            Assert.NotSame(oldScope, stage.BackgroundWork);
+            Assert.Same(stage.BackgroundWork, Assert.Single(stage.PreparationScopes));
+            stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+            Assert.Single(freshPlayer.DrawCalls);
+            Assert.Equal(0, freshPlayer.DisposeCount);
+        }
+        else if (retire)
+            Assert.Null(stage.BackgroundWork);
+        else
+        {
+            Assert.Same(oldScope, stage.BackgroundWork);
+            oldPlayfield.Verify(p => p.Dispose(), Times.Never);
+        }
+        stage.Deactivate();
+        oldPlayfield.Verify(p => p.Dispose(), Times.Once);
+        Assert.Equal(reactivate ? 1 : 0, freshPlayer.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void VideoFactory_StaleDisposeFailurePropagatesOnceWithoutTouchingFreshRun(bool reactivate)
+    {
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        var config = Mock.Get(game.ConfigManager);
+        var error = new InvalidOperationException("stale dispose failure");
+        var oldPlayer = new RecordingChartVideoPlayer { OnDispose = () => throw error };
+        var freshPlayer = new RecordingChartVideoPlayer();
+        var calls = 0;
+        using var stage = new HeadlessPerformanceStage(game);
+        stage.VideoFactory = () =>
+        {
+            if (++calls == 2) return freshPlayer;
+            stage.Deactivate();
+            if (reactivate)
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, CreateVideoChart()));
+            return oldPlayer;
+        };
+
+        Assert.Same(error, Assert.Throws<InvalidOperationException>(() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, CreateVideoChart()))));
+        Assert.Equal(1, oldPlayer.DisposeCount);
+        Assert.Equal(reactivate ? 1 : 0, stage.PreparationScopes.Count);
+        config.VerifyAdd(m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(),
+            reactivate ? Times.Once() : Times.Never());
+        if (reactivate)
+        {
+            Assert.Same(stage.BackgroundWork, Assert.Single(stage.PreparationScopes));
+            stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+            Assert.Single(freshPlayer.DrawCalls);
+            Assert.Equal(0, freshPlayer.DisposeCount);
+        }
+        else
+            Assert.Null(stage.BackgroundWork);
+        stage.Deactivate();
+        Assert.Equal(1, oldPlayer.DisposeCount);
+        Assert.Equal(reactivate ? 1 : 0, freshPlayer.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void VideoFactory_StaleDisposeCanReactivateWithoutOldInitializationResuming(bool throwOnDispose)
+    {
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        var config = Mock.Get(game.ConfigManager);
+        var error = new InvalidOperationException("dispose after reactivation");
+        var freshPlayer = new RecordingChartVideoPlayer();
+        var scopes = new List<StageBackgroundWorkScope?>();
+        using var stage = new HeadlessPerformanceStage(game);
+        var oldPlayer = new RecordingChartVideoPlayer
+        {
+            OnDispose = () =>
+            {
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, CreateVideoChart()));
+                if (throwOnDispose) throw error;
+            }
+        };
+        stage.VideoFactory = () =>
+        {
+            scopes.Add(stage.BackgroundWork);
+            if (scopes.Count == 2) return freshPlayer;
+            stage.Deactivate();
+            return oldPlayer;
+        };
+        void ActivateOld() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, CreateVideoChart()));
+
+        if (throwOnDispose)
+            Assert.Same(error, Assert.Throws<InvalidOperationException>(ActivateOld));
+        else
+            ActivateOld();
+
+        Assert.Equal(2, scopes.Count);
+        Assert.True(scopes[0]!.Token.IsCancellationRequested);
+        Assert.False(scopes[1]!.Token.IsCancellationRequested);
+        Assert.Same(scopes[1], stage.BackgroundWork);
+        Assert.Same(scopes[1], Assert.Single(stage.PreparationScopes));
+        config.VerifyAdd(m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(), Times.Once);
+        Assert.Equal(1, oldPlayer.DisposeCount);
+        Assert.Equal(0, freshPlayer.DisposeCount);
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        Assert.Single(freshPlayer.DrawCalls);
+        stage.Deactivate();
+        Assert.Equal(1, oldPlayer.DisposeCount);
+        Assert.Equal(1, freshPlayer.DisposeCount);
+    }
+
+    [Fact]
+    public void VideoFactory_DeactivationCleanupFailureKeepsOriginalExceptionAndNoPreparation()
+    {
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        var playfield = new Mock<IPerformancePlayfield>();
+        var error = new InvalidOperationException("playfield cleanup failure");
+        playfield.Setup(p => p.Dispose()).Throws(error);
+        using var stage = new HeadlessPerformanceStage(game) { Playfield = playfield.Object };
+        stage.VideoFactory = () =>
+        {
+            stage.Deactivate();
+            throw new InvalidOperationException("unreachable");
+        };
+
+        Assert.Same(error, Assert.Throws<InvalidOperationException>(() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, CreateVideoChart()))));
+        Assert.Null(stage.BackgroundWork);
+        Assert.Empty(stage.PreparationScopes);
+        playfield.Verify(p => p.Dispose(), Times.Once);
+        Mock.Get(game.ConfigManager).VerifyAdd(
+            m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(), Times.Never);
+        stage.Deactivate();
+        playfield.Verify(p => p.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public void VideoFactory_PreparationFailureReactivationDoesNotAddOldConfigSubscription()
+    {
+        var logger = new StageTestLogger();
+        var game = CreateHeadlessGame(logger, new ConfigData());
+        var config = Mock.Get(game.ConfigManager);
+        using var stage = new HeadlessPerformanceStage(game);
+        StageBackgroundWorkScope? oldScope = null;
+        logger.OnError = (message, _) =>
+        {
+            if (message != "No song was selected.") return;
+            oldScope = stage.BackgroundWork;
+            stage.Deactivate();
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, CreateVideoChart()));
+        };
+
+        stage.Activate();
+
+        Assert.NotNull(oldScope);
+        Assert.True(oldScope.Token.IsCancellationRequested);
+        Assert.Equal(2, stage.PreparationScopes.Count);
+        Assert.Same(oldScope, stage.PreparationScopes[0]);
+        Assert.Same(stage.BackgroundWork, stage.PreparationScopes[1]);
+        config.VerifyAdd(m => m.ScrollSpeedChanged += It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(), Times.Once);
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Deactivate();
+        config.VerifyRemove(m => m.ScrollSpeedChanged -= It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>(), Times.Once);
+    }
+
     [Fact]
     public async Task VideoPlayer_MissingFileLeavesStaticBackgroundAndIsDisposed()
     {
@@ -4427,6 +4796,7 @@ public class PerformanceStageDeterministicTests
         public int StopCount { get; private set; }
         public int DisposeCount { get; private set; }
         public Action? OnDraw { get; init; }
+        public Action? OnDispose { get; init; }
 
         public void Start(string videoFilePath) => StartedPaths.Add(videoFilePath);
 
@@ -4440,7 +4810,11 @@ public class PerformanceStageDeterministicTests
 
         public void Stop() => StopCount++;
 
-        public void Dispose() => DisposeCount++;
+        public void Dispose()
+        {
+            DisposeCount++;
+            OnDispose?.Invoke();
+        }
     }
 
     #region HPA-509 Tab/Lanes spawn gating (OnJudgementMade)
@@ -5792,13 +6166,18 @@ public class PerformanceStageDeterministicTests
         public IPerformancePlayfield? Playfield { get; set; }
         public Func<TabHudDisplay>? MakeHud { get; set; }
         public IChartVideoPlayer? VideoPlayer { get; set; }
+        public Func<IChartVideoPlayer?>? VideoFactory { get; set; }
+        public List<StageBackgroundWorkScope?> PreparationScopes { get; } = new();
         public List<(Rectangle Bounds, Color Color, float Depth)> FallbackRectangles { get; } = new();
         public List<Rectangle> FallbackBackgrounds { get; } = new();
         public TabHudDisplay? LastHud { get; private set; }
         public Task<PreparedGameplayAudioSet?>? LastPreparationTask { get; private set; }
         public ScrollSpeedIndicator InitializeFonts() => InitializeReadyFont();
-        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
-            LastPreparationTask = _cache.Track(base.StartGameplayInitialization());
+        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
+        {
+            PreparationScopes.Add(BackgroundWork);
+            return LastPreparationTask = _cache.Track(base.StartGameplayInitialization());
+        }
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() => _cache.Factory();
         public void ReleaseAndDeleteSources(string directory)
         {
@@ -5826,7 +6205,8 @@ public class PerformanceStageDeterministicTests
         internal override TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
             string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art) =>
             LastHud = MakeHud?.Invoke() ?? CreateReadyHeadlessTabHud();
-        protected override IChartVideoPlayer? CreateChartVideoPlayerIfAvailable() => VideoPlayer;
+        protected override IChartVideoPlayer? CreateChartVideoPlayerIfAvailable() =>
+            VideoFactory != null ? VideoFactory() : VideoPlayer;
         internal override void DrawFallbackRectangle(Rectangle bounds, Color color, float depth) =>
             FallbackRectangles.Add((bounds, color, depth));
         internal override void DrawFallbackBackground(Rectangle viewport) => FallbackBackgrounds.Add(viewport);
