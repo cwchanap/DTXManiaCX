@@ -141,7 +141,6 @@ namespace DTXMania.Game.Lib.Stage
         private GameTime _currentGameTime = null!;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
-        private double? _chartEndReachedRealTimeSeconds;
         // Last-hit telemetry, published on the Update thread (OnLaneHitForPadFeedback) and
         // read on the Kestrel API thread (PopulateTelemetry). Collapsed into a single
         // immutable reference so the API thread can never observe a torn combination
@@ -149,7 +148,7 @@ namespace DTXMania.Game.Lib.Stage
         // atomic on .NET, and the record's init-only fields are fully constructed before
         // the reference is published. "No hit yet" is represented by a null reference.
         // Matches the existing non-volatile cross-thread read pattern used by the other
-        // PopulateTelemetry fields (_stageCompleted, _isLoading, ...); freshness is not a
+        // PopulateTelemetry fields (completion, _isLoading, ...); freshness is not a
         // goal here — only internal consistency of the three values.
         internal sealed record LastLaneHit(int Lane, string? ButtonId, double SongTimeMs);
         private LastLaneHit? _lastLaneHit;
@@ -166,10 +165,7 @@ namespace DTXMania.Game.Lib.Stage
         private float _currentGaugeValue = 0.5f; // 0.0 to 1.0
         private float _currentProgressValue = 0.0f; // 0.0 to 1.0
 
-        // Stage completion state
-        private bool _stageCompleted = false;
         private bool _inputPaused = false;
-        private PerformanceSummary _performanceSummary = null!;
         
         internal GameplayRules? Rules { get; private set; }
         private IReadOnlySet<int> FrozenAutoPlayLanes =>
@@ -617,11 +613,10 @@ namespace DTXMania.Game.Lib.Stage
             // Reset state variables to initial values for proper reactivation
             _isLoading = true; // Initial state is loading
             _isReady = false; // Initial state is not ready
-            _stageCompleted = false; // Initial state is not completed
+            Rules?.ResetCompletion();
             _inputPaused = false; // Initial state is input enabled
             _totalTime = 0.0; // Reset total time
             _stageElapsedTime = 0.0; // Reset elapsed time for miss detection
-            _chartEndReachedRealTimeSeconds = null;
             _readyCountdown = 1.0; // Reset ready countdown
             Rules?.ResetAutoPlay();
             // Clear cached last-hit telemetry so a reactivated stage does not inherit the previous
@@ -1194,7 +1189,9 @@ namespace DTXMania.Game.Lib.Stage
                 UpdateSongProgress(currentTimeMs);
                 
                 // Check for stage completion conditions
-                CheckStageCompletion(currentTimeMs);
+                var completion = Rules?.CheckCompletion(currentTimeMs, _parsedChart?.DurationMs, _totalTime);
+                if (completion is { } reason)
+                    FinalizePerformance(reason);
             }
         }
 
@@ -1221,7 +1218,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_audioSession != null && _currentGameTime != null)
             {
                 // Start the song timer - this provides the master clock for notes and BGM events
-                _chartEndReachedRealTimeSeconds = null;
+                Rules?.ResetSongEndBuffer();
                 bool playbackStarted = _audioSession.Start(_currentGameTime, _parsedChart);
 
                 if (!playbackStarted)
@@ -1924,10 +1921,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnPlayerFailed(object? sender, FailureEventArgs e)
         {
-            if (!_stageCompleted)
-            {
-                FinalizePerformance(CompletionReason.PlayerFailed);
-            }
+            FinalizePerformance(CompletionReason.PlayerFailed);
         }
 
         /// <summary>
@@ -2395,48 +2389,12 @@ namespace DTXMania.Game.Lib.Stage
         #region Stage Completion
 
         /// <summary>
-        /// Checks for stage completion based on fail or song end conditions
-        /// </summary>
-        private void CheckStageCompletion(double currentTimeMs)
-        {
-            if (_stageCompleted || _parsedChart == null)
-                return;
-
-            if (currentTimeMs < _parsedChart.DurationMs)
-            {
-                // Seeking or resetting logical time below chart end restarts the
-                // real-time result delay on the next end crossing.
-                _chartEndReachedRealTimeSeconds = null;
-            }
-            else
-            {
-                _chartEndReachedRealTimeSeconds ??= _totalTime;
-                var realBufferElapsedSeconds =
-                    _totalTime - _chartEndReachedRealTimeSeconds.Value;
-                if (realBufferElapsedSeconds >=
-                    GameConstants.Performance.SongEndBufferSeconds)
-                {
-                    FinalizePerformance(CompletionReason.SongComplete);
-                    return;
-                }
-            }
-
-            if (Rules?.GaugeManager?.HasFailed == true)
-            {
-                FinalizePerformance(CompletionReason.PlayerFailed);
-            }
-        }
-
-        /// <summary>
         /// Finalizes the performance, pauses input, stops the song timer, and prepares the performance summary
         /// </summary>
         private void FinalizePerformance(CompletionReason reason)
         {
-            if (_stageCompleted)
+            if (Rules?.TryComplete() != true)
                 return;
-
-            // Mark the stage as completed
-            _stageCompleted = true;
 
             // Pause input handling and deactivate judgement manager
             _inputPaused = true;
@@ -2455,48 +2413,13 @@ namespace DTXMania.Game.Lib.Stage
 
             // Build the performance summary
             var summaryChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
-            int summaryLevel = summaryChart?.DrumLevel ?? 0;
-            int summaryLevelDec = summaryChart?.DrumLevelDec ?? 0;
-            double summaryPlayingSkill = Rules?.SkillManager?.CurrentSkill ?? 0.0;
-            double summaryGameSkill = SongScore.CalculateGameSkill(
-                summaryPlayingSkill, summaryLevel, summaryLevelDec);
-
-            _performanceSummary = new PerformanceSummary
-            {
-                RunId = Guid.NewGuid(),
-                UsedAutoPlay = FrozenAutoPlayLanes.Count > 0,
-                PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent,
-                PitchSemitones = _playbackModifiers.PitchSemitones,
-                Score = Rules?.ScoreManager?.CurrentScore ?? 0,
-                MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0,
-                ClearFlag = reason == CompletionReason.SongComplete,
-                PerfectCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
-                GreatCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
-                GoodCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
-                PoorCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
-                MissCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
-                TotalNotes = Rules?.ChartManager?.TotalNotes ?? 0,
-                FinalLife = Rules?.GaugeManager?.CurrentLife ?? 0.0f,
-                CompletionReason = reason,
-                PlayingSkill = summaryPlayingSkill,
-                GameSkill = summaryGameSkill,
-                ChartLevel = summaryLevel,
-                ChartLevelDec = summaryLevelDec
-            };
-
+            var summary = Rules!.BuildSummary(reason, _playbackModifiers,
+                summaryChart?.DrumLevel ?? 0, summaryChart?.DrumLevelDec ?? 0);
 
             // Pass the summary to ResultStage
-            TransitionToResultStage();
-        }
-
-        /// <summary>
-        /// Handles the transition to the ResultStage
-        /// </summary>
-        private void TransitionToResultStage()
-        {
             // No debounce needed here since this is an automatic transition based on game completion
             StageManager?.ChangeStage(StageType.Result, new InstantTransition(),
-                new PerformanceResult(_performanceSummary, _selectedSong, _selectedDifficulty));
+                new PerformanceResult(summary, _selectedSong, _selectedDifficulty));
         }
 
         #endregion
@@ -2526,7 +2449,7 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.PerformanceReady = !_isLoading
                 && chartManager != null
                 && audioSession != null
-                && !_stageCompleted
+                && Rules?.IsCompleted != true
                 && (_isReady || songTimerHasReadablePosition);
             telemetry.PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent;
             telemetry.PitchSemitones = _playbackModifiers.PitchSemitones;
@@ -2545,7 +2468,7 @@ namespace DTXMania.Game.Lib.Stage
                 ?? 0L;
             // Full autoplay only: partial automation reports as manual play.
             telemetry.AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount;
-            telemetry.StageCompleted = _stageCompleted;
+            telemetry.StageCompleted = Rules?.IsCompleted == true;
             telemetry.CurrentSongTimeMs =
                 songTimerHasReadablePosition && currentGameTime != null
                 ? audioSession!.GetCurrentMs(currentGameTime)

@@ -84,7 +84,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 1.5);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
 
@@ -112,7 +111,6 @@ public class PerformanceStageDeterministicTests
         InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
 
@@ -157,7 +155,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
 
@@ -221,7 +218,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.0);
         InstallBoundSession(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
 
@@ -482,6 +478,8 @@ public class PerformanceStageDeterministicTests
         var logger = new StageTestLogger();
         var game = CreateHeadlessGame(logger, new ConfigData { PlaySpeedPercent = 50, PitchSemitones = 3 });
         using var stage = new ThrowingAudioVariantStage(game);
+        var manager = new Mock<IStageManager>();
+        stage.StageManager = manager.Object;
         var chart = new ParsedChart("variant-failure.dtx");
         chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
         chart.FinalizeChart();
@@ -498,8 +496,11 @@ public class PerformanceStageDeterministicTests
         stage.PopulateTelemetry(telemetry);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.False(telemetry.PerformanceReady);
+        Assert.False(telemetry.StageCompleted);
         Assert.Equal(1, telemetry.TotalNotes);
         Assert.Null(stage.AudioSession?.PreparedSet);
+        stage.Update(10);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
         var error = Assert.Single(logger.Errors, entry => entry.Message.Contains("Audio preparation failed"));
         Assert.Same(stage.Failure, error.Exception);
     }
@@ -3157,7 +3158,6 @@ public class PerformanceStageDeterministicTests
             new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -3190,7 +3190,6 @@ public class PerformanceStageDeterministicTests
             new GameTime(TimeSpan.FromMilliseconds(5000), TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_playbackModifiers",
@@ -3219,7 +3218,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", null);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -3241,7 +3239,6 @@ public class PerformanceStageDeterministicTests
             new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -3303,179 +3300,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { NoFail = false });
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        CreateActiveJudgement(stage);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, new FailureEventArgs { FinalLife = 0.0f, JudgementType = JudgementType.Miss });
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
-        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
-        Assert.False(summary.ClearFlag);
-        Assert.Equal(1, summary.TotalNotes);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenSongEndBufferPassed_ShouldFinalizeAsSongComplete()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-test.dtx") { DurationMs = 1000.0 });
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        CreateActiveJudgement(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_chartEndReachedRealTimeSeconds",
-            7.0);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
-
-        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
-        Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
-        Assert.True(summary.ClearFlag);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenSongEndsAndGaugeHasFailed_ShouldPreferSongComplete()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { NoFail = false });
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-failed-test.dtx") { DurationMs = 1000.0 });
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-
-        stage.Rules.InitializeGaugeAndSkill();
-        var gaugeManager = stage.Rules.GaugeManager!;
-        gaugeManager.Reset(2.0f);
-        gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Miss));
-        CreateActiveJudgement(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_chartEndReachedRealTimeSeconds",
-            7.0);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
-
-        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
-        Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
-        Assert.True(summary.ClearFlag);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
-    }
-
-    [Theory]
-    [InlineData(50)]
-    [InlineData(100)]
-    [InlineData(150)]
-    public void CheckStageCompletion_PostChartBuffer_ShouldRemainThreeRealSeconds(
-        int playSpeedPercent)
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(playSpeedPercent, 0));
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_parsedChart",
-            new ParsedChart("real-buffer.dtx") { DurationMs = 1000.0 });
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            1000.0);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.999);
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            5000.0);
-
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(
-            stage,
-            "_stageCompleted"));
-
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 13.0);
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            5000.0);
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(
-            stage,
-            "_stageCompleted"));
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenLogicalTimeReturnsBeforeChartEnd_ShouldResetRealBuffer()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_parsedChart",
-            new ParsedChart("reset-buffer.dtx") { DurationMs = 1000.0 });
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            1000.0);
-
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.0);
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            900.0);
-
-        Assert.Null(ReflectionHelpers.GetPrivateField<double?>(
-            stage,
-            "_chartEndReachedRealTimeSeconds"));
-
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 20.0);
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            1000.0);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 22.5);
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "CheckStageCompletion",
-            5000.0);
-
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(
-            stage,
-            "_stageCompleted"));
-    }
-
-    [Fact]
     public void CleanupComponents_WhenAssetsAndSoundsExist_ShouldResetStateAndReleaseResources()
     {
         using var stage = CreateStageWithPolicy(new ConfigData());
@@ -3500,7 +3324,7 @@ public class PerformanceStageDeterministicTests
         var bgmSound = CreateSoundMock();
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
+        Assert.True(stage.Rules!.TryComplete());
         ReflectionHelpers.SetPrivateField(stage, "_inputPaused", true);
         ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.0);
         ReflectionHelpers.SetPrivateField(stage, "_stageElapsedTime", 15.0);
@@ -3531,7 +3355,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        Assert.False(stage.Rules!.IsCompleted);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_totalTime"));
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_stageElapsedTime"));
@@ -3672,56 +3496,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnPlayerFailed_WhenGaugeRaisesFailedEvent_ShouldFinalizeWithoutReadingCurrentConfig()
-    {
-        var configManager = new Mock<IConfigManager>();
-        configManager.SetupGet(x => x.Config).Returns(new ConfigData());
-        using var stage = CreateStageWithConfigManager(configManager.Object);
-        configManager.SetupGet(x => x.Config)
-            .Throws(new InvalidOperationException("current config must not be read"));
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var gaugeManager = stage.Rules.GaugeManager!;
-        gaugeManager.Reset(2.0f);
-        CreateActiveJudgement(stage);
-        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpEventHandlers");
-
-        gaugeManager.ProcessJudgement(
-            new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 0.0, type: JudgementType.Miss));
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
-        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public void OnPlayerFailed_WhenStageAlreadyCompleted_ShouldNotTransitionAgain()
-    {
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
-        var stage = CreateStage(game);
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, new FailureEventArgs { FinalLife = 0.0f, JudgementType = JudgementType.Miss });
-
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
-    }
-
-    [Fact]
     public void UpdateGameplay_WhenStillLoading_ShouldReturnWithoutMutatingReadyCountdown()
     {
         var stage = CreateStage();
@@ -3792,7 +3566,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.Equal(1, judgementManager.GetJudgementCount(JudgementType.Miss));
         Assert.Equal(1301.0 / 2000.0, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"), 3);
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        Assert.False(stage.Rules!.IsCompleted);
     }
 
     [Fact]
@@ -5205,248 +4979,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void CheckStageCompletion_WhenGaugeHasFailed_ShouldFinalizeWithoutReadingCurrentConfig()
-    {
-        var configManager = new Mock<IConfigManager>();
-        configManager.SetupGet(x => x.Config).Returns(new ConfigData());
-        using var stage = CreateStageWithConfigManager(configManager.Object);
-        configManager.SetupGet(x => x.Config)
-            .Throws(new InvalidOperationException("current config must not be read"));
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("nofail-test.dtx") { DurationMs = 5000.0 });
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-
-        stage.Rules.InitializeGaugeAndSkill();
-        var gaugeManager = stage.Rules.GaugeManager!;
-        gaugeManager.Reset(2.0f);
-        gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Miss));
-        CreateActiveJudgement(stage);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
-
-        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
-        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
-        Assert.False(summary.ClearFlag);
-        stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenPlayerFailedAndNoFailDisabled_ShouldFinalizeAsPlayerFailed()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { NoFail = false });
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("failed-test.dtx") { DurationMs = 5000.0 });
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-
-        stage.Rules.InitializeGaugeAndSkill();
-        var gaugeManager = stage.Rules.GaugeManager!;
-        gaugeManager.Reset(2.0f);
-        gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Miss));
-        CreateActiveJudgement(stage);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
-
-        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
-        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
-        Assert.False(summary.ClearFlag);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenStageAlreadyCompleted_ShouldReturnWithoutTransition()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { NoFail = false });
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("already-complete.dtx") { DurationMs = 1000.0 });
-
-        BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var gaugeManager = stage.Rules.GaugeManager!;
-        gaugeManager.Reset(2.0f);
-        gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Miss));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
-
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenParsedChartMissing_ShouldReturnWithoutTransition()
-    {
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
-        var stage = CreateStage(game);
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
-
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenGaugeHasNotFailedAndSongNotFinished_ShouldNotFinalize()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { NoFail = false });
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("in-progress.dtx") { DurationMs = 5000.0 });
-        BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
-
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenGaugeManagerMissingAndSongNotFinished_ShouldNotFinalize()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { NoFail = false });
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("no-gauge.dtx") { DurationMs = 5000.0 });
-        Assert.Null(stage.Rules!.GaugeManager);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
-
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public void FinalizePerformance_WhenManagersAreMissing_ShouldBuildZeroedSummaryAndPauseInput()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(75, -4));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-        Assert.NotNull(summary);
-        Assert.Equal(0, summary.Score);
-        Assert.Equal(0, summary.TotalNotes);
-        Assert.True(summary.ClearFlag);
-        Assert.NotEqual(Guid.Empty, summary.RunId);
-        Assert.Equal(75, summary.PlaySpeedPercent);
-        Assert.Equal(-4, summary.PitchSemitones);
-        Assert.True(summary.IsSavable);
-        Assert.False(summary.UsedAutoPlay);
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-    }
-
-    [Fact]
-    public void FinalizePerformance_ShouldUseFrozenProfileInsteadOfMutableConfig()
-    {
-        var config = new ConfigData
-        {
-            PlaySpeedPercent = 150,
-            PitchSemitones = 12
-        };
-        config.AutoPlayLanes.Add(2);
-        using var stage = CreateStageWithPolicy(config);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(75, -4));
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "FinalizePerformance",
-            CompletionReason.SongComplete);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(
-            stage,
-            "_performanceSummary");
-        Assert.Equal(75, summary.PlaySpeedPercent);
-        Assert.Equal(-4, summary.PitchSemitones);
-        Assert.NotEqual(Guid.Empty, summary.RunId);
-        Assert.True(summary.UsedAutoPlay);
-        Assert.False(summary.IsSavable);
-    }
-
-    [Fact]
-    public void FinalizePerformance_WhenPlayerQuits_ShouldNotMarkRunClearOrSavable()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(100, 0));
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "FinalizePerformance",
-            CompletionReason.PlayerQuit);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(
-            stage,
-            "_performanceSummary");
-        Assert.NotEqual(Guid.Empty, summary.RunId);
-        Assert.False(summary.ClearFlag);
-        Assert.False(summary.IsSavable);
-    }
-
-    [Fact]
-    public void FailLoading_ShouldNotCreateSavablePerformanceSummary()
-    {
-        var stage = CreateStage();
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "FailLoading",
-            "decode failed",
-            null);
-
-        Assert.Null(ReflectionHelpers.GetPrivateField<PerformanceSummary?>(
-            stage,
-            "_performanceSummary"));
-    }
-
-    [Fact]
-    public void TransitionToResultStage_WhenStageManagerMissing_ShouldNotThrow()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_performanceSummary", new PerformanceSummary());
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "TransitionToResultStage"));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
     public void LogPerformanceError_WithAndWithoutException_ShouldNotThrow()
     {
         var stage = CreateStage();
@@ -5881,16 +5413,6 @@ public class PerformanceStageDeterministicTests
     private static HeadlessPerformanceStage CreateStageWithPolicy(ConfigData config)
     {
         var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config));
-        stage.Activate();
-        return stage;
-    }
-
-    private static HeadlessPerformanceStage CreateStageWithConfigManager(IConfigManager configManager)
-    {
-        var game = new Mock<IStageGame>();
-        game.SetupGet(g => g.ConfigManager).Returns(configManager);
-        game.SetupGet(g => g.ResourceManager).Returns(new Mock<IResourceManager>().Object);
-        var stage = new HeadlessPerformanceStage(game.Object);
         stage.Activate();
         return stage;
     }
@@ -6693,6 +6215,17 @@ public class PerformanceStageDeterministicTests
         SoundEffectInstance bgmInstance,
         SoundEffectInstance chipInstance)
     {
+        var (chart, preparedSet) = PrepareLiveAudio(bgmInstance, chipInstance);
+        var session = InstallBoundSession(stage, chart: chart, preparedSet: preparedSet, start: true);
+        session.Advance(150.0);
+        session.PlayChip(new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 120.0 });
+        return session;
+    }
+
+    private static (ParsedChart Chart, PreparedGameplayAudioSet PreparedSet) PrepareLiveAudio(
+        SoundEffectInstance bgmInstance,
+        SoundEffectInstance chipInstance)
+    {
         var bgmSound = new Mock<ISound>();
         bgmSound
             .Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
@@ -6723,14 +6256,7 @@ public class PerformanceStageDeterministicTests
             .GetAwaiter()
             .GetResult();
 
-        var session = InstallBoundSession(stage, chart: chart, preparedSet: preparedSet, start: true);
-
-        // Fire the scheduled BGM event (the live instance survives reaping
-        // because it reports Playing) and play one chip so both tracking lists
-        // hold a real playing instance.
-        session.Advance(150.0);
-        session.PlayChip(new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 120.0 });
-        return session;
+        return (chart, preparedSet);
     }
 
     private static T CreateUninitialized<T>() where T : class
@@ -6936,7 +6462,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_subscribedConfigManager", configManager.Object);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
+        Assert.True(stage.Rules!.TryComplete());
         ReflectionHelpers.SetPrivateField(stage, "_inputPaused", true);
         ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.0);
         ReflectionHelpers.SetPrivateField(stage, "_stageElapsedTime", 15.0);
@@ -6950,7 +6476,7 @@ public class PerformanceStageDeterministicTests
         Assert.Null(ReflectionHelpers.GetPrivateField<IConfigManager>(stage, "_subscribedConfigManager"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        Assert.False(stage.Rules!.IsCompleted);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_totalTime"));
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_stageElapsedTime"));
@@ -6963,7 +6489,6 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_subscribedConfigManager", null);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate"));
 
@@ -7132,14 +6657,12 @@ public class PerformanceStageDeterministicTests
         session.Timer!.Volume = 0.3f;
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_chartEndReachedRealTimeSeconds", 12.5);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
         Assert.Equal(1.0f, session.Timer.Volume);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.True(judgementManager.IsActive);
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_chartEndReachedRealTimeSeconds"));
     }
 
     [Fact]
@@ -7176,93 +6699,6 @@ public class PerformanceStageDeterministicTests
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "StartSong"));
 
         Assert.Null(exception);
-    }
-
-    [AudioFact]
-    public void FinalizePerformance_ShouldMarkCompletedPauseInputStopTimerCreateSummary()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var stageManager = new Mock<IStageManager>();
-        using var bgm = PlayingSoundInstance.Create();
-        using var chip = PlayingSoundInstance.Create();
-        var bgmInstance = bgm.Instance;
-        var chipInstance = chip.Instance;
-        var session = InstallSessionWithLiveAudio(stage, bgmInstance, chipInstance);
-        StageTransitionPayload? capturedPayload = null;
-        var bgmStoppedAtTransition = false;
-        var chipStoppedAtTransition = false;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
-            {
-                capturedPayload = payload;
-                // Result transitions are instant: tracked BGM/chip audio must
-                // already be stopped when ChangeStage fires, not merely
-                // disposed later in CleanupComponents.
-                bgmStoppedAtTransition = bgmInstance.State == SoundState.Stopped;
-                chipStoppedAtTransition = chipInstance.State == SoundState.Stopped;
-            });
-        stage.StageManager = stageManager.Object;
-
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        Assert.True(session.IsPlaying);
-        Assert.Equal(SoundState.Playing, bgmInstance.State);
-        Assert.Equal(SoundState.Playing, chipInstance.State);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
-
-        Assert.True(bgmStoppedAtTransition);
-        Assert.True(chipStoppedAtTransition);
-        Assert.False(bgmInstance.IsDisposed);
-        Assert.False(chipInstance.IsDisposed);
-        Assert.False(session.IsPlaying);
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-        Assert.False(judgementManager.IsActive);
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-        Assert.NotNull(summary);
-        Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
-        Assert.True(summary.ClearFlag);
-        Assert.Equal(chartManager.TotalNotes, summary.TotalNotes);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
-    }
-
-    [Fact]
-    public void FinalizePerformance_WhenPlayerFailed_ShouldSetClearFlagFalse()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        CreateActiveJudgement(stage);
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.PlayerFailed);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-        Assert.NotNull(summary);
-        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
-        Assert.False(summary.ClearFlag);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenStageAlreadyCompleted_ShouldNotTransitionAgain()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("already-done.dtx") { DurationMs = 1000.0 });
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
-
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
     }
 
     [Fact]
@@ -7759,6 +7195,176 @@ public class PerformanceStageDeterministicTests
         stage.Deactivate();
     }
 
+    [Theory]
+    [InlineData(50)]
+    [InlineData(100)]
+    [InlineData(150)]
+    public void SongCompletion_UsesRealTimeBufferAndFrozenRunMetadata(int speed)
+    {
+        var config = new ConfigData { PlaySpeedPercent = speed, PitchSemitones = -4 };
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var firstChart = new SongChart { DrumLevel = 20, DrumLevelDec = 7, HasDrumChart = true };
+        var selectedChart = new SongChart { DrumLevel = 78, DrumLevelDec = 33, HasDrumChart = true };
+        var song = new SongListNode
+        {
+            Title = "Completion",
+            DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Charts = new List<SongChart> { firstChart, selectedChart }
+            }
+        };
+        var chart = new ParsedChart("completion.dtx") { DurationMs = 1000 };
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 100 });
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, transition, payload) =>
+            {
+                Assert.IsType<InstantTransition>(transition);
+                result = Assert.IsType<PerformanceResult>(payload);
+                Assert.False(stage.AudioSession!.IsPlaying);
+                Assert.False(stage.Rules!.JudgementManager!.IsActive);
+                stage.Update(0);
+            });
+        stage.StageManager = manager.Object;
+        stage.Activate(new SongPlayRequest(song, 1, chart));
+        config.PlaySpeedPercent = speed == 100 ? 150 : 100;
+        config.PitchSemitones = 12;
+        config.AutoPlayLanes.Clear();
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        Assert.Null(stage.Rules!.CheckCompletion(1000, chart.DurationMs, -100));
+        stage.Update(1.1);
+        stage.Update(2.0);
+        Assert.Null(result);
+        stage.Update(2.999);
+        Assert.Null(result);
+        stage.Update(0.002);
+
+        Assert.NotNull(result);
+        Assert.Same(song, result.Song);
+        Assert.Equal(1, result.Difficulty);
+        Assert.Equal(CompletionReason.SongComplete, result.Summary.CompletionReason);
+        Assert.True(result.Summary.ClearFlag);
+        Assert.True(result.Summary.UsedAutoPlay);
+        Assert.False(result.Summary.IsSavable);
+        Assert.Equal(speed, result.Summary.PlaySpeedPercent);
+        Assert.Equal(-4, result.Summary.PitchSemitones);
+        Assert.Equal(78, result.Summary.ChartLevel);
+        Assert.Equal(33, result.Summary.ChartLevelDec);
+        Assert.Equal(1000000, result.Summary.Score);
+        Assert.Equal(1, result.Summary.PerfectCount);
+        Assert.Equal(SongScore.CalculateGameSkill(result.Summary.PlayingSkill, 78, 33), result.Summary.GameSkill);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
+    }
+
+    [AudioFact]
+    public void SongCompletion_StopsLiveBgmAndChipBeforeResultTransition() => AssertAudioStoppedAtResult(false);
+
+    [AudioFact]
+    public void GaugeFailure_StopsLiveBgmAndChipBeforeResultTransition() => AssertAudioStoppedAtResult(true);
+
+    [Fact]
+    public void GaugeFailure_DoesNotReadMutableConfigDuringSynchronousFinalization()
+    {
+        var config = new Mock<IConfigManager>();
+        config.SetupGet(c => c.Config).Returns(new ConfigData { Risky = 1 });
+        using var input = new MockInputManagerCompat();
+        var game = new Mock<IStageGame>();
+        game.SetupGet(g => g.ConfigManager).Returns(config.Object);
+        game.SetupGet(g => g.InputManager).Returns(input);
+        game.SetupGet(g => g.ResourceManager).Returns(new Mock<IResourceManager>().Object);
+        using var stage = new HeadlessPerformanceStage(game.Object);
+        var chart = new ParsedChart("fail-without-config.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => result = (PerformanceResult)payload);
+        stage.StageManager = manager.Object;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Frozen" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        config.SetupGet(c => c.Config).Throws(new InvalidOperationException("live config was read"));
+
+        stage.Rules!.JudgementManager!.Update(1201);
+
+        Assert.NotNull(result);
+        Assert.Equal(CompletionReason.PlayerFailed, result.Summary.CompletionReason);
+        Assert.Equal(1, result.Summary.MissCount);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
+    }
+
+    [Fact]
+    public void SongCompletion_WithoutStageManagerStillStopsAndCompletes()
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "No manager" }, 0,
+            new ParsedChart("no-manager.dtx") { DurationMs = 1000 }));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(1);
+        stage.Update(3.001);
+        Assert.True(stage.Rules!.IsCompleted);
+        Assert.False(stage.AudioSession!.IsPlaying);
+        Assert.False(stage.Rules.JudgementManager!.IsActive);
+    }
+
+    private static void AssertAudioStoppedAtResult(bool fail)
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData { Risky = 1 }, input));
+        using var bgm = PlayingSoundInstance.Create();
+        using var chip = PlayingSoundInstance.Create();
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        var chart = new ParsedChart("audio-result.dtx") { DurationMs = 1000 };
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 100 });
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
+            {
+                result = Assert.IsType<PerformanceResult>(payload);
+                Assert.Equal(SoundState.Stopped, bgm.Instance.State);
+                Assert.Equal(SoundState.Stopped, chip.Instance.State);
+                Assert.False(stage.AudioSession!.IsPlaying);
+                Assert.False(stage.Rules!.JudgementManager!.IsActive);
+                var telemetry = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(telemetry);
+                Assert.True(telemetry.StageCompleted);
+            });
+        stage.StageManager = manager.Object;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Audio" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var session = stage.AudioSession!;
+        var (audioChart, prepared) = PrepareLiveAudio(bgm.Instance, chip.Instance);
+        session.Dispose();
+        session.Bind(audioChart, prepared);
+        stage.Update(1.1);
+        session.Advance(150);
+        session.PlayChip(new Note { Value = "07" });
+        Assert.Equal(SoundState.Playing, bgm.Instance.State);
+        Assert.Equal(SoundState.Playing, chip.Instance.State);
+
+        if (fail)
+            stage.Update(0.301);
+        else
+        {
+            Assert.True(stage.Rules!.JudgementManager!.ResolveAutoHit(chart.Notes[0].Id));
+            stage.Update(1);
+            stage.Update(3.001);
+        }
+
+        Assert.NotNull(result);
+        Assert.Equal(fail ? CompletionReason.PlayerFailed : CompletionReason.SongComplete, result.Summary.CompletionReason);
+        Assert.Equal(!fail, result.Summary.ClearFlag);
+        Assert.False(bgm.Instance.IsDisposed);
+        Assert.False(chip.Instance.IsDisposed);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
+    }
+
     /// <summary>
     /// Test-only <see cref="PerformanceStage"/> that overrides <see cref="PerformanceStage.CreateSpriteBatch"/>
     /// to return null, so the constructor can be exercised without a live GraphicsDevice.
@@ -7976,118 +7582,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, spriteTextManager.ActivePopupCount);
     }
 
-    [Fact]
-    public void OnPlayerFailed_NoFailDisabled_ShouldFinalizePerformance()
-    {
-        var configData = new ConfigData { NoFail = false };
-        using var stage = CreateStageWithPolicy(configData);
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        CreateActiveJudgement(stage);
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
-
-        var args = new FailureEventArgs { FinalLife = 0.5f, JudgementType = JudgementType.Miss };
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, args);
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public void OnPlayerFailed_NoFailEnabled_ShouldFinalizeWithoutReadingConfig()
-    {
-        var configData = new ConfigData { NoFail = true };
-        var configManager = new Mock<IConfigManager>();
-        configManager.SetupGet(x => x.Config).Returns(configData);
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
-        var stage = CreateStage(game);
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
-
-        var args = new FailureEventArgs { FinalLife = 0.5f, JudgementType = JudgementType.Miss };
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, args);
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Once);
-        configManager.VerifyGet(x => x.Config, Times.Never);
-    }
-
-    [Fact]
-    public void OnPlayerFailed_AlreadyCompleted_ShouldNotFinalizeAgain()
-    {
-        var configData = new ConfigData { NoFail = false };
-        var configManager = new Mock<IConfigManager>();
-        configManager.SetupGet(x => x.Config).Returns(configData);
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
-        var stage = CreateStage(game);
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
-
-        var args = new FailureEventArgs { FinalLife = 0.5f, JudgementType = JudgementType.Miss };
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, args);
-
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public void FinalizePerformance_SongComplete_ShouldBuildSummaryWithClearFlag()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        InstallBoundSession(stage).Dispose();
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-        Assert.NotNull(summary);
-        Assert.True(summary.ClearFlag);
-        Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
-    }
-
-    [Fact]
-    public void FinalizePerformance_WithSkillManager_ShouldCalculateGameSkill()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        var comboManager = stage.Rules.ComboManager!;
-        stage.Rules.InitializeGaugeAndSkill();
-        var skillManager = stage.Rules.SkillManager!;
-        CreateActiveJudgement(stage);
-        var hit = new JudgementEvent(0, 0, 0, JudgementType.Perfect);
-        comboManager.ProcessJudgement(hit);
-        skillManager.ProcessJudgement(hit);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-        Assert.NotNull(summary);
-        Assert.Equal(100.0, skillManager.CurrentSkill);
-        Assert.Equal(skillManager.CurrentSkill, summary.PlayingSkill);
-        var expectedGameSkill = SongScore.CalculateGameSkill(skillManager.CurrentSkill, 0, 0);
-        Assert.Equal(expectedGameSkill, summary.GameSkill);
-    }
-
     [Theory]
     [InlineData(false, 52.0f)]
     [InlineData(true, 54.0f)]
@@ -8120,40 +7614,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(expectedFinalLife, gaugeManager.CurrentLife);
         Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
         Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
-    }
-
-    [Fact]
-    public void TransitionToResultStage_ShouldIncludePerformanceSummary()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        StageTransitionPayload? capturedPayload = null;
-        stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
-        stage.StageManager = stageManager.Object;
-        var summary = new PerformanceSummary
-        {
-            Score = 950000,
-            MaxCombo = 200,
-            ClearFlag = true,
-            CompletionReason = CompletionReason.SongComplete
-        };
-        ReflectionHelpers.SetPrivateField(stage, "_performanceSummary", summary);
-        var selectedSong = new SongListNode { Title = "TestSong" };
-        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "TransitionToResultStage");
-
-        stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<InstantTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Once);
-        Assert.NotNull(capturedPayload);
-        var result = Assert.IsType<PerformanceResult>(capturedPayload);
-        Assert.Same(summary, result.Summary);
-        Assert.Same(selectedSong, result.Song);
-        Assert.Equal(2, result.Difficulty);
     }
 
     [Fact]
