@@ -253,11 +253,20 @@ namespace DTXMania.Game.Lib.Stage
             _inputManager = game.InputManager;
         }
 
-        protected virtual IAudioVariantProcessor CreateAudioVariantProcessor()
-            => new FfmpegAudioVariantProcessor();
+        /// <summary>
+        /// Resolves the stage-independent processor factory used when a
+        /// non-default playback profile requires prepared audio variants. The
+        /// virtual is invoked on the update thread before the background
+        /// worker launches; the returned delegate must not capture mutable
+        /// stage state, so the worker can invoke it (construction is I/O-heavy
+        /// and must stay off the update thread, after chart publication).
+        /// </summary>
+        protected virtual Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
+            => () => new FfmpegAudioVariantProcessor();
 
-        protected virtual PlaybackAudioVariantCache CreateAudioVariantCache()
-            => new();
+        /// <inheritdoc cref="CreateAudioVariantProcessorFactory"/>
+        protected virtual Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+            => () => new PlaybackAudioVariantCache();
 
         /// <summary>
         /// Creates the HPA-11 chart background video player. Extracted as a seam so
@@ -917,25 +926,31 @@ namespace DTXMania.Game.Lib.Stage
                 new InlineProgress<AudioPreparationProgress>(
                     scope.Latest<AudioPreparationProgress>(ApplyAudioPreparationProgress));
 
-            // Resolve the prepared-audio variant dependencies on this (update)
-            // thread before launch: the factories are protected-virtual stage
-            // members, so the worker must never invoke them off-thread. They are
-            // only needed for non-default playback profiles, exactly as before —
-            // default profiles keep passing null. A synchronous factory failure
-            // takes the same load-failure path a worker fault would.
-            IAudioVariantProcessor? audioVariantProcessor = null;
-            PlaybackAudioVariantCache? audioVariantCache = null;
+            // Resolve the stage-independent dependency factories on this
+            // (update) thread before launch: the producing virtuals are stage
+            // members, so the worker must never call them off-thread. What the
+            // worker receives is a pair of delegates it invokes itself, so the
+            // I/O-heavy processor/cache construction stays worker-side — off
+            // the update thread and after chart publication, exactly as before.
+            // Only non-default playback profiles need them; default profiles
+            // keep passing null. A synchronous failure producing the factories
+            // is deferred into a throwing factory so the worker still publishes
+            // the chart first and reports the fault through the normal error
+            // path instead of bypassing publication.
+            Func<IAudioVariantProcessor>? audioVariantProcessorFactory = null;
+            Func<PlaybackAudioVariantCache>? audioVariantCacheFactory = null;
             if (!playbackModifiers.IsDefault)
             {
                 try
                 {
-                    audioVariantProcessor = CreateAudioVariantProcessor();
-                    audioVariantCache = CreateAudioVariantCache();
+                    audioVariantProcessorFactory = CreateAudioVariantProcessorFactory();
+                    audioVariantCacheFactory = CreateAudioVariantCacheFactory();
                 }
                 catch (Exception exception)
                 {
-                    FailLoading($"Audio preparation failed: {exception.Message}", exception);
-                    return Task.FromResult<PreparedGameplayAudioSet?>(null);
+                    var failure = exception;
+                    audioVariantProcessorFactory = () => throw failure;
+                    audioVariantCacheFactory = () => throw failure;
                 }
             }
 
@@ -953,8 +968,8 @@ namespace DTXMania.Game.Lib.Stage
                     workerLogger,
                     progress,
                     publishChart,
-                    audioVariantProcessor,
-                    audioVariantCache,
+                    audioVariantProcessorFactory,
+                    audioVariantCacheFactory,
                     cancellationToken),
                 onSuccess: audioSet => ApplyPreparedAudio(audioSet),
                 onError: exception =>

@@ -91,9 +91,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// or a method-local; nothing here touches stage fields or GPU state.
         /// The chart/notation publication is posted first so the playfield is
         /// up behind LOADING while the audio work below runs. The
-        /// prepared-audio variant dependencies arrive already resolved on the
-        /// update thread (null for default playback profiles, exactly as
-        /// before). Logging uses the worker logger resolved before Run.
+        /// prepared-audio variant dependencies arrive as stage-independent
+        /// factory delegates snapshotted on the update thread (null for
+        /// default playback profiles, exactly as before). They are invoked
+        /// here — worker-side, after chart publication — so their I/O-heavy
+        /// construction never blocks the update thread. Logging uses the
+        /// worker logger resolved before Run.
         /// </summary>
         internal static PreparedGameplayAudioSet Prepare(
             ParsedChart? chartSnapshot,
@@ -103,8 +106,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ILogger workerLogger,
             IProgress<AudioPreparationProgress> progress,
             Action<ParsedChart, NotationChart?> publishChart,
-            IAudioVariantProcessor? audioVariantProcessor,
-            PlaybackAudioVariantCache? audioVariantCache,
+            Func<IAudioVariantProcessor>? audioVariantProcessorFactory,
+            Func<PlaybackAudioVariantCache>? audioVariantCacheFactory,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -151,8 +154,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 chart.BGMEvents.Select(bgm => bgm.AudioFilePath),
                 noteWavDefs,
                 playbackModifiers,
-                playbackModifiers.IsDefault ? null : audioVariantProcessor,
-                playbackModifiers.IsDefault ? null : audioVariantCache,
+                playbackModifiers.IsDefault ? null : audioVariantProcessorFactory?.Invoke(),
+                playbackModifiers.IsDefault ? null : audioVariantCacheFactory?.Invoke(),
                 progress,
                 cancellationToken,
                 reportSoundLoadFailure: (path, ex) =>
