@@ -38,6 +38,95 @@ namespace DTXMania.Test.Stage.Performance;
 public class PerformanceStageDeterministicTests
 {
     [Fact]
+    public async Task HeadlessPerformanceStage_NonDefaultProfile_UsesIsolatedActualCacheFactory()
+    {
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { PlaySpeedPercent = 75 }));
+        using var other = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { PlaySpeedPercent = 75 }));
+        Assert.NotEqual(stage.CacheRoot, other.CacheRoot);
+        Directory.CreateDirectory(stage.CacheRoot);
+        Directory.CreateDirectory(other.CacheRoot);
+        var orphan = Path.Combine(stage.CacheRoot, "orphan.tmp-test");
+        var otherSentinel = Path.Combine(other.CacheRoot, "orphan.tmp-test");
+        File.WriteAllText(orphan, "owned");
+        File.WriteAllText(otherSentinel, "other fixture");
+
+        try
+        {
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Isolated" }, 0,
+                new ParsedChart("isolated.dtx")));
+            Assert.NotNull(await stage.LastPreparationTask!.WaitAsync(TimeSpan.FromSeconds(5)));
+            var cache = await stage.CacheCreated.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(Path.GetFullPath(stage.CacheRoot), cache.CacheRoot);
+            Assert.False(File.Exists(orphan));
+            Assert.Equal("other fixture", File.ReadAllText(otherSentinel));
+        }
+        finally
+        {
+            stage.Dispose();
+            other.Dispose();
+            await stage.CacheCleanup!.WaitAsync(TimeSpan.FromSeconds(5));
+            await other.CacheCleanup!.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.False(Directory.Exists(stage.CacheRoot));
+        Assert.False(Directory.Exists(other.CacheRoot));
+    }
+
+    [Fact]
+    public async Task CacheCleanup_WhenStageCanceledDuringCacheOperation_LeavesRootForLateWrite()
+    {
+        var directory = CreateTempDirectory();
+        using var stage = new GatedVariantStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { PlaySpeedPercent = 50 }));
+        Task<PreparedAudioArtifact>? lateWaiter = null;
+        try
+        {
+            var source = CreatePlaceholderSource(directory, "late-cache-source.wav");
+            var chart = new ParsedChart("late-cache.dtx") { BackgroundAudioPath = source };
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Late cache" }, 0, chart));
+            await stage.ProcessorEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var cache = await stage.CacheCreated.WaitAsync(TimeSpan.FromSeconds(5));
+            var key = await AudioVariantKey.CreateAsync(source, new PlaybackModifiers(50, 0), CancellationToken.None);
+            var duplicateFactoryCalled = false;
+            lateWaiter = cache.GetOrCreateAsync(key, (_, _) =>
+            {
+                duplicateFactoryCalled = true;
+                throw new InvalidOperationException("The late waiter should join the existing operation.");
+            }, CancellationToken.None);
+            Assert.False(lateWaiter.IsCompleted);
+
+            stage.Deactivate();
+            Assert.Null(Assert.Single(await stage.Workers.WaitAsync(TimeSpan.FromSeconds(5))));
+            stage.Dispose();
+            await stage.CacheCleanup!.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(Directory.Exists(stage.CacheRoot));
+            Assert.False(lateWaiter.IsCompleted);
+
+            stage.ReleaseProcessor.TrySetResult();
+            var artifact = await lateWaiter.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(duplicateFactoryCalled);
+            Assert.Equal(8, artifact.PcmByteLength);
+            Assert.True(File.Exists(cache.GetArtifactPath(key)));
+        }
+        finally
+        {
+            stage.ReleaseProcessor.TrySetResult();
+            stage.ReleaseAndDeleteSources(directory);
+            stage.Dispose();
+            await stage.CacheCleanup!.WaitAsync(TimeSpan.FromSeconds(5));
+            // A joined waiter is the observable terminal for the detached cache write.
+            if (lateWaiter != null)
+            {
+                await lateWaiter.WaitAsync(TimeSpan.FromSeconds(5));
+                if (Directory.Exists(stage.CacheRoot))
+                    Directory.Delete(stage.CacheRoot, recursive: true);
+            }
+        }
+        Assert.False(Directory.Exists(stage.CacheRoot));
+    }
+
+    [Fact]
     public void ExtractSharedData_WhenPayloadMissing_ShouldLeaveStageDataUnchanged()
     {
         var logger = new StageTestLogger();
@@ -193,9 +282,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.Deactivate();
-            stage.ReleaseProcessor.TrySetResult();
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -249,10 +336,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            if (stage.IsActive)
-                stage.Deactivate();
-            stage.ReleaseProcessor.TrySetResult();
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -314,12 +398,12 @@ public class PerformanceStageDeterministicTests
     public void StartGameplayInitialization_WhenAudioBindingThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
     {
         var directory = CreateTempDirectory();
+        var logger = new StageTestLogger();
+        var game = CreateHeadlessGame(logger, new ConfigData());
+        Mock.Get(game).SetupGet(g => g.ResourceManager).Returns((IResourceManager)null!);
+        using var stage = new HeadlessPerformanceStage(game);
         try
         {
-            var logger = new StageTestLogger();
-            var game = CreateHeadlessGame(logger, new ConfigData());
-            Mock.Get(game).SetupGet(g => g.ResourceManager).Returns((IResourceManager)null!);
-            using var stage = new HeadlessPerformanceStage(game);
             var chart = new ParsedChart("binding-fail.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
@@ -348,7 +432,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -358,17 +442,17 @@ public class PerformanceStageDeterministicTests
         // A playfield publication failure precedes audio binding; the queued real
         // audio must be disposed rather than retained by a failed activation.
         var directory = CreateTempDirectory();
+        using var input = new MockInputManagerCompat();
+        var logger = new StageTestLogger();
+        var playfield = new Mock<IPerformancePlayfield>();
+        playfield.Setup(p => p.OnChartPublished(0, It.IsAny<int>()))
+            .Throws(new ArgumentException("invalid BPM"));
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(logger, new ConfigData(), input))
+        {
+            Playfield = playfield.Object
+        };
         try
         {
-            using var input = new MockInputManagerCompat();
-            var logger = new StageTestLogger();
-            var playfield = new Mock<IPerformancePlayfield>();
-            playfield.Setup(p => p.OnChartPublished(0, It.IsAny<int>()))
-                .Throws(new ArgumentException("invalid BPM"));
-            using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(logger, new ConfigData(), input))
-            {
-                Playfield = playfield.Object
-            };
             var chart = new ParsedChart("bad-bpm.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
@@ -398,7 +482,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -476,9 +560,9 @@ public class PerformanceStageDeterministicTests
         // OnDeactivate's teardown, so the stale never-applied result is dropped via
         // onDropped — its prepared audio set is disposed there, never applied.
         var directory = CreateTempDirectory();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         try
         {
-            using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
             var chart = new ParsedChart("late-drop.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
@@ -506,7 +590,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -612,10 +696,7 @@ public class PerformanceStageDeterministicTests
         finally
         {
             logger.ReleaseAll();
-            stage.Deactivate();
-            if (canceledRun != null)
-                await canceledRun.WaitAsync(TimeSpan.FromSeconds(5));
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -665,11 +746,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.ReleaseProcessor.TrySetResult();
-            stage.Deactivate();
-            if (stage.ProcessorEntered.Task.IsCompleted)
-                Assert.True(SpinWait.SpinUntil(() => stage.ProcessorCompleted.Task.IsCompleted, TimeSpan.FromSeconds(5)));
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -683,12 +760,12 @@ public class PerformanceStageDeterministicTests
         // must happen on the calling (update) thread and the worker's sound-load
         // failure report must flow through that captured logger.
         var directory = CreateTempDirectory();
+        var factory = new CapturingLoggerFactory();
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        Mock.Get(game).SetupGet(g => g.LoggerFactory).Returns(factory);
+        using var stage = new HeadlessPerformanceStage(game);
         try
         {
-            var factory = new CapturingLoggerFactory();
-            var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
-            Mock.Get(game).SetupGet(g => g.LoggerFactory).Returns(factory);
-            using var stage = new HeadlessPerformanceStage(game);
             var chart = new ParsedChart("worker-log.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
@@ -713,7 +790,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -784,8 +861,7 @@ public class PerformanceStageDeterministicTests
         finally
         {
             logger.ReleaseAll();
-            stage.Deactivate();
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -825,9 +901,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.Deactivate();
-            stage.ReleaseProcessor.TrySetResult();
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -861,9 +935,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.Deactivate();
-            stage.ReleaseProcessor.TrySetResult();
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -1170,14 +1242,14 @@ public class PerformanceStageDeterministicTests
         // Tab playfield (chart, ChartManager and NotationStripRenderer) must publish
         // ahead of audio preparation so LOADING renders over Tab instead of Lanes.
         var directory = CreateTempDirectory();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, PlaySpeedPercent = 50 };
+        var resources = CreateNotationResourceManager(completeBravura: true);
+        var logger = new StageTestLogger();
+        using var input = new MockInputManagerCompat();
+        var game = CreateHeadlessGame(logger, config, input, resources);
+        using var stage = new GatedVariantStage(game);
         try
         {
-            var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, PlaySpeedPercent = 50 };
-            var resources = CreateNotationResourceManager(completeBravura: true);
-            var logger = new StageTestLogger();
-            using var input = new MockInputManagerCompat();
-            var game = CreateHeadlessGame(logger, config, input, resources);
-            using var stage = new GatedVariantStage(game);
             var chart = CreateFinalizedTabChart();
             chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "tab-early-main.wav");
             stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
@@ -1216,7 +1288,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -1261,10 +1333,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.ReleaseProcessor.TrySetResult();
-            stage.Deactivate();
-            Assert.True(SpinWait.SpinUntil(() => stage.ProcessorCompleted.Task.IsCompleted, TimeSpan.FromSeconds(5)));
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -1275,11 +1344,11 @@ public class PerformanceStageDeterministicTests
         // process) must route to onError so _isLoading clears and the error screen shows,
         // instead of hanging on LOADING forever.
         var directory = CreateTempDirectory();
+        var logger = new StageTestLogger();
+        using var stage = new CancelingAudioVariantStage(CreateHeadlessGame(
+            logger, new ConfigData { PlaySpeedPercent = 50 }));
         try
         {
-            var logger = new StageTestLogger();
-            using var stage = new CancelingAudioVariantStage(CreateHeadlessGame(
-                logger, new ConfigData { PlaySpeedPercent = 50 }));
             var chart = new ParsedChart("canceled-decoder.dtx");
             chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
             chart.FinalizeChart();
@@ -1298,7 +1367,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -1475,11 +1544,7 @@ public class PerformanceStageDeterministicTests
 
     private static string CreateTempDirectory()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(),
-            "DTXMania_PerformanceStageTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        return directory;
+        return Directory.CreateTempSubdirectory("DTXMania_PerformanceStageTests_").FullName;
     }
 
     private static string CreatePlaceholderSource(string directory, string name)
@@ -1492,16 +1557,14 @@ public class PerformanceStageDeterministicTests
     /// <summary>
     /// Stage whose variant processor parks on a gate so tests can deterministically
     /// hold the worker mid-preparation (the progress coalescing case).
-    /// The mid-flight cancellation case deliberately does NOT use this gate: the
-    /// variant cache awaits the underlying operation through a WaitAsync'd shared
-    /// task, so retirement detaches the waiter and the parked processor's unwind
-    /// is invisible to the worker task — that test parks in the default profile
-    /// instead, whose chain has no detached operation.
+    /// The loading-cancellation test parks in the default profile instead: the
+    /// variant cache can detach its underlying operation from the stage worker.
+    /// The cache-cleanup regression uses this gate and joins that operation
+    /// explicitly to observe its actual terminal.
     /// </summary>
     private sealed class GatedVariantStage : PerformanceStage
     {
-        private readonly string _cacheRoot = Path.Combine(
-            Path.GetTempPath(), "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N"));
+        private readonly IsolatedStageAudioCache _cache = new();
 
         public GatedVariantStage(IStageGame game)
             : base(game)
@@ -1513,6 +1576,10 @@ public class PerformanceStageDeterministicTests
         public IPerformancePlayfield? Playfield { get; set; }
         public Func<IPerformancePlayfield?>? TabFactory { get; set; }
         public TabHudDisplay? LastHud { get; private set; }
+        public string CacheRoot => _cache.Root;
+        public Task<PlaybackAudioVariantCache> CacheCreated => _cache.Created;
+        public Task? CacheCleanup => _cache.Cleanup;
+        public Task<PreparedGameplayAudioSet?[]> Workers => _cache.Workers;
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) => Playfield;
         protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) =>
             TabFactory == null ? create() : TabFactory();
@@ -1535,9 +1602,25 @@ public class PerformanceStageDeterministicTests
         }
 
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+            => _cache.Factory();
+
+        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
+            _cache.Track(base.StartGameplayInitialization());
+
+        public void ReleaseAndDeleteSources(string directory)
         {
-            var cacheRoot = _cacheRoot;
-            return () => new PlaybackAudioVariantCache(cacheRoot);
+            ReleaseProcessor.TrySetResult();
+            Deactivate();
+            // The gated processor does not read the source after its cache key is computed.
+            _cache.Workers.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            Directory.Delete(directory, recursive: true);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+                _cache.Release();
         }
 
         private sealed class GatedProcessor : IAudioVariantProcessor
@@ -1560,13 +1643,8 @@ public class PerformanceStageDeterministicTests
             {
                 _entered.TrySetResult();
                 await _release.Task.ConfigureAwait(false);
-                // The cancellation check runs after the release so the worker stays
-                // provably inside the preparation chain while the test holds the
-                // gate (progress ordering below). This gate must not be used to
-                // stage a canceled operation: retirement detaches the cache's
-                // WaitAsync waiter from the still-parked processor, so the worker
-                // task would complete without witnessing this continuation (the
-                // cancellation test parks in the default profile instead).
+                // Retirement can detach the worker from this continuation; the
+                // cache-cleanup regression separately awaits the shared operation.
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -2144,11 +2222,11 @@ public class PerformanceStageDeterministicTests
     public async Task Telemetry_ConcurrentPollingAcrossAudioCancellationHitsAndReactivation()
     {
         var directory = CreateTempDirectory();
+        var config = new ConfigData { PlaySpeedPercent = 50 };
+        using var input = new MockInputManagerCompat();
+        using var stage = new GatedVariantStage(CreateHeadlessGame(new StageTestLogger(), config, input));
         try
         {
-            var config = new ConfigData { PlaySpeedPercent = 50 };
-            using var input = new MockInputManagerCompat();
-            using var stage = new GatedVariantStage(CreateHeadlessGame(new StageTestLogger(), config, input));
             input.ModularInputManager.KeyBindings.BindButton("Test.Left", 0);
             input.ModularInputManager.KeyBindings.BindButton("Test.Right", 1);
             var first = new ParsedChart("gated-snapshot.dtx") { DurationMs = 100000 };
@@ -2230,7 +2308,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -3207,8 +3285,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.Deactivate();
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -5138,6 +5215,9 @@ public class PerformanceStageDeterministicTests
             var failure = Failure;
             return () => throw failure;
         }
+
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() =>
+            () => throw new InvalidOperationException("The throwing processor must not construct a cache.");
     }
 
     private sealed class SyncThrowingAudioVariantStage : PerformanceStage
@@ -5159,10 +5239,14 @@ public class PerformanceStageDeterministicTests
         // the chart before the fault reaches onError.
         protected override Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
             => throw Failure;
+
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() =>
+            () => throw new InvalidOperationException("Factory resolution must fail before constructing a cache.");
     }
 
     private sealed class CancelingAudioVariantStage : PerformanceStage
     {
+        private readonly IsolatedStageAudioCache _cache = new();
         public CancelingAudioVariantStage(IStageGame game)
             : base(game)
         {
@@ -5174,11 +5258,24 @@ public class PerformanceStageDeterministicTests
         // The cache path is a snapshot input, so the worker-side construction
         // touches only the captured string — never live stage state.
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+            => _cache.Factory();
+
+        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
+            _cache.Track(base.StartGameplayInitialization());
+
+        public void ReleaseAndDeleteSources(string directory)
         {
-            var cacheRoot = Path.Combine(
-                Path.GetTempPath(),
-                "DTXMania_PerformanceStage_CancelCache_" + Guid.NewGuid().ToString("N"));
-            return () => new PlaybackAudioVariantCache(cacheRoot);
+            Deactivate();
+            // The canceling processor never reads its source.
+            _cache.Workers.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            Directory.Delete(directory, recursive: true);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+                _cache.Release();
         }
 
         private sealed class CancelingProcessor : IAudioVariantProcessor
@@ -5207,15 +5304,8 @@ public class PerformanceStageDeterministicTests
 
         public float? DrawFallbackTextureDepth { get; private set; }
 
-        // The cache path is a snapshot input, so the worker-side construction
-        // touches only the captured string — never live stage state.
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
-        {
-            var cacheRoot = Path.Combine(
-                Path.GetTempPath(),
-                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N"));
-            return () => new PlaybackAudioVariantCache(cacheRoot);
-        }
+            => () => throw new InvalidOperationException("Legacy drawing fixtures do not prepare audio.");
 
         internal override void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
         {
@@ -5476,10 +5566,10 @@ public class PerformanceStageDeterministicTests
     private static void AssertStartSongAudio(ParsedChart chart, float volume, float pan)
     {
         var directory = CreateTempDirectory();
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
         try
         {
-            using var input = new MockInputManagerCompat();
-            using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
             chart.DurationMs = 10000;
             chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 5000 });
             chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory, "start-main.wav");
@@ -5501,7 +5591,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -5533,11 +5623,7 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
-            stage.ReleaseProcessor.TrySetResult();
-            stage.Deactivate();
-            if (stage.ProcessorEntered.Task.IsCompleted)
-                Assert.True(SpinWait.SpinUntil(() => stage.ProcessorCompleted.Task.IsCompleted, TimeSpan.FromSeconds(5)));
-            Directory.Delete(directory, recursive: true);
+            stage.ReleaseAndDeleteSources(directory);
         }
     }
 
@@ -6164,15 +6250,33 @@ public class PerformanceStageDeterministicTests
     /// </summary>
     private sealed class HeadlessPerformanceStage : PerformanceStage
     {
+        private readonly IsolatedStageAudioCache _cache = new();
         public HeadlessPerformanceStage(IStageGame game) : base(game) { }
 
+        public string CacheRoot => _cache.Root;
+        public Task? CacheCleanup => _cache.Cleanup;
+        public Task<PlaybackAudioVariantCache> CacheCreated => _cache.Created;
         public Action<BeatMarker>? OnMetronomeClick { get; set; }
         public IPerformancePlayfield? Playfield { get; set; }
         public Func<TabHudDisplay>? MakeHud { get; set; }
         public TabHudDisplay? LastHud { get; private set; }
         public Task<PreparedGameplayAudioSet?>? LastPreparationTask { get; private set; }
         internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
-            LastPreparationTask = base.StartGameplayInitialization();
+            LastPreparationTask = _cache.Track(base.StartGameplayInitialization());
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() => _cache.Factory();
+        public void ReleaseAndDeleteSources(string directory)
+        {
+            Deactivate();
+            // These source-owning cases use the default profile, which has no detached cache operation.
+            _cache.Workers.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            Directory.Delete(directory, recursive: true);
+        }
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+                _cache.Release();
+        }
         protected override void PlayMetronomeClick(BeatMarker marker)
         {
             if (OnMetronomeClick != null)

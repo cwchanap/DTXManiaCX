@@ -70,6 +70,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             public HeadlessStage(IStageGame game) : base(game) { }
             protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
+            protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() =>
+                () => throw new InvalidOperationException("Font lifecycle tests do not prepare audio.");
             public ScrollSpeedIndicator InitializeFonts() => InitializeReadyFont();
         }
     }
