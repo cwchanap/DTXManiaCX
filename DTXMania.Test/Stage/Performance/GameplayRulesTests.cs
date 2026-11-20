@@ -16,6 +16,166 @@ namespace DTXMania.Test.Stage.Performance;
 public class GameplayRulesTests
 {
     [Fact]
+    public void Completion_UsesRealTimeFromEndCrossingAndResetsOnSeekOrSongStart()
+    {
+        var rules = new GameplayRules(null);
+        Assert.Null(rules.CheckCompletion(5000, null, 1));
+        Assert.Null(rules.CheckCompletion(999, 1000, 9));
+        Assert.Null(rules.CheckCompletion(5000, 1000, 10));
+        Assert.Null(rules.CheckCompletion(5000, 1000, 12.999));
+        Assert.Null(rules.CheckCompletion(999, 1000, 13));
+        Assert.Null(rules.CheckCompletion(1000, 1000, 20));
+        Assert.Null(rules.CheckCompletion(5000, 1000, 22.999));
+        rules.ResetSongEndBuffer();
+        Assert.Null(rules.CheckCompletion(5000, 1000, 23));
+        Assert.Equal(CompletionReason.SongComplete, rules.CheckCompletion(5000, 1000, 26));
+        Assert.True(rules.TryComplete());
+        Assert.False(rules.TryComplete());
+        Assert.Null(rules.CheckCompletion(5000, 1000, 30));
+        rules.ResetCompletion();
+        Assert.Null(rules.CheckCompletion(5000, 1000, 30));
+        Assert.Equal(CompletionReason.SongComplete, rules.CheckCompletion(5000, 1000, 33));
+    }
+
+    [Fact]
+    public void Completion_SongEndTakesPriorityOverAlreadyFailedGauge()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("completion-priority.dtx") { DurationMs = 1000 };
+        var rules = CreatePlayingRules(null, chart, input);
+        Assert.Null(rules.CheckCompletion(1000, chart.DurationMs, 10));
+        rules.GaugeManager!.Reset(2);
+        rules.GaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Miss));
+        Assert.True(rules.GaugeManager.HasFailed);
+        Assert.Null(rules.CheckCompletion(5000, null, 13));
+        Assert.Equal(CompletionReason.SongComplete, rules.CheckCompletion(5000, chart.DurationMs, 13));
+        Assert.Equal(CompletionReason.PlayerFailed, rules.CheckCompletion(999, chart.DurationMs, 13));
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void Summary_UsesNoteStatusesAndFrozenPolicyWithAllJudgementsAndChartLevel()
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(9);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("summary.dtx");
+        for (int i = 0; i < 6; i++)
+            chart.Notes.Add(new Note { LaneIndex = i, TimeMs = 1000 * (i + 1) });
+        var rules = CreatePlayingRules(config, chart, input);
+        config.AutoPlayLanes.Clear();
+        var judgement = rules.JudgementManager!;
+        judgement.ResolveAutoHit(chart.Notes[0].Id);
+        foreach (var (lane, time) in new[] { (1, 2040), (2, 3080), (3, 4120), (4, 5160) })
+        {
+            judgement.EnqueueLaneHit(lane);
+            judgement.Update(time, 0);
+        }
+        judgement.Update(0, 6201);
+        Assert.True(rules.TryComplete());
+        var summary = rules.BuildSummary(CompletionReason.SongComplete, new PlaybackModifiers(75, -4), 78, 33);
+
+        Assert.NotEqual(Guid.Empty, summary.RunId);
+        Assert.True(summary.UsedAutoPlay);
+        Assert.False(summary.IsSavable);
+        Assert.Equal(75, summary.PlaySpeedPercent);
+        Assert.Equal(-4, summary.PitchSemitones);
+        Assert.True(summary.ClearFlag);
+        Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
+        Assert.Equal(rules.ScoreManager!.CurrentScore, summary.Score);
+        Assert.Equal(3, summary.MaxCombo);
+        Assert.Equal(1, summary.PerfectCount);
+        Assert.Equal(1, summary.GreatCount);
+        Assert.Equal(1, summary.GoodCount);
+        Assert.Equal(1, summary.PoorCount);
+        Assert.Equal(1, summary.MissCount);
+        Assert.Equal(2, rules.SkillManager!.MissCount);
+        Assert.Equal(6, summary.TotalNotes);
+        Assert.Equal(rules.GaugeManager!.CurrentLife, summary.FinalLife);
+        Assert.Equal(rules.SkillManager.CurrentSkill, summary.PlayingSkill);
+        Assert.Equal(SongScore.CalculateGameSkill(summary.PlayingSkill, 78, 33), summary.GameSkill);
+        Assert.Equal(78, summary.ChartLevel);
+        Assert.Equal(33, summary.ChartLevelDec);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Theory]
+    [InlineData(CompletionReason.SongComplete, true, true)]
+    [InlineData(CompletionReason.PlayerFailed, false, true)]
+    [InlineData(CompletionReason.PlayerQuit, false, false)]
+    public void Summary_WithoutManagersUsesDefaultsAndReason(CompletionReason reason, bool clear, bool savable)
+    {
+        var rules = new GameplayRules(null);
+        Assert.True(rules.TryComplete());
+        var summary = rules.BuildSummary(reason, new PlaybackModifiers(100, 0), 0, 0);
+        Assert.NotEqual(Guid.Empty, summary.RunId);
+        Assert.Equal(reason, summary.CompletionReason);
+        Assert.Equal(clear, summary.ClearFlag);
+        Assert.Equal(savable, summary.IsSavable);
+        Assert.False(summary.UsedAutoPlay);
+        Assert.Equal(0, summary.Score);
+        Assert.Equal(0, summary.MaxCombo);
+        Assert.Equal(0, summary.TotalJudgements);
+        Assert.Equal(0, summary.TotalNotes);
+        Assert.Equal(0, summary.FinalLife);
+        Assert.Equal(0, summary.PlayingSkill);
+        Assert.Equal(0, summary.GameSkill);
+    }
+
+    [Theory]
+    [InlineData(1120, 0, 1, 0)]
+    [InlineData(0, 1201, 0, 1)]
+    [InlineData(1160, 0, 0, 0)]
+    public void Summary_GaugeFailureSeesFailingNoteStatusBeforeSkillFanout(
+        int hitTime, int missTime, int poorCount, int missCount)
+    {
+        var config = new ConfigData { Risky = 1 };
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("synchronous-failure.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 100 });
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 1000 });
+        var rules = CreatePlayingRules(config, chart, input);
+        var judgement = rules.JudgementManager!;
+        Assert.True(judgement.ResolveAutoHit(chart.Notes[0].Id));
+        var preEventSkill = rules.SkillManager!.CurrentSkill;
+        PerformanceSummary? summary = null;
+        rules.GaugeManager!.Failed += (_, _) =>
+        {
+            Assert.True(rules.TryComplete());
+            summary = rules.BuildSummary(CompletionReason.PlayerFailed, new PlaybackModifiers(100, 0), 78, 33);
+            Assert.Equal(0, rules.SkillManager!.PoorCount);
+            Assert.Equal(0, rules.SkillManager.MissCount);
+        };
+
+        if (hitTime != 0)
+            judgement.EnqueueLaneHit(1);
+        judgement.Update(hitTime, missTime);
+
+        Assert.NotNull(summary);
+        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
+        Assert.False(summary.ClearFlag);
+        Assert.Equal(500000, summary.Score);
+        Assert.Equal(1, summary.MaxCombo);
+        Assert.Equal(1, summary.PerfectCount);
+        Assert.Equal(poorCount, summary.PoorCount);
+        Assert.Equal(missCount, summary.MissCount);
+        Assert.Equal(poorCount == 1 ? 50.5f : 49f, summary.FinalLife);
+        Assert.Equal(preEventSkill, summary.PlayingSkill);
+        Assert.Equal(SongScore.CalculateGameSkill(preEventSkill, 78, 33), summary.GameSkill);
+        Assert.Equal(poorCount, rules.SkillManager.PoorCount);
+        Assert.Equal(poorCount == 0 ? 1 : 0, rules.SkillManager.MissCount);
+        Assert.False(rules.TryComplete());
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
     public void AutoPlay_StallsTiesAndManualLanesResolveOnlyDuePendingAutomatedNotes()
     {
         var config = new ConfigData();

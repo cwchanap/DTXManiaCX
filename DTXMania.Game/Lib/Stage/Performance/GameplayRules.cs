@@ -16,6 +16,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     internal sealed class GameplayRules
     {
         private int _autoPlayNoteIndex;
+        private double? _chartEndReachedRealTimeSeconds;
 
         internal GameplayRules(ConfigData? config)
         {
@@ -38,10 +39,76 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal ComboManager? ComboManager { get; private set; }
         internal GaugeManager? GaugeManager { get; private set; }
         internal SkillManager? SkillManager { get; private set; }
+        internal bool IsCompleted { get; private set; }
 
         internal void BindChart(ParsedChart chart) => ChartManager = new ChartManager(chart);
 
         internal void ResetAutoPlay() => _autoPlayNoteIndex = 0;
+
+        internal void ResetSongEndBuffer() => _chartEndReachedRealTimeSeconds = null;
+
+        internal void ResetCompletion()
+        {
+            IsCompleted = false;
+            ResetSongEndBuffer();
+        }
+
+        internal CompletionReason? CheckCompletion(double currentTimeMs, double? chartDurationMs, double realTimeSeconds)
+        {
+            if (IsCompleted || chartDurationMs == null)
+                return null;
+
+            if (currentTimeMs < chartDurationMs.Value)
+                ResetSongEndBuffer();
+            else
+            {
+                // Start the real-time delay on the observed crossing, not at the logical chart end.
+                _chartEndReachedRealTimeSeconds ??= realTimeSeconds;
+                if (realTimeSeconds - _chartEndReachedRealTimeSeconds.Value >=
+                    GameConstants.Performance.SongEndBufferSeconds)
+                    return CompletionReason.SongComplete;
+            }
+
+            return GaugeManager?.HasFailed == true ? CompletionReason.PlayerFailed : null;
+        }
+
+        internal bool TryComplete()
+        {
+            if (IsCompleted)
+                return false;
+            IsCompleted = true;
+            return true;
+        }
+
+        internal PerformanceSummary BuildSummary(
+            CompletionReason reason, PlaybackModifiers playbackModifiers, int chartLevel, int chartLevelDec)
+        {
+            // Gauge failure is synchronous: the note status has changed, but skill has not.
+            double playingSkill = SkillManager?.CurrentSkill ?? 0.0;
+            return new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                UsedAutoPlay = AutoPlayLanes.Count > 0,
+                PlaySpeedPercent = playbackModifiers.PlaySpeedPercent,
+                PitchSemitones = playbackModifiers.PitchSemitones,
+                Score = ScoreManager?.CurrentScore ?? 0,
+                MaxCombo = ComboManager?.MaxCombo ?? 0,
+                ClearFlag = reason == CompletionReason.SongComplete,
+                PerfectCount = JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
+                GreatCount = JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
+                GoodCount = JudgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
+                PoorCount = JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
+                // Late manual Miss events have Hit status, so Result intentionally excludes them.
+                MissCount = JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
+                TotalNotes = ChartManager?.TotalNotes ?? 0,
+                FinalLife = GaugeManager?.CurrentLife ?? 0.0f,
+                CompletionReason = reason,
+                PlayingSkill = playingSkill,
+                GameSkill = SongScore.CalculateGameSkill(playingSkill, chartLevel, chartLevelDec),
+                ChartLevel = chartLevel,
+                ChartLevelDec = chartLevelDec
+            };
+        }
 
         internal void ProcessAutoPlay(double currentSongTimeMs, Action<Note> feedback)
         {
