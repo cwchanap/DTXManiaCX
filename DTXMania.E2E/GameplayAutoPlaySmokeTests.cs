@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using DTXMania.Automation.JsonRpc;
 using DTXMania.Automation.Process;
@@ -18,6 +19,114 @@ public sealed class GameplayAutoPlaySmokeTests
     // Bar-1 boundary of the generated 120 BPM fixture chart: the second channel-54
     // #AVI trigger lands here, restarting the one-second background video.
     private const double BarOneVideoRetriggerSongTimeMs = 2000.0;
+
+    [Fact(Timeout = 180_000)]
+    public async Task GameplayBack_ShouldReturnToSettledSongSelectWithoutResult()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(165));
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
+        var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-back-" + Guid.NewGuid().ToString("N"));
+        var fixture = E2EFixtureBuilder.Build(
+            runRoot, repoRoot, E2EGameLaunch.ResolveApiPort(),
+            enableAutoPlayLanes: false, drumNoteTailBars: 40);
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var client = bundle.Client;
+        var samples = new List<(DateTimeOffset ObservedAtUtc, GameStateSnapshot State)>();
+        var apiErrors = new List<string>();
+
+        try
+        {
+            await NavigateToSongSelectAsync(bundle, fixture, cancellation.Token);
+            await StartSongAsync(client, cancellation.Token);
+
+            // A running clock beyond one second also places Back past the 0.5s transition debounce.
+            var clockStart = await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state => state.StageType == "Performance"
+                    && state.PerformanceReady && !state.IsTransitioning
+                    && GetStagePhase(state) == "Normal"
+                    && state.CurrentSongTimeMs >= 1000,
+                TimeSpan.FromSeconds(60), TimeSpan.FromMilliseconds(50),
+                "ready Performance with running clock past transition debounce", cancellation.Token);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "back-clock-start.json", clockStart);
+
+            var beforeBack = await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state => state.StageType == "Performance"
+                    && state.PerformanceReady && !state.IsTransitioning
+                    && GetStagePhase(state) == "Normal"
+                    && state.CurrentSongTimeMs >= clockStart.CurrentSongTimeMs + 250,
+                TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(50),
+                "advancing Performance clock", cancellation.Token);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "back-before.json", beforeBack);
+            Assert.Equal(E2EFixtureBuilder.SongTitle, beforeBack.SelectedSongTitle);
+            Assert.False(beforeBack.StageCompleted);
+            Assert.InRange(beforeBack.CurrentSongTimeMs, 1000, 10_000);
+            Assert.True(beforeBack.TotalNotes > 0 && beforeBack.TotalJudgements < beforeBack.TotalNotes);
+
+            await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
+
+            long? settledSince = null;
+            var afterBack = await Eventually.UntilAsync(
+                async token =>
+                {
+                    try
+                    {
+                        var state = await client.GetGameStateAsync(token);
+                        samples.Add((DateTimeOffset.UtcNow, state));
+                        return state;
+                    }
+                    catch (Exception ex) when (!cancellation.IsCancellationRequested)
+                    {
+                        // Eventually retries probe errors; retain them so a later success cannot hide one.
+                        apiErrors.Add(ex.ToString());
+                        throw;
+                    }
+                },
+                state =>
+                {
+                    Assert.NotEqual("Result", state.StageType);
+                    Assert.True(state.StageType is "Performance" or "SongSelect",
+                        $"Unexpected stage after Back: {state.StageType}");
+                    if (state.StageType == "SongSelect" && !state.IsTransitioning
+                        && GetStagePhase(state) == "Normal")
+                    {
+                        settledSince ??= Stopwatch.GetTimestamp();
+                        return Stopwatch.GetElapsedTime(settledSince.Value) >= TimeSpan.FromSeconds(1);
+                    }
+                    settledSince = null;
+                    return false;
+                },
+                TimeSpan.FromSeconds(15), TimeSpan.FromMilliseconds(50),
+                "settled SongSelect after Performance Back", cancellation.Token);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "back-after.json", afterBack);
+            Assert.Empty(apiErrors);
+
+            // The fade can be missed by a slow API call; validate the stopped snapshot if observed.
+            Assert.All(samples.Where(sample => sample.State.StageType == "Performance"
+                    && sample.State.IsTransitioning),
+                sample => Assert.True(
+                    (sample.State.Telemetry.TryGetProperty("performanceReady", out var ready)
+                        && ready.ValueKind == JsonValueKind.False)
+                    || (sample.State.Telemetry.TryGetProperty("currentSongTimeMs", out var time)
+                        && time.ValueKind == JsonValueKind.Number && time.GetDouble() == 0),
+                    "Performance stop was not reported during the Back transition."));
+        }
+        catch (Exception ex)
+        {
+            await E2EArtifactWriter.WriteTextAsync(fixture, "back-failure.txt", ex.ToString());
+            await TryWriteScreenshotAsync(client, fixture, "back-failure.png");
+            throw;
+        }
+        finally
+        {
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "back-polls.json",
+                samples.Select(sample => new { sample.ObservedAtUtc, sample.State }).ToArray());
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "back-api-errors.json", apiErrors);
+            E2EArtifactWriter.CopyFixtureFiles(fixture);
+            await WriteRunLogsAsync(fixture, bundle.Process, "back");
+        }
+    }
 
     [Fact(Timeout = 420_000)]
     public async Task GameplaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches()
