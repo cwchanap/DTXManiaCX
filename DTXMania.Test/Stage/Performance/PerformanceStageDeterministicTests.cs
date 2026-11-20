@@ -6039,7 +6039,7 @@ public class PerformanceStageDeterministicTests
     public void CleanupGameplayManagers_UnsubscribesStageAndRetainsThirdPartyObservers()
     {
         using var input = new MockInputManagerCompat();
-        var (stageRef, rulesRef, judgement, gauge, observers) = CreateRetiredStageWithManagers(input);
+        var (stageRef, rulesRef, judgement, score, gauge, observers) = CreateRetiredStageWithManagers(input);
         for (var i = 0; i < 3 && (stageRef.IsAlive || rulesRef.IsAlive); i++)
         {
             GC.Collect();
@@ -6052,12 +6052,13 @@ public class PerformanceStageDeterministicTests
         Assert.All(observers, observer => Assert.True(observer.IsAlive));
         GC.KeepAlive(input);
         GC.KeepAlive(judgement);
+        GC.KeepAlive(score);
         GC.KeepAlive(gauge);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static (WeakReference Stage, WeakReference Rules, JudgementManager Judgement, GaugeManager Gauge,
-        WeakReference[] Observers)
+    private static (WeakReference Stage, WeakReference Rules, JudgementManager Judgement, ScoreManager Score,
+        GaugeManager Gauge, WeakReference[] Observers)
         CreateRetiredStageWithManagers(MockInputManagerCompat input)
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -6066,16 +6067,25 @@ public class PerformanceStageDeterministicTests
         UpdateUntil(stage, () => stage.AudioSession != null);
         var rules = stage.Rules!;
         var judgement = Assert.IsType<JudgementManager>(rules.JudgementManager);
+        var score = Assert.IsType<ScoreManager>(rules.ScoreManager);
         var gauge = Assert.IsType<GaugeManager>(rules.GaugeManager);
         var judgementObserver = new ManagerObserver();
+        var scoreObserver = new ManagerObserver();
         var gaugeObserver = new ManagerObserver();
         var failureObserver = new ManagerObserver();
         judgement.JudgementMade += judgementObserver.OnJudgement;
+        score.ScoreChanged += scoreObserver.OnScore;
         gauge.GaugeChanged += gaugeObserver.OnGauge;
         gauge.Failed += failureObserver.OnFailure;
         judgement.IsActive = true;
         Assert.True(judgement.ResolveAutoHit(chart.Notes[0].Id));
         Assert.Equal(1, judgementObserver.Calls);
+        Assert.Equal(1, scoreObserver.Calls);
+        Assert.NotNull(scoreObserver.LastScore);
+        Assert.Equal(0, scoreObserver.LastScore.PreviousScore);
+        Assert.Equal(ScoreManager.MaxScore, scoreObserver.LastScore.CurrentScore);
+        Assert.Equal(ScoreManager.MaxScore, scoreObserver.LastScore.ScoreAdded);
+        Assert.Equal(JudgementType.Perfect, scoreObserver.LastScore.JudgementType);
         Assert.Equal(1, gaugeObserver.Calls);
         stage.Deactivate();
         Assert.Null(rules.JudgementManager);
@@ -6085,14 +6095,21 @@ public class PerformanceStageDeterministicTests
         Assert.Null(rules.SkillManager);
         // Disposed managers suppress events, so retention is observed through
         // independently subscribed targets while those managers remain alive.
-        return (new WeakReference(stage), new WeakReference(rules), judgement, gauge,
-            new[] { new WeakReference(judgementObserver), new WeakReference(gaugeObserver), new WeakReference(failureObserver) });
+        return (new WeakReference(stage), new WeakReference(rules), judgement, score, gauge,
+            new[] { new WeakReference(judgementObserver), new WeakReference(scoreObserver),
+                new WeakReference(gaugeObserver), new WeakReference(failureObserver) });
     }
 
     private sealed class ManagerObserver
     {
         public int Calls { get; private set; }
+        public ScoreChangedEventArgs? LastScore { get; private set; }
         public void OnJudgement(object? sender, JudgementEvent e) => Calls++;
+        public void OnScore(object? sender, ScoreChangedEventArgs e)
+        {
+            Calls++;
+            LastScore = e;
+        }
         public void OnGauge(object? sender, GaugeChangedEventArgs e) => Calls++;
         public void OnFailure(object? sender, FailureEventArgs e) => Calls++;
     }
