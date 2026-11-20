@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -14,8 +15,8 @@ using MeasureLine = DTXMania.Game.Lib.Song.Components.MeasureLine;
 namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
-    /// Thin scrolling-notation strip renderer (HPA-410). Owns the pinned 60pt Bravura font, the
-    /// ShareTechMono-14 label font and a 1x1 white pixel texture, and draws the strip in the
+    /// Thin scrolling-notation strip renderer (HPA-410). Owns the pinned 60pt Bravura font and
+    /// ShareTechMono-14 label font, and draws the strip in the
     /// caller's SpriteSortMode.BackToFront batch with the contracted explicit layer depths
     /// (larger depth = farther back). All placement math is delegated to the GPU-free
     /// <see cref="NotationStripLayout"/>; glyphs and labels always go through the nine-argument
@@ -82,19 +83,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="chart">The finalized notation chart to engrave.</param>
         /// <param name="measureLines">Compiled measure boundaries; MeasureLines[^1] is the terminal end bound.</param>
         /// <param name="palette">Theme-resolved Tab colors; null uses the built-in defaults.</param>
-        /// <param name="art">Optional skin art (borrowed; the stage releases it); null draws procedurally.</param>
+        /// <param name="art">Optional skin art (borrowed; the playfield releases it); null draws procedurally.</param>
+        /// <param name="whitePixel">Optional stage-owned pixel; if absent a cached reference is acquired on draw.</param>
         public NotationStripRenderer(
             IResourceManager resourceManager,
             NotationChart chart,
             IReadOnlyList<MeasureLine> measureLines,
             SkinPalette palette = null,
-            TabModeArt art = null)
+            TabModeArt art = null,
+            Texture2D whitePixel = null)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _chart = chart ?? throw new ArgumentNullException(nameof(chart));
             _measureLines = measureLines ?? throw new ArgumentNullException(nameof(measureLines));
             _palette = palette ?? SkinPalette.Default;
             _art = art ?? TabModeArt.None;
+            _whiteTexture = whitePixel;
 
             _staffLineYs = NotationStripLayout.GetStaffLineYs();
             _keyColumnLabels = NotationStripLayout.GetKeyColumnLabels();
@@ -168,13 +172,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void ReleaseResources()
         {
-            _bravuraFont?.RemoveReference();
+            var bravura = _bravuraFont;
+            var label = _labelFont;
+            var white = _whiteTextureResource;
             _bravuraFont = null;
-            _labelFont?.RemoveReference();
             _labelFont = null;
-            _whiteTextureResource?.RemoveReference();
             _whiteTextureResource = null;
             _whiteTexture = null;
+            Exception firstFailure = null;
+            void Release(Action action)
+            {
+                try { action(); }
+                catch (Exception ex) { firstFailure ??= ex; }
+            }
+            Release(() => bravura?.RemoveReference());
+            Release(() => label?.RemoveReference());
+            Release(() => white?.RemoveReference());
+            if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
         private bool EnsureWhiteTexture()

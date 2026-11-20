@@ -1278,11 +1278,15 @@ public class PerformanceStageDeterministicTests
             ShowHitTimingFeedback = true
         };
         config.AutoPlayLanes.UnionWith(new[] { 1, 8 });
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
-        var stage = CreateStage(game);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+        using var input = new MockInputManagerCompat();
+        var font = new Mock<IFont>();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), config, input, CreateNotationResourceManager(true)))
+        {
+            MakeHud = () => TabPlayfieldTests.CreateHud(font)
+        };
+        var chart = CreateTabFeedbackChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Frozen" }, 0, chart));
 
         // A later config edit must not change the policy captured for this run.
         config.AutoPlayLanes.Clear();
@@ -1298,29 +1302,31 @@ public class PerformanceStageDeterministicTests
         config.ShowCombo = true;
         config.ShowHitTimingFeedback = false;
 
-        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
-        Assert.NotNull(visualGates);
-        var gateType = visualGates!.GetType();
-        Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("ShowHitTimingFeedback")!.GetValue(visualGates)!);
-        // The requested note display style is frozen too: live config edits must not
-        // change the style this run was started with.
-        Assert.Equal(
-            DrumsNoteDisplayStyle.Tab,
-            (DrumsNoteDisplayStyle)gateType.GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates)!);
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
+        var manager = stage.Rules!.JudgementManager!;
+        manager.IsActive = true;
+        manager.EnqueueLaneHit(5);
+        manager.Update(chart.Notes.First(n => n.LaneIndex == 5).TimeMs - 12);
+        Assert.Equal("-12", stage.LastHud!.PopupTimingForTesting.Text);
+        stage.Update(0);
+        Assert.Equal(1, stage.CurrentFrame.Combo);
+        stage.DrawPlayfieldHud(null!);
+        font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "COMBO", It.IsAny<Vector2>(), It.IsAny<Color>(),
+            It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()),
+            Times.Never);
     }
 
     [Fact]
     public void VisualGates_BeforeFreeze_ShouldDefaultRequestedNoteDisplayStyleToLanes()
     {
-        // default(PerformanceVisualGates) must mean Lanes so runs started without a
-        // frozen configuration keep the classic lane presentation.
-        var stage = CreateStage();
-
-        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
-        var value = visualGates!.GetType().GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates);
-
-        Assert.Equal(DrumsNoteDisplayStyle.Lanes, (DrumsNoteDisplayStyle)value!);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab }));
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
     }
 
     #region HPA-411 Tab mode integration
@@ -1328,32 +1334,32 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void FreezeRunConfiguration_WhenTabRequested_ShouldFreezeStyleWhileEffectiveModeStaysLanesUntilStripPublish()
     {
-        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
-
-        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
-        var requested = visualGates!.GetType().GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates);
-
-        // Requested Tab is frozen, but the effective mode is the strip reference alone:
-        // until the one-shot construction publishes it, the run stays in Lanes.
-        Assert.Equal(DrumsNoteDisplayStyle.Tab, (DrumsNoteDisplayStyle)requested!);
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), config, input, CreateNotationResourceManager(true)));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, CreateFinalizedTabChart()));
+        config.NoteDisplayStyle = DrumsNoteDisplayStyle.Lanes;
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
     }
 
     [Fact]
     public void StartGameplayInitialization_WhenLanesRequested_ShouldKeepLanesWithoutNotation()
     {
-        var stage = CreateStageWithConfig(new ConfigData());
-        stage.InstallTestBackgroundScope();
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
-
-        StartGameplayInitialization(stage);
-        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData(), input, CreateNotationResourceManager(true)));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Lanes" }, 0, CreateFinalizedTabChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
     }
 
     [Fact]
@@ -1387,14 +1393,17 @@ public class PerformanceStageDeterministicTests
                 stage.PopulateTelemetry(telemetry);
                 return telemetry.NoteDisplayStyle == nameof(DrumsNoteDisplayStyle.Tab);
             });
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+            Assert.False(stage.ProcessorCompleted.Task.IsCompleted);
+            Assert.DoesNotContain(logger.Errors, e => e.Message.Contains("failed", StringComparison.OrdinalIgnoreCase));
             Assert.False(telemetry.PerformanceReady);
             Assert.NotNull(stage.Rules?.ChartManager);
             var judgement = Assert.IsType<JudgementManager>(stage.Rules?.JudgementManager);
             Assert.False(judgement.IsActive);
             Assert.NotNull(judgement.GetNoteRuntimeData(chart.Notes[0].Id));
             Assert.Null(stage.AudioSession);
+            input.TriggerLaneHit(3);
+            Assert.Equal(1f, stage.LastHud!.FlashTimersForTesting[3]);
+            Assert.Equal(PerformanceUILayout.GetLaneColor(3), stage.LastHud.FlashColorsForTesting[3]);
 
             // Release the audio gate (it returns empty bytes -> CreatePreparedSound throws
             // NoAudioHardwareException or succeeds cleanly; either way the stage exits loading
@@ -1405,6 +1414,54 @@ public class PerformanceStageDeterministicTests
         }
         finally
         {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartGameplayInitialization_WhenTabAudioIsPreparing_ShouldForwardCurrentAndLiveScrollSpeed()
+    {
+        var directory = CreateTempDirectory();
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, PlaySpeedPercent = 50 };
+        var game = CreateHeadlessGame(new StageTestLogger(), config, input);
+        var manager = Mock.Get(game.ConfigManager);
+        var lanes = new Mock<IPerformancePlayfield>();
+        var tab = new Mock<IPerformancePlayfield>();
+        tab.SetupGet(t => t.Mode).Returns(DrumsNoteDisplayStyle.Tab);
+        using var stage = new GatedVariantStage(game)
+        {
+            Playfield = lanes.Object,
+            TabFactory = () => tab.Object
+        };
+        try
+        {
+            var chart = CreateFinalizedTabChart();
+            chart.Bpm = 150;
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "tab-scroll.wav");
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Scroll" }, 0, chart));
+            Assert.True(SpinWait.SpinUntil(() => stage.ProcessorEntered.Task.IsCompleted, TimeSpan.FromSeconds(5)));
+            config.ScrollSpeed = 200;
+            manager.Raise(m => m.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(100, 200));
+            lanes.Verify(f => f.OnScrollSpeedChanged(200), Times.Once);
+            UpdateUntil(stage, () =>
+            {
+                var telemetry = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(telemetry);
+                return telemetry.NoteDisplayStyle == nameof(DrumsNoteDisplayStyle.Tab);
+            });
+            Assert.False(stage.ProcessorCompleted.Task.IsCompleted);
+            Assert.Null(stage.AudioSession);
+            tab.Verify(f => f.OnChartPublished(150, 200), Times.Once);
+            manager.Raise(m => m.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(200, 225));
+            tab.Verify(f => f.OnScrollSpeedChanged(225), Times.Once);
+            lanes.Verify(f => f.OnScrollSpeedChanged(225), Times.Never);
+        }
+        finally
+        {
+            stage.ReleaseProcessor.TrySetResult();
+            stage.Deactivate();
+            Assert.True(SpinWait.SpinUntil(() => stage.ProcessorCompleted.Task.IsCompleted, TimeSpan.FromSeconds(5)));
             Directory.Delete(directory, recursive: true);
         }
     }
@@ -1447,56 +1504,43 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void StartGameplayInitialization_WhenNotationBuildFails_ShouldStayInLanesAndRemainReady()
     {
-        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
-        stage.InstallTestBackgroundScope();
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab }, input));
         var chart = new ParsedChart("tab-invalid-channel.dtx");
         chart.MeasureLines.Add(new MeasureLine { Bar = 0, TimeMs = 0 });
         chart.MeasureLines.Add(new MeasureLine { Bar = 1, TimeMs = 2000 });
         chart.Notes.Add(new Note { Channel = 0x99, Bar = 0, Tick = 0 });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
-
-        StartGameplayInitialization(stage);
-        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-
-        // The worker-local build failure is caught and logged: gameplay continues in
-        // Lanes with a fully ready stage.
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Bad notation" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
     }
 
     [Fact]
     public void TryConstructNotationStrip_WhenBravuraIsIncomplete_ShouldFallBackToLanesForTheSong()
     {
-        var stage = CreateTabStage(CreateNotationResourceManager(completeBravura: false).Object);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
-
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab },
+            input, CreateNotationResourceManager(false)));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Bad font" }, 0, CreateFinalizedTabChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
     }
 
     [Fact]
     public void TryConstructNotationStrip_WhenTabHudCannotAcquireResources_ShouldRollStripBackToLanes()
     {
-        var stage = CreateTabStage(CreateNotationResourceManager(completeBravura: true).Object);
-        // A stub SpriteBatch returns a non-null but uninitialized GraphicsDevice,
-        // so HUD construction is attempted and its font acquisition fails
-        // deterministically — no GPU needed.
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_spriteBatch",
-            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip", BuildNotationChart(), BuildMeasureLines());
-
-        // The whole Tab decision rolls back to consistent Lanes — a strip kept
-        // without its HUD would draw the Lanes widgets over the strip's hit
-        // marker and key labels.
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
+        using var hud = TabPlayfieldTests.CreateUnreadyHud();
+        var resources = TabPlayfieldTests.Resources();
+        Assert.Null(TabPlayfieldTests.Create(resources, hud));
+        Assert.False(hud.IsReady);
     }
 
     private static PerformanceStage CreateStageWithConfig(ConfigData config)
@@ -1506,24 +1550,6 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage(game);
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
         return stage;
-    }
-
-    /// <summary>TabHudDisplay double that records its own disposal without a GPU.</summary>
-    private sealed class TrackingTabHudDisplay : TabHudDisplay
-    {
-        public TrackingTabHudDisplay(GraphicsDevice graphicsDevice)
-            : base(graphicsDevice, null, "t", "a")
-        {
-            GC.SuppressFinalize(this);
-        }
-
-        public bool WasDisposed { get; private set; }
-
-        protected override void Dispose(bool disposing)
-        {
-            WasDisposed = true;
-            base.Dispose(disposing);
-        }
     }
 
     /// <summary>JudgementLineRenderer double that records its own disposal without a GPU.</summary>
@@ -1619,19 +1645,6 @@ public class PerformanceStageDeterministicTests
 
         public void Dispose() => IsDisposed = true;
     }
-
-    private static PerformanceStage CreateTabStage(IResourceManager resourceManager)
-    {
-        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-        return stage;
-    }
-
-    private static NotationChart BuildNotationChart() => new(Array.Empty<NotationMeasure>());
-
-    private static IReadOnlyList<MeasureLine> BuildMeasureLines() =>
-        new List<MeasureLine> { new MeasureLine { Bar = 0, TimeMs = 0 } };
 
     private static ParsedChart CreateFinalizedTabChart()
     {
@@ -1732,8 +1745,13 @@ public class PerformanceStageDeterministicTests
         public TaskCompletionSource ReleaseProcessor => _releaseProcessor!;
         public TaskCompletionSource ProcessorCompleted => _processorCompleted!;
         public IPerformancePlayfield? Playfield { get; set; }
+        public Func<IPerformancePlayfield?>? TabFactory { get; set; }
+        public TabHudDisplay? LastHud { get; private set; }
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) => Playfield;
-        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) => CreateReadyHeadlessTabHud();
+        protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) =>
+            TabFactory == null ? create() : TabFactory();
+        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) =>
+            LastHud = CreateReadyHeadlessTabHud();
 
         private static TaskCompletionSource NewGate() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1929,34 +1947,27 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void StartGameplayInitialization_WithHiddenCombo_ShouldFreezeTabComboGate()
     {
-        // Direct initialization must capture the Tab combo gate like OnActivate.
-        var config = new ConfigData
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowCombo = false };
+        using var input = new MockInputManagerCompat();
+        var font = new Mock<IFont>();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), config, input, CreateNotationResourceManager(true)))
         {
-            LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
-            ShowJudgementLine = false,
-            ShowCombo = false,
-            EnableLaneFlush = true
+            MakeHud = () => TabPlayfieldTests.CreateHud(font)
         };
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
-        var stage = CreateStage(game);
-        stage.InstallTestBackgroundScope();
-        var chart = new ParsedChart("silent-clock.dtx");
-        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
-        chart.FinalizeChart();
-
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
-
-        StartGameplayInitialization(stage);
-        RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-
-        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
-        Assert.NotNull(visualGates);
-        var gateType = visualGates!.GetType();
-        Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
+        var chart = CreateFinalizedTabChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Combo" }, 0, chart));
+        config.ShowCombo = true;
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var manager = stage.Rules!.JudgementManager!;
+        manager.IsActive = true;
+        Assert.True(manager.ResolveAutoHit(chart.Notes[0].Id));
+        stage.Update(0);
+        Assert.Equal(1, stage.CurrentFrame.Combo);
+        stage.DrawPlayfieldHud(null!);
+        font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "COMBO", It.IsAny<Vector2>(), It.IsAny<Color>(),
+            It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()),
+            Times.Never);
     }
 
     [Fact]
@@ -4732,14 +4743,13 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ResolveChartVideoDrawLayout_ShouldPinBackgroundBoundsAndDepth()
     {
-        var stage = CreateStage();
-
-        var (bounds, depth) = ReflectionHelpers.InvokePrivateMethod<(Rectangle Bounds, float Depth)>(
-            stage,
-            "ResolveChartVideoDrawLayout");
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        var (bounds, depth) = stage.ResolveChartVideoDrawLayout();
 
         Assert.Equal(PerformanceUILayout.Background.Bounds, bounds);
         Assert.Equal(0.95f, depth);
+        Assert.True(depth > PerformanceUILayout.NotationStrip.DepthBackground);
+        Assert.Equal(255, SkinPalette.Default.StripBackground.A);
     }
 
     [Fact]
@@ -4844,30 +4854,30 @@ public class PerformanceStageDeterministicTests
 
     #region HPA-509 Tab/Lanes spawn gating (OnJudgementMade)
 
-    private static object BuildVisualGates(bool showHitTimingFeedback, DrumsNoteDisplayStyle style)
+    private static ParsedChart CreateTabFeedbackChart()
     {
-        var gatesType = typeof(PerformanceStage).GetNestedType(
-            "PerformanceVisualGates", System.Reflection.BindingFlags.NonPublic);
-        Assert.NotNull(gatesType);
-        return Activator.CreateInstance(
-            gatesType!,
-            false,
-            showHitTimingFeedback,
-            style)!;
+        var chart = new ParsedChart("tab-feedback.dtx");
+        chart.AddNote(new Note(5, 0, 96, 0x13, "01"));
+        chart.AddNote(new Note(3, 0, 96, 0x12, "01"));
+        chart.FinalizeChart();
+        return chart;
     }
 
     [Fact]
     public void OnJudgementMade_WhenTabAndTimingFeedbackHidden_ShouldOmitPerHitTimingLineOnly()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
-        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(false, DrumsNoteDisplayStyle.Tab));
-        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
-        tabHud.MarkResourcesReadyForTesting();
-        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "OnJudgementMade", null, new JudgementEvent(1, 3, -12, JudgementType.Perfect));
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowHitTimingFeedback = false };
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), config, input, CreateNotationResourceManager(true)));
+        var chart = CreateTabFeedbackChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var tabHud = stage.LastHud!;
+        var manager = stage.Rules!.JudgementManager!;
+        manager.IsActive = true;
+        manager.EnqueueLaneHit(3);
+        manager.Update(chart.Notes.First(n => n.LaneIndex == 3).TimeMs - 12);
 
         // The popup still appears, but the per-hit fast/slow line obeys the same
         // opt-in predicate as the Lanes timing display. Stat tiles stay ungated.
@@ -4878,25 +4888,23 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void OnJudgementMade_WhenTabPartialAutoPlayLane_ShouldKeepPlayerPopupAndTiming()
     {
-        // Partial autoplay: an automated lane's judgement must not replace the
-        // player's popup — its word carries no timing and would wipe the player's
-        // fast/slow line within milliseconds of a chord (HPA-509 review). The
-        // automated lane still flashes so the strip stays alive.
-        using var stage = CreateStageWithAutoPlay(3);
-        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
-        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
-        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
-        tabHud.MarkResourcesReadyForTesting();
-        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "OnJudgementMade", null, new JudgementEvent(1, 5, -12, JudgementType.Perfect));
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowHitTimingFeedback = true };
+        config.AutoPlayLanes.Add(3);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), config, input, CreateNotationResourceManager(true)));
+        var chart = CreateTabFeedbackChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var tabHud = stage.LastHud!;
+        var manager = stage.Rules!.JudgementManager!;
+        manager.IsActive = true;
+        manager.EnqueueLaneHit(5);
+        manager.Update(chart.Notes.First(n => n.LaneIndex == 5).TimeMs - 12);
         var playerPopup = tabHud.PopupForTesting;
         Assert.NotNull(playerPopup);
 
-        // Autoplay resolves its own lane during the same chord.
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "OnJudgementMade", null, new JudgementEvent(0, 3, 0, JudgementType.Perfect));
+        Assert.True(manager.ResolveAutoHit(chart.Notes.First(n => n.LaneIndex == 3).Id));
 
         Assert.Same(playerPopup, tabHud.PopupForTesting);
         Assert.Equal("-12", tabHud.PopupTimingForTesting.Text);
@@ -4907,35 +4915,35 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void OnJudgementMade_WhenTabFullAutoPlay_ShouldFeedPopupFromAutomatedLanes()
     {
-        // Full autoplay keeps the popup feed — with no player there is nothing to
-        // protect, and the strip mirrors what the Lanes HUD would show.
-        using var stage = CreateStageWithAutoPlay(Enumerable.Range(0, PerformanceUILayout.LaneCount).ToArray());
-        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
-        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
-        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
-        tabHud.MarkResourcesReadyForTesting();
-        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage, "OnJudgementMade", null, new JudgementEvent(0, 3, 0, JudgementType.Perfect));
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowHitTimingFeedback = true };
+        config.AutoPlayLanes.UnionWith(Enumerable.Range(0, PerformanceUILayout.LaneCount));
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), config, input, CreateNotationResourceManager(true)));
+        var chart = CreateTabFeedbackChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var tabHud = stage.LastHud!;
+        var manager = stage.Rules!.JudgementManager!;
+        manager.IsActive = true;
+        Assert.True(manager.ResolveAutoHit(chart.Notes.First(n => n.LaneIndex == 3).Id));
 
         Assert.Equal("PERFECT", tabHud.PopupForTesting!.Text);
+        Assert.Null(tabHud.PopupTimingForTesting.Text);
         Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
     }
 
     [Fact]
     public void OnLaneHitForPadFeedback_WhenNotationStripActive_ShouldFlashTabHudLane()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
-        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
-        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "OnLaneHitForPadFeedback",
-            stage,
-            new LaneHitEventArgs(3, new ButtonState("Key.S", true)));
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab },
+            input, CreateNotationResourceManager(true)));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, CreateTabFeedbackChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var tabHud = stage.LastHud!;
+        input.TriggerLaneHit(3);
 
         Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
         Assert.Equal(PerformanceUILayout.GetLaneColor(3), tabHud.FlashColorsForTesting[3]);
@@ -4944,36 +4952,19 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void OnLaneHitForPadFeedback_WhenNotationStripMissing_ShouldNotFlashTabHudLane()
     {
-        var stage = CreateStage();
-        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
-        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "OnLaneHitForPadFeedback",
-            stage,
-            new LaneHitEventArgs(3, new ButtonState("Key.S", true)));
+        using var input = new MockInputManagerCompat();
+        using var tabHud = TabPlayfieldTests.CreateUnreadyHud();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab },
+            input, CreateNotationResourceManager(true))) { MakeHud = () => tabHud };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fallback" }, 0, CreateTabFeedbackChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        input.TriggerLaneHit(3);
 
         Assert.Equal(0f, tabHud.FlashTimersForTesting[3]);
     }
 
     #endregion
-
-    /// <summary>
-    /// A notation strip whose fonts pass the coverage check via mocks, so it mirrors
-    /// the IsReady-retained renderer the stage keeps while Tab is effective.
-    /// </summary>
-    private static NotationStripRenderer CreateReadyNotationStrip()
-    {
-        var font = new Mock<IFont>();
-        font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
-        var resources = new Mock<IResourceManager>();
-        resources.Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>())).Returns(font.Object);
-        return new NotationStripRenderer(
-            resources.Object,
-            new NotationChart(Array.Empty<NotationMeasure>()),
-            new List<MeasureLine> { new MeasureLine { Bar = 0, TimeMs = 0 } });
-    }
 
     private static PerformanceStage CreateStage(BaseGame? game = null)
     {
@@ -6648,6 +6639,8 @@ public class PerformanceStageDeterministicTests
 
         public Action<BeatMarker>? OnMetronomeClick { get; set; }
         public IPerformancePlayfield? Playfield { get; set; }
+        public Func<TabHudDisplay>? MakeHud { get; set; }
+        public TabHudDisplay? LastHud { get; private set; }
         public Task<PreparedGameplayAudioSet?>? LastPreparationTask { get; private set; }
         internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
             LastPreparationTask = base.StartGameplayInitialization();
@@ -6660,16 +6653,16 @@ public class PerformanceStageDeterministicTests
         }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) => Playfield;
-        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) => CreateReadyHeadlessTabHud();
+        protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) => create();
+        internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) =>
+            LastHud = MakeHud?.Invoke() ?? CreateReadyHeadlessTabHud();
         protected override IChartVideoPlayer CreateChartVideoPlayer() =>
             throw new InvalidOperationException("Headless activation must not create a video player.");
     }
 
     private static TabHudDisplay CreateReadyHeadlessTabHud()
     {
-        var hud = TabHudDisplay.CreateHeadlessForTesting();
-        hud.MarkResourcesReadyForTesting();
-        return hud;
+        return TabPlayfieldTests.CreateHud();
     }
 
     private static IStageGame CreateHeadlessGame(
