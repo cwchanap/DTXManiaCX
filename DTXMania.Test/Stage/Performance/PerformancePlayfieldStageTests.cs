@@ -164,10 +164,10 @@ public class PerformancePlayfieldStageTests
     {
         using var input = new MockInputManagerCompat();
         var order = new List<string>();
-        var pixel = new Mock<ITexture>();
+        int refs = 1;
+        var pixel = CountedPixel("pixel", order, () => refs, n => refs = n);
         var field = new Mock<IPerformancePlayfield>();
         field.Setup(x => x.Dispose()).Callback(() => order.Add("playfield"));
-        pixel.Setup(x => x.RemoveReference()).Callback(() => order.Add("pixel"));
         using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), field.Object)
         {
             Pixel = pixel.Object
@@ -176,16 +176,19 @@ public class PerformancePlayfieldStageTests
 
         stage.Deactivate();
 
-        Assert.Equal(new[] { "playfield", "pixel" }, order);
+        Assert.Equal(new[] { "pixel add:2", "pixel remove:1", "playfield", "pixel remove:0" }, order);
+        Assert.Equal(0, pixel.Object.ReferenceCount);
         field.Verify(x => x.Dispose(), Times.Once);
-        pixel.Verify(x => x.RemoveReference(), Times.Once);
+        pixel.Verify(x => x.RemoveReference(), Times.Exactly(2));
     }
 
     [Fact]
     public void Activation_WhenPlayfieldConstructionFails_ShouldReleaseWhitePixelOnce()
     {
         using var input = new MockInputManagerCompat();
-        var pixel = new Mock<ITexture>();
+        var order = new List<string>();
+        int refs = 1;
+        var pixel = CountedPixel("pixel", order, () => refs, n => refs = n);
         var failure = new InvalidOperationException("playfield construction failed");
         using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), new Mock<IPerformancePlayfield>().Object)
         {
@@ -195,9 +198,11 @@ public class PerformancePlayfieldStageTests
 
         Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
             stage.Activate(new SongPlayRequest(new SongListNode { Title = "Failure" }, 0, new ParsedChart("failure.dtx")))));
-        pixel.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Equal(new[] { "pixel add:2", "pixel remove:1", "pixel remove:0" }, order);
+        Assert.Equal(0, pixel.Object.ReferenceCount);
+        pixel.Verify(x => x.RemoveReference(), Times.Exactly(2));
         stage.Deactivate();
-        pixel.Verify(x => x.RemoveReference(), Times.Once);
+        pixel.Verify(x => x.RemoveReference(), Times.Exactly(2));
     }
 
     [Fact]
@@ -205,7 +210,13 @@ public class PerformancePlayfieldStageTests
     {
         using var input = new MockInputManagerCompat();
         var pixel = new Mock<ITexture>();
-        pixel.Setup(x => x.RemoveReference()).Throws(new InvalidOperationException("pixel release failed"));
+        int refs = 1;
+        pixel.Setup(x => x.AddReference()).Callback(() => refs++);
+        pixel.Setup(x => x.RemoveReference()).Callback(() =>
+        {
+            refs--;
+            throw new InvalidOperationException("pixel release failed");
+        });
         var failure = new InvalidOperationException("playfield construction failed");
         using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), new Mock<IPerformancePlayfield>().Object)
         {
@@ -216,7 +227,674 @@ public class PerformancePlayfieldStageTests
         Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
             stage.Activate(new SongPlayRequest(new SongListNode { Title = "Failure" }, 0, new ParsedChart("failure.dtx")))));
         stage.Deactivate();
-        pixel.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Equal(0, refs);
+        pixel.Verify(x => x.RemoveReference(), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LanesFactory_RetirementDisposesOldCandidateBeforeLastPixelReference(bool reactivate)
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+        var oldEvents = new List<string>();
+        var newEvents = new List<string>();
+        int oldRefs = 1, newRefs = 1;
+        var oldPixel = CountedPixel("old", oldEvents, () => oldRefs, n => oldRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
+        var oldField = new Mock<IPerformancePlayfield>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        freshField.SetupGet(x => x.Mode).Returns(DrumsNoteDisplayStyle.Lanes);
+        oldField.Setup(x => x.Dispose()).Callback(() => oldEvents.Add($"old field dispose:{oldRefs}"));
+        freshField.Setup(x => x.Dispose()).Callback(() => newEvents.Add($"fresh field dispose:{newRefs}"));
+        using var stage = new HeadlessStage(CreateGame(config, input), oldField.Object) { Pixel = oldPixel.Object };
+        var freshChart = new ParsedChart("fresh-lanes.dtx") { Bpm = 231 };
+        freshChart.Notes.Add(new Note { Id = 0, LaneIndex = 3, TimeMs = 1000 });
+        stage.LanesFactory = () =>
+        {
+            oldEvents.Add($"factory begin:{oldRefs}");
+            stage.Deactivate();
+            if (reactivate)
+            {
+                config.NoteDisplayStyle = DrumsNoteDisplayStyle.Lanes;
+                stage.Pixel = newPixel.Object;
+                stage.LanesFactory = () => freshField.Object;
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh lanes" }, 0, freshChart));
+            }
+            oldEvents.Add($"factory resumed:{oldRefs}");
+            return oldField.Object;
+        };
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old lanes" }, 0,
+            new ParsedChart("old-lanes.dtx") { Bpm = 119 }));
+
+        Assert.Equal(new[] { "old add:2", "factory begin:2", "old remove:1",
+            "factory resumed:1", "old field dispose:1", "old remove:0" }, oldEvents);
+        Assert.Equal(0, oldPixel.Object.ReferenceCount);
+        Assert.Equal(reactivate, stage.IsActive);
+        Assert.Equal(reactivate ? 1 : 0, stage.PreparationStarts);
+        oldField.Verify(x => x.Dispose(), Times.Once);
+        if (reactivate)
+        {
+            Assert.Equal(1, newPixel.Object.ReferenceCount);
+            InjectLaneHit(input, 3);
+            freshField.Verify(x => x.OnLaneInput(3), Times.Once);
+            oldField.Verify(x => x.OnLaneInput(It.IsAny<int>()), Times.Never);
+            Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+            await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Same(freshChart.Notes[0], Assert.Single(stage.Rules!.ChartManager!.AllNotes));
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal("Fresh lanes", telemetry.SelectedSongTitle);
+            Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
+            Assert.True(telemetry.PerformanceReady);
+            stage.Deactivate();
+            freshField.Verify(x => x.Dispose(), Times.Once);
+            Assert.Equal(0, newPixel.Object.ReferenceCount);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Activation_BackgroundAcquisitionRetirementDoesNotPublishOldRun(bool reactivate)
+    {
+        using var input = new MockInputManagerCompat();
+        var resources = new Mock<IResourceManager>();
+        var oldBackground = new Mock<ITexture>();
+        var freshBackground = new Mock<ITexture>();
+        var field = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input, resources: resources.Object), field.Object);
+        int calls = 0;
+        TextureLoader load = (string _, out ITexture texture) =>
+        {
+            if (calls++ == 0)
+            {
+                stage.Deactivate();
+                if (reactivate)
+                    stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh background" }, 0,
+                        new ParsedChart("fresh-background.dtx")));
+                texture = oldBackground.Object;
+            }
+            else
+            {
+                texture = freshBackground.Object;
+            }
+            return true;
+        };
+        resources.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny)).Returns(load);
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old background" }, 0,
+            new ParsedChart("old-background.dtx")));
+
+        oldBackground.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Equal(reactivate, stage.IsActive);
+        Assert.Equal(reactivate ? 1 : 0, stage.PreparationStarts);
+        if (reactivate)
+        {
+            freshBackground.Verify(x => x.RemoveReference(), Times.Never);
+            Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+            await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal("Fresh background", telemetry.SelectedSongTitle);
+            Assert.True(telemetry.PerformanceReady);
+            stage.Deactivate();
+            freshBackground.Verify(x => x.RemoveReference(), Times.Once);
+            field.Verify(x => x.Dispose(), Times.Once);
+        }
+        else
+        {
+            field.Verify(x => x.Dispose(), Times.Never);
+        }
+    }
+
+    [Fact]
+    public async Task Activation_FontAcquisitionRetirementKeepsFreshFonts()
+    {
+        using var input = new MockInputManagerCompat();
+        var resources = new Mock<IResourceManager>();
+        var oldFont = new Mock<IFont>();
+        var freshFont = new Mock<IFont>();
+        var freshScroll = new Mock<IFont>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input, resources: resources.Object),
+            new Mock<IPerformancePlayfield>().Object);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old font" }, 0, new ParsedChart("old-font.dtx")));
+        bool first = true;
+        resources.Setup(x => x.LoadFont("NotoSerifJP", 24)).Returns(() =>
+        {
+            if (!first) return freshFont.Object;
+            first = false;
+            stage.Deactivate();
+            stage.LanesFactory = () => freshField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh font" }, 0,
+                new ParsedChart("fresh-font.dtx")));
+            stage.InitializeFonts();
+            return oldFont.Object;
+        });
+        resources.Setup(x => x.LoadFont("NotoSerifJP", 14)).Returns(freshScroll.Object);
+
+        stage.InitializeFonts();
+
+        oldFont.Verify(x => x.RemoveReference(), Times.Once);
+        freshFont.Verify(x => x.RemoveReference(), Times.Never);
+        freshScroll.Verify(x => x.RemoveReference(), Times.Never);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal("Fresh font", telemetry.SelectedSongTitle);
+        Assert.True(telemetry.PerformanceReady);
+        stage.Deactivate();
+        freshFont.Verify(x => x.RemoveReference(), Times.Once);
+        freshScroll.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public async Task Activation_UiTextureAcquisitionRetirementKeepsFreshTextures()
+    {
+        using var input = new MockInputManagerCompat();
+        var resources = new Mock<IResourceManager>();
+        var oldTexture = new Mock<ITexture>();
+        var freshBackground = new Mock<ITexture>();
+        var freshShutter = new Mock<ITexture>();
+        var freshDanger = new Mock<ITexture>();
+        int backgroundRefs = 0, shutterRefs = 0, dangerRefs = 0;
+        freshBackground.SetupGet(x => x.ReferenceCount).Returns(() => backgroundRefs);
+        freshShutter.SetupGet(x => x.ReferenceCount).Returns(() => shutterRefs);
+        freshDanger.SetupGet(x => x.ReferenceCount).Returns(() => dangerRefs);
+        freshBackground.Setup(x => x.RemoveReference()).Callback(() => backgroundRefs--);
+        freshShutter.Setup(x => x.RemoveReference()).Callback(() => shutterRefs--);
+        freshDanger.Setup(x => x.RemoveReference()).Callback(() => dangerRefs--);
+        var freshField = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input, resources: resources.Object),
+            new Mock<IPerformancePlayfield>().Object);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old assets" }, 0, new ParsedChart("old-assets.dtx")));
+        bool first = true;
+        TextureLoader load = (string path, out ITexture texture) =>
+        {
+            if (path == TexturePath.PerformanceBackgroundTexture && first)
+            {
+                first = false;
+                stage.Deactivate();
+                stage.LanesFactory = () => freshField.Object;
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh assets" }, 0,
+                    new ParsedChart("fresh-assets.dtx")));
+                stage.LoadPerformanceUIAssets();
+                texture = oldTexture.Object;
+                return true;
+            }
+            texture = path == TexturePath.PerformanceBackgroundTexture ? freshBackground.Object
+                : path == TexturePath.Shutter ? freshShutter.Object
+                : path == TexturePath.Danger ? freshDanger.Object : null!;
+            if (ReferenceEquals(texture, freshBackground.Object)) backgroundRefs++;
+            if (ReferenceEquals(texture, freshShutter.Object)) shutterRefs++;
+            if (ReferenceEquals(texture, freshDanger.Object)) dangerRefs++;
+            return texture != null;
+        };
+        resources.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny)).Returns(load);
+
+        stage.LoadPerformanceUIAssets();
+
+        oldTexture.Verify(x => x.RemoveReference(), Times.Once);
+        freshBackground.Verify(x => x.RemoveReference(), Times.Never);
+        freshShutter.Verify(x => x.RemoveReference(), Times.Never);
+        freshDanger.Verify(x => x.RemoveReference(), Times.Never);
+        Assert.Equal(2, freshBackground.Object.ReferenceCount);
+        Assert.Equal(1, freshShutter.Object.ReferenceCount);
+        Assert.Equal(1, freshDanger.Object.ReferenceCount);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal("Fresh assets", telemetry.SelectedSongTitle);
+        Assert.True(telemetry.PerformanceReady);
+        stage.Deactivate();
+        freshBackground.Verify(x => x.RemoveReference(), Times.Exactly(2));
+        freshShutter.Verify(x => x.RemoveReference(), Times.Once);
+        freshDanger.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Equal(0, freshBackground.Object.ReferenceCount);
+        Assert.Equal(0, freshShutter.Object.ReferenceCount);
+        Assert.Equal(0, freshDanger.Object.ReferenceCount);
+    }
+
+    [Theory]
+    [InlineData(0, false, false)]
+    [InlineData(0, true, false)]
+    [InlineData(1, false, false)]
+    [InlineData(1, true, false)]
+    [InlineData(1, true, true)]
+    [InlineData(2, false, false)]
+    [InlineData(2, true, false)]
+    public async Task LanesInitialization_RetirementDuringPixelAcquisitionPreservesFreshRun(
+        int phase, bool reactivate, bool getterThrows)
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData();
+        var oldEvents = new List<string>();
+        var newEvents = new List<string>();
+        int oldRefs = 1, newRefs = 1;
+        var oldPixel = CountedPixel("old", oldEvents, () => oldRefs, n => oldRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
+        var oldField = new Mock<IPerformancePlayfield>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessStage(CreateGame(config, input), oldField.Object);
+        var failure = new InvalidOperationException("old texture getter");
+        void Retire()
+        {
+            stage.Deactivate();
+            if (reactivate)
+            {
+                stage.PixelFactory = () => newPixel.Object;
+                stage.LanesFactory = () => freshField.Object;
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh acquisition" }, 0,
+                    new ParsedChart("fresh-acquisition.dtx") { Bpm = 211 }));
+            }
+        }
+        stage.PixelFactory = () =>
+        {
+            if (phase == 0)
+            {
+                oldEvents.Add($"pixel factory:{oldRefs}");
+                Retire();
+                oldEvents.Add($"pixel factory resumed:{oldRefs}");
+            }
+            return oldPixel.Object;
+        };
+        oldPixel.SetupGet(x => x.Texture).Returns(() =>
+        {
+            if (phase == 1)
+            {
+                oldEvents.Add($"texture getter:{oldRefs}");
+                Retire();
+                oldEvents.Add($"texture getter resumed:{oldRefs}");
+                if (getterThrows) throw failure;
+            }
+            return null!;
+        });
+        if (phase == 2)
+            oldPixel.Setup(x => x.AddReference()).Callback(() =>
+            {
+                oldRefs++;
+                oldEvents.Add($"old add:{oldRefs}");
+                Retire();
+                oldEvents.Add($"add resumed:{oldRefs}");
+            });
+        var request = new SongPlayRequest(new SongListNode { Title = "Old acquisition" }, 0,
+            new ParsedChart("old-acquisition.dtx") { Bpm = 101 });
+
+        if (getterThrows) Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => stage.Activate(request)));
+        else stage.Activate(request);
+
+        var expected = phase switch
+        {
+            0 => new[] { "pixel factory:1", "pixel factory resumed:1", "old remove:0" },
+            1 => new[] { "texture getter:1", "texture getter resumed:1", "old remove:0" },
+            _ => new[] { "old add:2", "add resumed:2", "old remove:1", "old remove:0" }
+        };
+        Assert.Equal(expected, oldEvents);
+        Assert.Equal(0, oldPixel.Object.ReferenceCount);
+        oldField.Verify(x => x.Dispose(), Times.Never);
+        Assert.Equal(reactivate, stage.IsActive);
+        Assert.Equal(reactivate ? 1 : 0, stage.PreparationStarts);
+        if (reactivate)
+        {
+            Assert.Equal(1, newPixel.Object.ReferenceCount);
+            Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+            await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal("Fresh acquisition", telemetry.SelectedSongTitle);
+            Assert.True(telemetry.PerformanceReady);
+            stage.Deactivate();
+            freshField.Verify(x => x.Dispose(), Times.Once);
+            Assert.Equal(0, newPixel.Object.ReferenceCount);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LanesFactory_StaleFactoryOrCandidateCleanupFailurePreservesFreshOwner(bool factoryThrows)
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData();
+        var oldEvents = new List<string>();
+        var newEvents = new List<string>();
+        int oldRefs = 1, newRefs = 1;
+        var oldPixel = CountedPixel("old", oldEvents, () => oldRefs, n => oldRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
+        var oldField = new Mock<IPerformancePlayfield>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException(factoryThrows ? "factory" : "candidate cleanup");
+        oldField.Setup(x => x.Dispose()).Callback(() =>
+        {
+            oldEvents.Add($"old field dispose:{oldRefs}");
+            throw failure;
+        });
+        using var stage = new HeadlessStage(CreateGame(config, input), oldField.Object) { Pixel = oldPixel.Object };
+        stage.LanesFactory = () =>
+        {
+            oldEvents.Add($"factory begin:{oldRefs}");
+            stage.Deactivate();
+            stage.Pixel = newPixel.Object;
+            stage.LanesFactory = () => freshField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh failure" }, 0,
+                new ParsedChart("fresh-failure.dtx")));
+            oldEvents.Add($"factory resumed:{oldRefs}");
+            if (factoryThrows)
+            {
+                oldEvents.Add($"partial cleanup:{oldRefs}");
+                throw failure;
+            }
+            return oldField.Object;
+        };
+
+        var caught = Assert.Throws<InvalidOperationException>(() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old failure" }, 0,
+                new ParsedChart("old-failure.dtx"))));
+
+        Assert.Same(failure, caught);
+        Assert.Contains(factoryThrows ? "LanesFactory_StaleFactoryOrCandidateCleanupFailurePreservesFreshOwner" : "Moq",
+            caught.StackTrace);
+        Assert.Equal(new[] { "old add:2", "factory begin:2", "old remove:1", "factory resumed:1",
+            factoryThrows ? "partial cleanup:1" : "old field dispose:1", "old remove:0" }, oldEvents);
+        Assert.Equal(0, oldPixel.Object.ReferenceCount);
+        Assert.Equal(1, newPixel.Object.ReferenceCount);
+        Assert.Equal(1, stage.PreparationStarts);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        InjectLaneHit(input, 2);
+        freshField.Verify(x => x.OnLaneInput(2), Times.Once);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal("Fresh failure", telemetry.SelectedSongTitle);
+        Assert.True(telemetry.PerformanceReady);
+        stage.Deactivate();
+        freshField.Verify(x => x.Dispose(), Times.Once);
+        Assert.Equal(0, newPixel.Object.ReferenceCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LanesFactory_FailedRollbackCanReactivateWithoutClobberingFreshResources(bool releaseThrows)
+    {
+        using var input = new MockInputManagerCompat();
+        var events = new List<string>();
+        var newEvents = new List<string>();
+        int oldRefs = 1, newRefs = 1;
+        var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
+        var freshField = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException("original construction failure");
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), new Mock<IPerformancePlayfield>().Object)
+        {
+            Pixel = oldPixel.Object,
+            FactoryFailure = failure
+        };
+        oldPixel.Setup(x => x.RemoveReference()).Callback(() =>
+        {
+            oldRefs--;
+            events.Add($"old remove:{oldRefs}");
+            if (oldRefs != 1) return;
+            stage.Deactivate();
+            stage.FactoryFailure = null;
+            stage.Pixel = newPixel.Object;
+            stage.LanesFactory = () => freshField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh rollback" }, 0,
+                new ParsedChart("fresh-rollback.dtx")));
+            events.Add($"rollback resumed:{oldRefs}");
+            if (releaseThrows) throw new InvalidOperationException("release failure");
+        });
+
+        var caught = Assert.Throws<InvalidOperationException>(() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old rollback" }, 0,
+                new ParsedChart("old-rollback.dtx"))));
+
+        Assert.Same(failure, caught);
+        Assert.Equal(new[] { "old add:2", "old remove:1", "rollback resumed:1", "old remove:0" }, events);
+        Assert.Equal(0, oldPixel.Object.ReferenceCount);
+        Assert.Equal(1, newPixel.Object.ReferenceCount);
+        Assert.Equal(1, stage.PreparationStarts);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        InjectLaneHit(input, 4);
+        freshField.Verify(x => x.OnLaneInput(4), Times.Once);
+        stage.Deactivate();
+        freshField.Verify(x => x.Dispose(), Times.Once);
+        Assert.Equal(0, newPixel.Object.ReferenceCount);
+    }
+
+    [Fact]
+    public async Task LanesFactory_StaleCandidateCleanupCanRetireAndReplaceFreshRun()
+    {
+        using var input = new MockInputManagerCompat();
+        var oldEvents = new List<string>();
+        var firstEvents = new List<string>();
+        var finalEvents = new List<string>();
+        int oldRefs = 1, firstRefs = 1, finalRefs = 1;
+        var oldPixel = CountedPixel("old", oldEvents, () => oldRefs, n => oldRefs = n);
+        var firstPixel = CountedPixel("first", firstEvents, () => firstRefs, n => firstRefs = n);
+        var finalPixel = CountedPixel("final", finalEvents, () => finalRefs, n => finalRefs = n);
+        var oldField = new Mock<IPerformancePlayfield>();
+        var firstField = new Mock<IPerformancePlayfield>();
+        var finalField = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException("nested candidate cleanup");
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), oldField.Object) { Pixel = oldPixel.Object };
+        oldField.Setup(x => x.Dispose()).Callback(() =>
+        {
+            oldEvents.Add($"stale cleanup begin:{oldRefs}");
+            stage.Deactivate();
+            stage.Pixel = finalPixel.Object;
+            stage.LanesFactory = () => finalField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Final nested" }, 0,
+                new ParsedChart("final-nested.dtx")));
+            oldEvents.Add($"stale cleanup end:{oldRefs}");
+            throw failure;
+        });
+        stage.LanesFactory = () =>
+        {
+            stage.Deactivate();
+            stage.Pixel = firstPixel.Object;
+            stage.LanesFactory = () => firstField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "First nested" }, 0,
+                new ParsedChart("first-nested.dtx")));
+            return oldField.Object;
+        };
+
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old nested" }, 0,
+                new ParsedChart("old-nested.dtx")))));
+
+        Assert.Equal(new[] { "old add:2", "old remove:1", "stale cleanup begin:1",
+            "stale cleanup end:1", "old remove:0" }, oldEvents);
+        firstField.Verify(x => x.Dispose(), Times.Once);
+        Assert.Equal(0, firstPixel.Object.ReferenceCount);
+        Assert.Equal(1, finalPixel.Object.ReferenceCount);
+        Assert.Equal(2, stage.PreparationStarts);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        InjectLaneHit(input, 5);
+        finalField.Verify(x => x.OnLaneInput(5), Times.Once);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal("Final nested", telemetry.SelectedSongTitle);
+        Assert.True(telemetry.PerformanceReady);
+        stage.Deactivate();
+        finalField.Verify(x => x.Dispose(), Times.Once);
+        Assert.Equal(0, finalPixel.Object.ReferenceCount);
+    }
+
+    [Fact]
+    public async Task TeardownFailures_PublishCleanedTelemetryAndPreserveFirstException()
+    {
+        using var input = new MockInputManagerCompat();
+        var events = new List<string>();
+        int refs = 1;
+        var pixel = CountedPixel("pixel", events, () => refs, n => refs = n);
+        var playfield = new Mock<IPerformancePlayfield>();
+        var first = new InvalidOperationException("playfield cleanup");
+        var second = new InvalidOperationException("pixel cleanup");
+        playfield.Setup(x => x.Dispose()).Callback(() =>
+        {
+            events.Add($"playfield dispose:{refs}");
+            throw first;
+        });
+        pixel.Setup(x => x.RemoveReference()).Callback(() =>
+        {
+            refs--;
+            events.Add($"pixel remove:{refs}");
+            if (refs == 0) throw second;
+        });
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), playfield.Object) { Pixel = pixel.Object };
+        var chart = new ParsedChart("teardown-telemetry.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Cleanup telemetry" }, 0, chart));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        var before = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(before);
+        Assert.True(before.PerformanceReady);
+        Assert.Equal(1, before.TotalNotes);
+        events.Clear();
+
+        var caught = Assert.Throws<InvalidOperationException>(() => stage.Deactivate());
+
+        Assert.Same(first, caught);
+        Assert.Contains("TeardownFailures_PublishCleanedTelemetryAndPreserveFirstException", caught.StackTrace);
+        Assert.Equal(new[] { "playfield dispose:1", "pixel remove:0" }, events);
+        Assert.Null(stage.AudioSession);
+        Assert.Null(stage.Rules!.ChartManager);
+        var after = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(after);
+        Assert.False(after.PerformanceReady);
+        Assert.Equal(0, after.TotalNotes);
+        Assert.Equal(0, after.Score);
+        Assert.Equal(0, after.CurrentCombo);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), after.NoteDisplayStyle);
+        stage.Deactivate();
+        playfield.Verify(x => x.Dispose(), Times.Once);
+        Assert.Equal(0, refs);
+
+        var fresh = new Mock<IPerformancePlayfield>();
+        stage.Pixel = null;
+        stage.LanesFactory = () => fresh.Object;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh telemetry" }, 0,
+            new ParsedChart("fresh-telemetry.dtx")));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        stage.PopulateTelemetry(after);
+        Assert.Equal("Fresh telemetry", after.SelectedSongTitle);
+        Assert.True(after.PerformanceReady);
+        stage.Deactivate();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TeardownCallback_NestedDeactivationAndReactivationKeepsFreshRun(bool cleanupThrows)
+    {
+        using var input = new MockInputManagerCompat();
+        var oldEvents = new List<string>();
+        var newEvents = new List<string>();
+        int oldRefs = 1, newRefs = 1;
+        var oldPixel = CountedPixel("old", oldEvents, () => oldRefs, n => oldRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
+        var oldField = new Mock<IPerformancePlayfield>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException("old field cleanup");
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), oldField.Object) { Pixel = oldPixel.Object };
+        oldField.Setup(x => x.Dispose()).Callback(() =>
+        {
+            oldEvents.Add($"old field begin:{oldRefs}");
+            stage.Deactivate();
+            stage.Pixel = newPixel.Object;
+            stage.LanesFactory = () => freshField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh teardown" }, 0,
+                new ParsedChart("fresh-teardown.dtx") { Bpm = 223 }));
+            oldEvents.Add($"old field end:{oldRefs}");
+            if (cleanupThrows) throw failure;
+        });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old teardown" }, 0,
+            new ParsedChart("old-teardown.dtx")));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        oldEvents.Clear();
+
+        if (cleanupThrows) Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => stage.Deactivate()));
+        else stage.Deactivate();
+
+        Assert.Equal(new[] { "old field begin:1", "old field end:1", "old remove:0" }, oldEvents);
+        Assert.Equal(0, oldPixel.Object.ReferenceCount);
+        Assert.Equal(1, newPixel.Object.ReferenceCount);
+        Assert.True(stage.IsActive);
+        Assert.Equal(2, stage.PreparationStarts);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal("Fresh teardown", telemetry.SelectedSongTitle);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.PerformanceReady);
+        InjectLaneHit(input, 3);
+        freshField.Verify(x => x.OnLaneInput(3), Times.Once);
+        stage.Deactivate();
+        freshField.Verify(x => x.Dispose(), Times.Once);
+        Assert.Equal(0, newPixel.Object.ReferenceCount);
+    }
+
+    [Fact]
+    public async Task TeardownFailure_ConcurrentPollingSeesWholeSnapshotsBeforeAndAfterCleanup()
+    {
+        using var input = new MockInputManagerCompat();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failure = new InvalidOperationException("gated playfield cleanup");
+        var playfield = new Mock<IPerformancePlayfield>();
+        playfield.Setup(x => x.Dispose()).Callback(() =>
+        {
+            entered.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(5));
+            throw failure;
+        });
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), playfield.Object);
+        var chart = new ParsedChart("polling-cleanup.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Polling cleanup" }, 0, chart));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        var teardown = Task.Run(stage.Deactivate);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            for (int i = 0; i < 256; i++)
+            {
+                var snapshot = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(snapshot);
+                Assert.Equal("Polling cleanup", snapshot.SelectedSongTitle);
+                Assert.True(snapshot.PerformanceReady);
+                Assert.Equal(1, snapshot.TotalNotes);
+            }
+        }
+        finally
+        {
+            release.Set();
+        }
+        var caught = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await teardown.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Same(failure, caught);
+        for (int i = 0; i < 256; i++)
+        {
+            var snapshot = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(snapshot);
+            Assert.Equal("Polling cleanup", snapshot.SelectedSongTitle);
+            Assert.False(snapshot.PerformanceReady);
+            Assert.Equal(0, snapshot.TotalNotes);
+        }
+        stage.Deactivate();
     }
 
     [Fact]
@@ -281,6 +959,8 @@ public class PerformancePlayfieldStageTests
         chart.FinalizeChart();
         chart.Bpm = 150;
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
+        Assert.Equal(new[] { "pixel add:2", "pixel remove:1" }, order);
+        order.Clear();
         InjectLaneHit(input, 1);
         lanes.Verify(x => x.OnLaneInput(1), Times.Once);
         config.ScrollSpeed = 200;
@@ -407,9 +1087,10 @@ public class PerformancePlayfieldStageTests
         var oldLanes = new Mock<IPerformancePlayfield>();
         var newLanes = new Mock<IPerformancePlayfield>();
         var events = new List<string>();
+        var newEvents = new List<string>();
         int oldRefs = 1, newRefs = 1;
         var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
-        var newPixel = CountedPixel("new", events, () => newRefs, n => newRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
         oldLanes.Setup(x => x.Dispose()).Callback(() => events.Add($"lanes dispose:{oldRefs}"));
         newLanes.SetupGet(x => x.Mode).Returns(DrumsNoteDisplayStyle.Lanes);
         var tab = new Mock<IPerformancePlayfield>();
@@ -439,6 +1120,8 @@ public class PerformancePlayfieldStageTests
         oldChart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         oldChart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, oldChart));
+        Assert.Equal(new[] { "old add:2", "old remove:1" }, events);
+        events.Clear();
         var oldTask = stage.PreparationTask!;
 
         Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return retired; }, TimeSpan.FromSeconds(5)));
@@ -562,9 +1245,10 @@ public class PerformancePlayfieldStageTests
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
         var events = new List<string>();
+        var newEvents = new List<string>();
         int oldRefs = 1, newRefs = 1;
         var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
-        var newPixel = CountedPixel("new", events, () => newRefs, n => newRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
         var lanes = new Mock<IPerformancePlayfield>();
         var newLanes = new Mock<IPerformancePlayfield>();
         var candidate = new Mock<IPerformancePlayfield>();
@@ -619,6 +1303,8 @@ public class PerformancePlayfieldStageTests
         oldChart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         oldChart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, oldChart));
+        Assert.Equal(new[] { "old add:2", "old remove:1" }, events);
+        events.Clear();
         var oldTask = stage.PreparationTask!;
 
         Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return finished; }, TimeSpan.FromSeconds(5)));
@@ -659,9 +1345,10 @@ public class PerformancePlayfieldStageTests
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
         var events = new List<string>();
+        var newEvents = new List<string>();
         int oldRefs = 1, newRefs = 1;
         var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
-        var newPixel = CountedPixel("new", events, () => newRefs, n => newRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
         var lanes = new Mock<IPerformancePlayfield>();
         var newLanes = new Mock<IPerformancePlayfield>();
         var candidate = new Mock<IPerformancePlayfield>();
@@ -695,6 +1382,8 @@ public class PerformancePlayfieldStageTests
         chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         chart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old" }, 0, chart));
+        Assert.Equal(new[] { "old add:2", "old remove:1" }, events);
+        events.Clear();
         var oldTask = stage.PreparationTask!;
         Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return retired; }, TimeSpan.FromSeconds(5)));
         await oldTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -752,6 +1441,8 @@ public class PerformancePlayfieldStageTests
         chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         chart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fallback" }, 0, chart));
+        Assert.Equal(new[] { "pixel add:2", "pixel remove:1" }, events);
+        events.Clear();
         Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
         await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
         var expected = new List<string> { "pixel add:2", "factory:2" };
@@ -774,9 +1465,10 @@ public class PerformancePlayfieldStageTests
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
         var events = new List<string>();
+        var newEvents = new List<string>();
         int oldRefs = 1, newRefs = 1;
         var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
-        var newPixel = CountedPixel("new", events, () => newRefs, n => newRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
         var lanes = new Mock<IPerformancePlayfield>();
         var newLanes = new Mock<IPerformancePlayfield>();
         lanes.Setup(x => x.Dispose()).Callback(() => events.Add($"lanes dispose:{oldRefs}"));
@@ -806,6 +1498,8 @@ public class PerformancePlayfieldStageTests
         chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         chart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old cleanup" }, 0, chart));
+        Assert.Equal(new[] { "old add:2", "old remove:1" }, events);
+        events.Clear();
         var oldTask = stage.PreparationTask!;
         Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return retired; }, TimeSpan.FromSeconds(5)));
         await oldTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -875,9 +1569,10 @@ public class PerformancePlayfieldStageTests
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
         var events = new List<string>();
+        var newEvents = new List<string>();
         int oldRefs = 1, newRefs = 1;
         var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
-        var newPixel = CountedPixel("new", events, () => newRefs, n => newRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
         var oldLanes = new Mock<IPerformancePlayfield>();
         var newLanes = new Mock<IPerformancePlayfield>();
         newLanes.SetupGet(x => x.Mode).Returns(DrumsNoteDisplayStyle.Lanes);
@@ -909,6 +1604,8 @@ public class PerformancePlayfieldStageTests
         chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         chart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old failure" }, 0, chart));
+        Assert.Equal(new[] { "old add:2", "old remove:1" }, events);
+        events.Clear();
         await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
         stage.BackgroundWork!.Drain();
         Assert.True(reactivated);
@@ -932,9 +1629,10 @@ public class PerformancePlayfieldStageTests
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
         var events = new List<string>();
+        var newEvents = new List<string>();
         int oldRefs = 1, newRefs = 1;
         var oldPixel = CountedPixel("old", events, () => oldRefs, n => oldRefs = n);
-        var newPixel = CountedPixel("new", events, () => newRefs, n => newRefs = n);
+        var newPixel = CountedPixel("new", newEvents, () => newRefs, n => newRefs = n);
         var resources = new Mock<IResourceManager>();
         var font = new Mock<IFont>();
         font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
@@ -966,6 +1664,8 @@ public class PerformancePlayfieldStageTests
         chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
         chart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old real" }, 0, chart));
+        Assert.Equal(new[] { "old add:2", "old remove:1" }, events);
+        events.Clear();
         var oldTask = stage.PreparationTask!;
         Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return retired; }, TimeSpan.FromSeconds(5)));
         await oldTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1043,6 +1743,8 @@ public class PerformancePlayfieldStageTests
         return pixel;
     }
 
+    private delegate bool TextureLoader(string path, out ITexture texture);
+
     private static void InjectLaneHit(MockInputManagerCompat input, int lane)
     {
         var button = $"Test.Lane{lane}";
@@ -1071,11 +1773,13 @@ public class PerformancePlayfieldStageTests
 
         public HeadlessStage(IStageGame game, IPerformancePlayfield field) : base(game) => _field = field;
         public ITexture? Pixel { get; set; }
+        public Func<ITexture?>? PixelFactory { get; set; }
         public Exception? FactoryFailure { get; set; }
         public Func<IPerformancePlayfield?>? TabFactory { get; set; }
         public Func<Func<IPerformancePlayfield?>, IPerformancePlayfield?>? TabFactoryWithCreate { get; set; }
         public Func<IPerformancePlayfield>? LanesFactory { get; set; }
         public Task<PreparedGameplayAudioSet?>? PreparationTask { get; private set; }
+        public int PreparationStarts { get; private set; }
         public Task<PreparedGameplayAudioSet?[]> Workers => _cache.Workers;
         public string CacheRoot => _cache.Root;
         public Task<PlaybackAudioVariantCache> CacheCreated => _cache.Created;
@@ -1083,11 +1787,15 @@ public class PerformancePlayfieldStageTests
         public int HudFactoryCalls { get; private set; }
         public int TabFactoryThread { get; private set; }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
-        protected override ITexture? CreateFallbackWhiteTexture() => Pixel;
+        protected override ITexture? CreateFallbackWhiteTexture() => PixelFactory != null ? PixelFactory() : Pixel;
+        public void InitializeFonts() => InitializeReadyFont();
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) =>
             FactoryFailure != null ? throw FactoryFailure : LanesFactory?.Invoke() ?? _field;
-        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
-            PreparationTask = _cache.Track(base.StartGameplayInitialization());
+        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
+        {
+            PreparationStarts++;
+            return PreparationTask = _cache.Track(base.StartGameplayInitialization());
+        }
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() => _cache.Factory();
         protected override void Dispose(bool disposing)
         {

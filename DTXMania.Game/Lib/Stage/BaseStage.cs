@@ -107,9 +107,12 @@ namespace DTXMania.Game.Lib.Stage
             // Retire any leftover scope so queued owned results cannot leak.
             RetireBackgroundWork();
             _backgroundWork = CreateBackgroundWorkScope();
+            var scope = _backgroundWork;
 
             // Load stage background
             LoadStageBackground();
+            if (!ReferenceEquals(scope, _backgroundWork))
+                return;
 
             // Perform stage-specific activation
             OnActivate();
@@ -130,8 +133,15 @@ namespace DTXMania.Game.Lib.Stage
             // Perform stage-specific deactivation
             OnDeactivate();
 
+            // A teardown callback may have completed a nested deactivation and
+            // activated this same stage again.
+            if (_backgroundWork != null)
+                return;
+
             // Cleanup background
             CleanupStageBackground();
+            if (_backgroundWork != null)
+                return;
 
             // Reset state
             _currentPhase = StagePhase.Inactive;
@@ -334,20 +344,29 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             _backgroundLoadAttempted = true;
+            var scope = _backgroundWork;
+            ITexture texture = null;
 
             try
             {
                 var texturePath = GetBackgroundTexturePath();
+                if (!ReferenceEquals(scope, _backgroundWork))
+                    return;
                 if (!string.IsNullOrEmpty(texturePath))
-                {
-                    _game.ResourceManager.TryLoadTexture(texturePath, out var texture);
-                    _stageBackgroundTexture = texture;
-                }
+                    _game.ResourceManager.TryLoadTexture(texturePath, out texture);
             }
             catch (Exception)
             {
-                _stageBackgroundTexture = null;
+                try { texture?.RemoveReference(); }
+                catch { }
+                texture = null;
             }
+            if (!ReferenceEquals(scope, _backgroundWork))
+            {
+                texture?.RemoveReference();
+                return;
+            }
+            _stageBackgroundTexture = texture;
         }
 
         /// <summary>
@@ -355,9 +374,10 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void CleanupStageBackground()
         {
-            _stageBackgroundTexture?.RemoveReference();
+            var texture = _stageBackgroundTexture;
             _stageBackgroundTexture = null;
             _backgroundLoadAttempted = false;
+            texture?.RemoveReference();
         }
 
         /// <summary>

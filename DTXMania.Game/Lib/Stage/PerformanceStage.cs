@@ -259,6 +259,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             var scope = BackgroundWork;
             var config = _game.ConfigManager.Config;
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
             _metronomeEnabled = config.Metronome;
             _playbackModifiers = new PlaybackModifiers(
                 PlaySpeedRange.SnapAndClamp(config.PlaySpeedPercent),
@@ -270,8 +271,9 @@ namespace DTXMania.Game.Lib.Stage
             ExtractSharedData();
 
             // Freeze run configuration from config
-            FreezeRunConfiguration();
+            FreezeRunConfiguration(config);
             PublishTelemetry();
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
 
             // Initialize UI components
             if (!InitializeComponents(scope))
@@ -284,6 +286,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             var configManager = _game?.ConfigManager;
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
             if (configManager != null)
             {
                 _subscribedConfigManager = configManager;
@@ -293,18 +296,29 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
+            var scope = BackgroundWork;
             // BaseStage.Deactivate already retired the activation's background-work
             // scope synchronously before this override, so no result can reach the
             // components during teardown.
-            if (_subscribedConfigManager != null)
+            var configManager = _subscribedConfigManager;
+            _subscribedConfigManager = null;
+            if (configManager != null)
             {
-                _subscribedConfigManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
-                _subscribedConfigManager.FlushPendingSave();
-                _subscribedConfigManager = null;
+                configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
+                configManager.FlushPendingSave();
             }
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
 
-            CleanupComponents();
-            PublishTelemetry();
+            Exception? failure = null;
+            try { CleanupComponents(); }
+            catch (Exception ex) { failure = ex; }
+            try
+            {
+                if (ReferenceEquals(scope, BackgroundWork))
+                    PublishTelemetry();
+            }
+            catch (Exception ex) { failure ??= ex; }
+            if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         protected override void OnUpdate(double deltaTime)
@@ -441,9 +455,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void FreezeRunConfiguration()
+        private void FreezeRunConfiguration(ConfigData? config)
         {
-            var config = _game?.ConfigManager?.Config;
             var noteDisplayStyle = config?.NoteDisplayStyle ?? DrumsNoteDisplayStyle.Lanes;
             _visualGates = new PerformanceVisualGates(
                 HideCombo: !(config?.ShowCombo ?? true),
@@ -455,28 +468,78 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool InitializeComponents(StageBackgroundWorkScope? scope)
         {
-            _fallbackWhiteTextureResource = CreateFallbackWhiteTexture();
-            try
+            ITexture? pixel = null;
+            BackgroundRenderer? background = null;
+            IPerformancePlayfield? candidate = null;
+            bool pixelTransferred = false, leased = false, ready = false;
+            Exception? firstFailure = null;
+            void Release(Action action)
             {
-                _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture!;
+                try { action(); }
+                catch (Exception ex) { firstFailure ??= ex; }
+            }
+
+            bool InitializeLanes()
+            {
+                pixel = CreateFallbackWhiteTexture();
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                var whitePixel = pixel?.Texture;
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+
+                // The factory may retire the stage while its candidate still borrows the pixel.
+                pixel?.AddReference();
+                leased = pixel != null;
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                _fallbackWhiteTextureResource = pixel;
+                _fallbackWhiteTexture = whitePixel!;
+                pixelTransferred = true;
                 if (_spriteBatch != null)
                 {
-                    _backgroundRenderer = new BackgroundRenderer(_resourceManager);
-                    _ = _backgroundRenderer.LoadBackgroundAsync();
+                    background = new BackgroundRenderer(_resourceManager);
+                    if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                    var installed = background;
+                    _backgroundRenderer = installed;
+                    background = null;
+                    _ = installed.LoadBackgroundAsync();
+                    if (!ReferenceEquals(scope, BackgroundWork)) return false;
                 }
-                _playfield = CreateLanesPlayfield(_spriteBatch?.GraphicsDevice, _fallbackWhiteTexture);
+                candidate = CreateLanesPlayfield(_spriteBatch?.GraphicsDevice, whitePixel);
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                _playfield = candidate;
+                candidate = null;
+                return true;
             }
-            catch
+
+            try
             {
-                try { _backgroundRenderer?.Dispose(); }
-                catch { }
-                _backgroundRenderer = null;
-                try { _fallbackWhiteTextureResource?.RemoveReference(); }
-                catch { }
-                _fallbackWhiteTextureResource = null;
-                _fallbackWhiteTexture = null!;
-                throw;
+                ready = InitializeLanes();
             }
+            catch (Exception ex)
+            {
+                firstFailure = ex;
+            }
+            if (!ready)
+            {
+                BackgroundRenderer? installedBackground = null;
+                ITexture? installedPixel = null;
+                if (ReferenceEquals(scope, BackgroundWork))
+                {
+                    installedBackground = _backgroundRenderer;
+                    installedPixel = _fallbackWhiteTextureResource;
+                    _backgroundRenderer = null;
+                    _fallbackWhiteTextureResource = null;
+                    _fallbackWhiteTexture = null!;
+                }
+                Release(() => candidate?.Dispose());
+                Release(() => background?.Dispose());
+                Release(() => installedBackground?.Dispose());
+                Release(() => installedPixel?.RemoveReference());
+                if (!pixelTransferred) Release(() => pixel?.RemoveReference());
+            }
+            if (leased) Release(() => pixel!.RemoveReference());
+            if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
+            if (!ready || !ReferenceEquals(scope, BackgroundWork)) return false;
+
             // The default factory guards the GPU-dependent player when headless.
             if (!InitializeChartVideoPlayer(scope))
                 return false;
@@ -488,9 +551,11 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize UX components
             InitializeReadyFont();
+            if (!ReferenceEquals(scope, BackgroundWork)) return false;
             
             // Load performance UI assets using DTXManiaNX layout
             LoadPerformanceUIAssets();
+            if (!ReferenceEquals(scope, BackgroundWork)) return false;
 
             // HPA-796: the fallback white pixel was already acquired at the top of this
             // method (before the renderers that borrow it); no private 1×1 texture here.
@@ -505,6 +570,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void CleanupComponents()
         {
+            var scope = BackgroundWork;
             Exception? firstFailure = null;
             void Release(Action action)
             {
@@ -525,48 +591,60 @@ namespace DTXMania.Game.Lib.Stage
             // song's hit data; PopulateTelemetry only reports fresh values once new hits land.
             _lastLaneHit = null;
 
-            // Cleanup background renderer
-            Release(() => _backgroundRenderer?.Dispose());
-            _backgroundRenderer = null;
-
+            // Detach the retiring run before callbacks can synchronously activate another.
+            var background = _backgroundRenderer;
             var playfield = _playfield;
+            var readyFont = _readyFont;
+            var scrollSpeedFont = _scrollSpeedFont;
+            var backgroundTexture = _backgroundTexture;
+            var shutterTexture = _shutterTexture;
+            var dangerTexture = _dangerOverlayTexture;
+            var pixel = _fallbackWhiteTextureResource;
+            var rules = Rules;
+            var audioSession = _audioSession;
+            var videoPlayer = _chartVideoPlayer;
+            _backgroundRenderer = null;
             _playfield = null;
-            Release(() => playfield?.Dispose());
-
-            // Cleanup UX components
-            Release(() => _readyFont?.RemoveReference());
             _readyFont = null;
-            Release(() => _scrollSpeedFont?.RemoveReference());
             _scrollSpeedFont = null;
-
-            // Cleanup performance UI assets
-            CleanupPerformanceUIAssets(Release);
-
-            // Cleanup fallback texture — released only after every borrowing child
-            // renderer above was disposed.
-            Release(() => _fallbackWhiteTextureResource?.RemoveReference());
+            _backgroundTexture = null!;
+            _shutterTexture = null!;
+            _dangerOverlayTexture = null!;
             _fallbackWhiteTextureResource = null;
             _fallbackWhiteTexture = null!;
-
-            // Cleanup gameplay managers
-            Release(CleanupGameplayManagers);
-
-            // Release the gameplay audio session: song timer, audio loader,
-            // live BGM instances, chip cache, metronome sound references and
-            // the owned prepared audio set.
-            Release(() => _audioSession?.Dispose());
+            Rules = null;
             _audioSession = null;
-
-            // Clear chart data
             _parsedChart = null;
-            Rules?.ClearChart();
-
-            // Cleanup HPA-11 chart background video player
-            Release(() => _chartVideoPlayer?.Dispose());
             _chartVideoPlayer = null;
             _activeVideoEvent = null;
             _nextVideoEventIndex = 0;
 
+            // Remove the shared input subscription before any callback can install a fresh one.
+            if (_inputManager?.ModularInputManager != null)
+                _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
+            if (rules?.JudgementManager is { } judgementManager)
+                judgementManager.JudgementMade -= OnJudgementMade;
+            if (rules?.GaugeManager is { } gaugeManager)
+            {
+                gaugeManager.GaugeChanged -= OnGaugeChanged;
+                gaugeManager.Failed -= OnPlayerFailed;
+            }
+
+            Release(() => background?.Dispose());
+            Release(() => playfield?.Dispose());
+            Release(() => readyFont?.RemoveReference());
+            Release(() => scrollSpeedFont?.RemoveReference());
+            Release(() => backgroundTexture?.RemoveReference());
+            Release(() => shutterTexture?.RemoveReference());
+            Release(() => dangerTexture?.RemoveReference());
+            Release(() => pixel?.RemoveReference());
+            Release(() => CleanupGameplayManagers(rules));
+            Release(() => audioSession?.Dispose());
+            rules?.ClearChart();
+            Release(() => videoPlayer?.Dispose());
+
+            if (ReferenceEquals(scope, BackgroundWork))
+                Rules = rules;
             if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
@@ -1171,30 +1249,59 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         protected ScrollSpeedIndicator InitializeReadyFont()
         {
+            var scope = BackgroundWork;
+            IFont? readyFont = null;
+            IFont? scrollFont = null;
+            bool transferred = false;
             try
             {
                 // Themed skins may style the centered LOADING.../READY... text
                 // with a Latin display family; NX keeps the serif.
                 var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
                 var stateFamily = ResolveStateFontFamily(theme);
-                _readyFont = stateFamily.Length > 0
-                    ? _resourceManager.LoadFont(stateFamily, ResolveStateFontSize(theme))
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                var stateSize = stateFamily.Length > 0 ? ResolveStateFontSize(theme) : 24;
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                readyFont = stateFamily.Length > 0
+                    ? _resourceManager.LoadFont(stateFamily, stateSize)
                     : _resourceManager.LoadFont("NotoSerifJP", 24);
-                _scrollSpeedFont = _resourceManager.LoadFont("NotoSerifJP", 14);
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(_scrollSpeedFont);
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                scrollFont = _resourceManager.LoadFont("NotoSerifJP", 14);
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                var indicator = new ScrollSpeedIndicator(scrollFont);
+                _readyFont = readyFont;
+                _scrollSpeedFont = scrollFont;
+                _scrollSpeedIndicator = indicator;
+                transferred = true;
+                return indicator;
             }
             catch (Exception ex)
             {
                 // Font initialization failed, fallback will be used; keep the
                 // Release-visible diagnostic (logger is Console-backed).
-                Logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
-                _readyFont?.RemoveReference();
-                _readyFont = null;
-                _scrollSpeedFont?.RemoveReference();
-                _scrollSpeedFont = null;
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
+                if (ReferenceEquals(scope, BackgroundWork))
+                    Logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
+                var fallback = new ScrollSpeedIndicator(null);
+                if (ReferenceEquals(scope, BackgroundWork))
+                {
+                    _readyFont = null!;
+                    _scrollSpeedFont = null;
+                    _scrollSpeedIndicator = fallback;
+                }
+                return fallback;
             }
-            return _scrollSpeedIndicator;
+            finally
+            {
+                if (!transferred)
+                {
+                    Exception? failure = null;
+                    try { readyFont?.RemoveReference(); }
+                    catch (Exception ex) { failure = ex; }
+                    try { scrollFont?.RemoveReference(); }
+                    catch (Exception ex) { failure ??= ex; }
+                    if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+                }
+            }
         }
         
         /// <summary>
@@ -1204,13 +1311,32 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         internal void LoadPerformanceUIAssets()
         {
+            var scope = BackgroundWork;
             // Load background texture using TexturePath constant
-            _backgroundTexture = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
+            var background = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                background?.RemoveReference();
+                return;
+            }
+            _backgroundTexture = background;
 
             // Load shutter texture using TexturePath constant
-            _shutterTexture = TryLoadTexture(TexturePath.Shutter);
+            var shutter = TryLoadTexture(TexturePath.Shutter);
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                shutter?.RemoveReference();
+                return;
+            }
+            _shutterTexture = shutter;
 
-            _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
+            var danger = TryLoadTexture(TexturePath.Danger);
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                danger?.RemoveReference();
+                return;
+            }
+            _dangerOverlayTexture = danger;
         }
 
         /// <summary>
@@ -1231,15 +1357,18 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private ITexture TryLoadTexture(string path)
         {
+            ITexture? texture = null;
             try
             {
                 if (_resourceManager == null)
                     return null;
-                _resourceManager.TryLoadTexture(path, out var texture);
-                return texture;
+                _resourceManager.TryLoadTexture(path, out texture);
+                return texture!;
             }
             catch
             {
+                try { texture?.RemoveReference(); }
+                catch { }
                 return null;
             }
         }
@@ -1247,19 +1376,6 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Cleans up all performance UI assets
         /// </summary>
-        private void CleanupPerformanceUIAssets(Action<Action> release)
-        {
-            // Clean up textures using reference counting
-            release(() => _backgroundTexture?.RemoveReference());
-            _backgroundTexture = null;
-            
-            release(() => _shutterTexture?.RemoveReference());
-            _shutterTexture = null;
-
-            release(() => _dangerOverlayTexture?.RemoveReference());
-            _dangerOverlayTexture = null;
-        }
-
         /// <summary>
         /// Draws centered text on screen
         /// </summary>
@@ -1558,30 +1674,11 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Cleans up gameplay managers
         /// </summary>
-        private void CleanupGameplayManagers()
+        private void CleanupGameplayManagers(GameplayRules? rules)
         {
-            // Unsubscribe from events
-            if (Rules?.JudgementManager is { } judgementManager)
-            {
-                judgementManager.JudgementMade -= OnJudgementMade;
-            }
-
-            if (Rules?.GaugeManager is { } gaugeManager)
-            {
-                gaugeManager.GaugeChanged -= OnGaugeChanged;
-                gaugeManager.Failed -= OnPlayerFailed;
-            }
-
-            // Unsubscribe from input events
-            if (_inputManager?.ModularInputManager != null)
-            {
-                _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
-            }
-
-            // Dispose managers
-            Rules?.ClearJudgement();
-            Rules?.ClearScoreAndCombo();
-            Rules?.ClearGaugeAndSkill();
+            rules?.ClearJudgement();
+            rules?.ClearScoreAndCombo();
+            rules?.ClearGaugeAndSkill();
         }
 
         #endregion
