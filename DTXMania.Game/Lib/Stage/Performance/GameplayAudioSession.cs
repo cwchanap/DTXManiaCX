@@ -91,9 +91,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// or a method-local; nothing here touches stage fields or GPU state.
         /// The chart/notation publication is posted first so the playfield is
         /// up behind LOADING while the audio work below runs. The
-        /// prepared-audio variant dependencies are factory delegates so they
-        /// are only constructed for non-default playback profiles, exactly as
-        /// before. Logging uses the worker logger resolved before Run.
+        /// prepared-audio variant dependencies arrive already resolved on the
+        /// update thread (null for default playback profiles, exactly as
+        /// before). Logging uses the worker logger resolved before Run.
         /// </summary>
         internal static PreparedGameplayAudioSet Prepare(
             ParsedChart? chartSnapshot,
@@ -103,8 +103,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ILogger workerLogger,
             IProgress<AudioPreparationProgress> progress,
             Action<ParsedChart, NotationChart?> publishChart,
-            Func<IAudioVariantProcessor> createAudioVariantProcessor,
-            Func<PlaybackAudioVariantCache> createAudioVariantCache,
+            IAudioVariantProcessor? audioVariantProcessor,
+            PlaybackAudioVariantCache? audioVariantCache,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -151,8 +151,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 chart.BGMEvents.Select(bgm => bgm.AudioFilePath),
                 noteWavDefs,
                 playbackModifiers,
-                playbackModifiers.IsDefault ? null : createAudioVariantProcessor(),
-                playbackModifiers.IsDefault ? null : createAudioVariantCache(),
+                playbackModifiers.IsDefault ? null : audioVariantProcessor,
+                playbackModifiers.IsDefault ? null : audioVariantCache,
                 progress,
                 cancellationToken,
                 reportSoundLoadFailure: (path, ex) =>

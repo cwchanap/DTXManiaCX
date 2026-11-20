@@ -917,6 +917,28 @@ namespace DTXMania.Game.Lib.Stage
                 new InlineProgress<AudioPreparationProgress>(
                     scope.Latest<AudioPreparationProgress>(ApplyAudioPreparationProgress));
 
+            // Resolve the prepared-audio variant dependencies on this (update)
+            // thread before launch: the factories are protected-virtual stage
+            // members, so the worker must never invoke them off-thread. They are
+            // only needed for non-default playback profiles, exactly as before —
+            // default profiles keep passing null. A synchronous factory failure
+            // takes the same load-failure path a worker fault would.
+            IAudioVariantProcessor? audioVariantProcessor = null;
+            PlaybackAudioVariantCache? audioVariantCache = null;
+            if (!playbackModifiers.IsDefault)
+            {
+                try
+                {
+                    audioVariantProcessor = CreateAudioVariantProcessor();
+                    audioVariantCache = CreateAudioVariantCache();
+                }
+                catch (Exception exception)
+                {
+                    FailLoading($"Audio preparation failed: {exception.Message}", exception);
+                    return Task.FromResult<PreparedGameplayAudioSet?>(null);
+                }
+            }
+
             // The chart publication is a FIFO post, so it always applies before this
             // run's terminal callback; a retired scope drops it (nothing owned).
             Action<ParsedChart, NotationChart?> publishChart = (chart, notationChart) =>
@@ -931,8 +953,8 @@ namespace DTXMania.Game.Lib.Stage
                     workerLogger,
                     progress,
                     publishChart,
-                    CreateAudioVariantProcessor,
-                    CreateAudioVariantCache,
+                    audioVariantProcessor,
+                    audioVariantCache,
                     cancellationToken),
                 onSuccess: audioSet => ApplyPreparedAudio(audioSet),
                 onError: exception =>
