@@ -302,16 +302,22 @@ namespace DTXMania.Game.Lib.Stage
             // components during teardown.
             var configManager = _subscribedConfigManager;
             _subscribedConfigManager = null;
+            Exception? failure = null;
             if (configManager != null)
             {
-                configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
-                configManager.FlushPendingSave();
+                try { configManager.ScrollSpeedChanged -= OnScrollSpeedChanged; }
+                catch (Exception ex) { failure = ex; }
+                if (ReferenceEquals(scope, BackgroundWork))
+                {
+                    try { configManager.FlushPendingSave(); }
+                    catch (Exception ex) { failure ??= ex; }
+                }
             }
-            if (!ReferenceEquals(scope, BackgroundWork)) return;
-
-            Exception? failure = null;
-            try { CleanupComponents(); }
-            catch (Exception ex) { failure = ex; }
+            if (ReferenceEquals(scope, BackgroundWork))
+            {
+                try { CleanupComponents(); }
+                catch (Exception ex) { failure ??= ex; }
+            }
             try
             {
                 if (ReferenceEquals(scope, BackgroundWork))

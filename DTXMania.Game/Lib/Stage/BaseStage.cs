@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
@@ -120,26 +121,25 @@ namespace DTXMania.Game.Lib.Stage
 
         public virtual void Deactivate()
         {
-        if (_currentPhase == StagePhase.Inactive)
-        {
-            return;
-        }
-
+            if (_currentPhase == StagePhase.Inactive)
+                return;
 
             // Retire queued background work before stage teardown so dropped
             // results cannot reach disposed UI/resources (HPA-799).
             RetireBackgroundWork();
-
-            // Perform stage-specific deactivation
-            OnDeactivate();
-
-            // A teardown callback may have completed a nested deactivation and
-            // activated this same stage again.
-            if (_backgroundWork != null)
+            if (_backgroundWork != null || _currentPhase == StagePhase.Inactive)
                 return;
 
-            // Cleanup background
-            CleanupStageBackground();
+            Exception failure = null;
+            try { OnDeactivate(); }
+            catch (Exception ex) { failure = ex; }
+            if (_backgroundWork == null)
+            {
+                try { CleanupStageBackground(); }
+                catch (Exception ex) { failure ??= ex; }
+            }
+            if (failure != null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
             if (_backgroundWork != null)
                 return;
 

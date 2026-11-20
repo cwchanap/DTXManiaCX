@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -70,13 +71,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             _isLoading = true;
             _loadingFailed = false;
+            ITexture texture = null;
 
             try
             {
 
                 // Load background texture using ResourceManager
-                _resourceManager.TryLoadTexture(TexturePath.PerformanceBackground, out var texture);
-                _backgroundTexture = texture;
+                _resourceManager.TryLoadTexture(TexturePath.PerformanceBackground, out texture);
+                if (!_disposed)
+                {
+                    _backgroundTexture = texture;
+                    texture = null;
+                }
 
                 // Since the async wrapper is removed, this task completes synchronously.
                 // For true async loading, ResourceManager would need a LoadTextureAsync method.
@@ -89,6 +95,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             finally
             {
+                try { texture?.RemoveReference(); }
+                catch (Exception) { _loadingFailed = true; }
                 _isLoading = false;
             }
         }
@@ -153,8 +161,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // HPA-796: borrow the cached white pixel from the ResourceManager instead of
                 // allocating a private 1×1 texture (this renderer owns the reference until
                 // Dispose because it has no owning-stage seam for a forwarded pixel).
-                _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
-                _whiteTexture = _whiteTextureResource?.Texture;
+                var resource = _resourceManager.CreateTextureFromColor(Color.White);
+                Texture2D texture;
+                try { texture = _disposed ? null : resource?.Texture; }
+                catch
+                {
+                    try { resource?.RemoveReference(); }
+                    catch { }
+                    throw;
+                }
+                if (_disposed || _whiteTextureResource != null || _whiteTexture != null)
+                    resource?.RemoveReference();
+                else
+                {
+                    _whiteTextureResource = resource;
+                    _whiteTexture = texture;
+                }
             }
 
             if (_whiteTexture != null)
@@ -175,23 +197,24 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         protected virtual void Dispose(bool disposing)
         {
-            if (!_disposed)
+            if (_disposed)
+                return;
+            _disposed = true;
+            if (disposing)
             {
-                if (disposing)
-                {
-                    // Release references - using reference counting for managed textures
-                    _backgroundTexture?.RemoveReference();
-                    _backgroundTexture = null;
-                    _whiteTextureResource?.RemoveReference();
-                    _whiteTextureResource = null;
-                    _whiteTexture = null;
-                    
-                    // Reset state variables to initial values for proper reactivation
-                    _isLoading = false;
-                    _loadingFailed = false;
-                }
-
-                _disposed = true;
+                var background = _backgroundTexture;
+                var white = _whiteTextureResource;
+                _backgroundTexture = null;
+                _whiteTextureResource = null;
+                _whiteTexture = null;
+                _isLoading = false;
+                _loadingFailed = false;
+                Exception failure = null;
+                try { background?.RemoveReference(); }
+                catch (Exception ex) { failure = ex; }
+                try { white?.RemoveReference(); }
+                catch (Exception ex) { failure ??= ex; }
+                if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
             }
         }
 
