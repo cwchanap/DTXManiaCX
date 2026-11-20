@@ -296,8 +296,14 @@ public class LanesPlayfieldStageIntegrationTests
         var resources = CreateResources();
         var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object);
         var pixel = new Mock<ITexture>();
+        int pixelRefs = 1;
+        pixel.SetupGet(p => p.ReferenceCount).Returns(() => pixelRefs);
+        pixel.Setup(p => p.AddReference()).Callback(() => pixelRefs++);
         pixel.Setup(p => p.RemoveReference()).Callback(() =>
-            Assert.Equal(new[] { "line", "score", "combo", "panel", "meter", "notes", "pads" }, visuals.Disposals));
+        {
+            if (--pixelRefs == 0)
+                Assert.Equal(new[] { "line", "score", "combo", "panel", "meter", "notes", "pads" }, visuals.Disposals);
+        });
         using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals)
         {
             Pixel = pixel.Object
@@ -306,7 +312,8 @@ public class LanesPlayfieldStageIntegrationTests
 
         stage.Deactivate();
 
-        pixel.Verify(p => p.RemoveReference(), Times.Once);
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        Assert.Equal(0, pixel.Object.ReferenceCount);
     }
 
     [Fact]
@@ -340,7 +347,7 @@ public class LanesPlayfieldStageIntegrationTests
         var failure = Assert.Throws<InvalidOperationException>(() => stage.Deactivate());
 
         Assert.Equal("score dispose failed", failure.Message);
-        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(3));
         Assert.Equal(0, pixel.Object.ReferenceCount);
         Assert.Null(stage.AudioSession);
         Assert.Null(rules.ChartManager);
@@ -348,7 +355,7 @@ public class LanesPlayfieldStageIntegrationTests
         InjectLaneHit(input, 4);
         Assert.Empty(visuals.Pads.Presses);
         stage.Deactivate();
-        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(3));
     }
 
     [Theory]
@@ -501,7 +508,7 @@ public class LanesPlayfieldStageIntegrationTests
         stage.Deactivate();
 
         Assert.Equal(2, stripReleaseChecks);
-        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(3));
         Assert.Equal(0, pixel.Object.ReferenceCount);
         Assert.False(hud.IsReady);
         var telemetry = new GameTelemetrySnapshot();
@@ -688,11 +695,11 @@ public class LanesPlayfieldStageIntegrationTests
 
         Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => stage.Deactivate()));
         danger.Verify(t => t.RemoveReference(), Times.Once);
-        pixel.Verify(t => t.RemoveReference(), Times.Once);
+        pixel.Verify(t => t.RemoveReference(), Times.Exactly(2));
         stage.Deactivate();
         shutter.Verify(t => t.RemoveReference(), Times.Once);
         danger.Verify(t => t.RemoveReference(), Times.Once);
-        pixel.Verify(t => t.RemoveReference(), Times.Once);
+        pixel.Verify(t => t.RemoveReference(), Times.Exactly(2));
     }
 
     [Fact]

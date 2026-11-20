@@ -3796,6 +3796,10 @@ public class PerformanceStageDeterministicTests
     public void DrawFallbackRectangle_WhenDrawerMissingAndWhiteTextureExists_ShouldUseTexturePath()
     {
         var pixel = new Mock<ITexture>();
+        int refs = 1;
+        pixel.SetupGet(p => p.ReferenceCount).Returns(() => refs);
+        pixel.Setup(p => p.AddReference()).Callback(() => refs++);
+        pixel.Setup(p => p.RemoveReference()).Callback(() => refs--);
         using var stage = new InspectablePerformanceStage(
             CreateHeadlessGame(new StageTestLogger(), new ConfigData()), pixel.Object);
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
@@ -3803,7 +3807,8 @@ public class PerformanceStageDeterministicTests
         Assert.Same(pixel.Object, stage.DrawnPixel);
         Assert.Equal((new Rectangle(580, 350, 120, 20), Color.White, 0.1f), Assert.Single(stage.Draws));
         stage.Deactivate();
-        pixel.Verify(p => p.RemoveReference(), Times.Once);
+        pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
+        Assert.Equal(0, pixel.Object.ReferenceCount);
     }
 
     [Fact]
