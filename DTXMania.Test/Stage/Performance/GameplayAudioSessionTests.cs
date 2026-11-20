@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading;
 using DTXMania.Game;
@@ -144,6 +145,69 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
+    public void Advance_FiresBgmEventAtItsExactBoundaryTime()
+    {
+        var played = new List<string>();
+        var sound = new Mock<ISound>();
+        sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+            .Callback(() => played.Add("01"))
+            .Returns(CreateLiveSoundEffectInstance());
+        var session = CreateBgmSession(("01", 100.0, sound.Object));
+
+        session.Advance(99.0);
+        Assert.Empty(played);
+        Assert.Single(session.ScheduledBgmEvents);
+
+        // The boundary is inclusive: an event is due at its exact TimeMs.
+        session.Advance(100.0);
+
+        Assert.Equal(new[] { "01" }, played);
+        Assert.Empty(session.ScheduledBgmEvents);
+    }
+
+    [Fact]
+    public void Advance_WithOverdueEqualTimeBgmEvents_PreservesDeclarationTieOrder()
+    {
+        var playedOrder = new List<string>();
+        ISound RecordingSound(string wavId)
+        {
+            var sound = new Mock<ISound>();
+            sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+                .Callback(() => playedOrder.Add(wavId))
+                .Returns(CreateLiveSoundEffectInstance());
+            return sound.Object;
+        }
+        // Declared in non-alphabetical order so an unstable or reversed
+        // consumption would surface as ["01", "02"]. Both events share one
+        // TimeMs and become due together after a slow frame.
+        var session = CreateBgmSession(
+            ("02", 100.0, RecordingSound("02")),
+            ("01", 100.0, RecordingSound("01")));
+
+        session.Advance(500.0);
+
+        Assert.Equal(new[] { "02", "01" }, playedOrder);
+        Assert.Empty(session.ScheduledBgmEvents);
+    }
+
+    [Fact]
+    public void Advance_ConsumesTriggeredBgmEvents_TheyDoNotReplay()
+    {
+        var sound = new Mock<ISound>();
+        sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+            .Returns(CreateLiveSoundEffectInstance());
+        var session = CreateBgmSession(("01", 100.0, sound.Object));
+
+        session.Advance(150.0);
+        session.Advance(1000.0);
+
+        sound.Verify(
+            x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()),
+            Times.Once);
+        Assert.Empty(session.ScheduledBgmEvents);
+    }
+
+    [Fact]
     public void Advance_WhenBgmPlayFails_LogsWarningOncePerWavId()
     {
         var logger = new Mock<ILogger>();
@@ -225,6 +289,98 @@ public class GameplayAudioSessionTests
 
         Assert.False(session.IsPlaying);
         Assert.False(session.IsPaused);
+    }
+
+    [Fact]
+    public void StopAll_StopsLiveBgmAndChipInstancesWithoutDisposing()
+    {
+        var bgmInstance = CreateLiveSoundEffectInstance();
+        var bgmSound = new Mock<ISound>();
+        bgmSound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+            .Returns(bgmInstance);
+        var chipInstance = CreateLiveSoundEffectInstance();
+        var chipSound = new Mock<ISound>();
+        chipSound.Setup(x => x.Play()).Returns(chipInstance);
+
+        var bgmPath = Path.GetFullPath(WriteTempStubWav());
+        var chipPath = Path.GetFullPath(WriteTempStubWav());
+        var soundsByPath = new Dictionary<string, ISound>(StringComparer.Ordinal)
+        {
+            [bgmPath] = bgmSound.Object,
+            [chipPath] = chipSound.Object,
+        };
+        var chart = CreateChart();
+        chart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0, AudioFilePath = bgmPath });
+        var preparedSet = PreparedGameplayAudioSet.PrepareAsync(
+            mainBackgroundPath: null,
+            scheduledBgmSourcePaths: new[] { bgmPath },
+            chipSourcePathsByWavId: new Dictionary<string, string> { ["07"] = chipPath },
+            modifiers: new PlaybackModifiers(100, 0),
+            processor: null,
+            cache: null,
+            progress: null,
+            cancellationToken: CancellationToken.None,
+            defaultSoundLoader: path => soundsByPath[Path.GetFullPath(path)],
+            preparedSoundFactory: (_, path) => soundsByPath[Path.GetFullPath(path)])
+            .GetAwaiter()
+            .GetResult();
+        var session = CreateSession();
+        session.Bind(chart, preparedSet);
+        session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), chart);
+
+        // Track one live instance each: the BGM event fires through Advance
+        // (the instance survives reaping because it reports Playing) and the
+        // chip plays through the cache's full-volume fast path.
+        session.Advance(150.0);
+        session.PlayChip(new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 120.0 });
+        Assert.Equal(SoundState.Playing, bgmInstance.State);
+        Assert.Equal(SoundState.Playing, chipInstance.State);
+        Assert.Same(bgmInstance, Assert.Single(session.ActiveBgmInstances));
+
+        session.StopAll();
+
+        // Stop must be immediate but not terminal: instances report Stopped
+        // while remaining undisposed, and the borrowed ISound objects stay
+        // alive for the prepared set's own teardown.
+        Assert.Equal(SoundState.Stopped, bgmInstance.State);
+        Assert.Equal(SoundState.Stopped, chipInstance.State);
+        Assert.False(bgmInstance.IsDisposed);
+        Assert.False(chipInstance.IsDisposed);
+        bgmSound.Verify(x => x.Dispose(), Times.Never);
+        chipSound.Verify(x => x.Dispose(), Times.Never);
+        Assert.False(session.IsPlaying);
+        Assert.False(session.IsPaused);
+    }
+
+    [Fact]
+    public void PlayChip_WhenNoteValueIsEmpty_NeverPlaysASound()
+    {
+        var soundMock = new Mock<ISound>();
+        var chipSet = CreatePreparedSetWithChips(
+            new Dictionary<string, ISound> { ["01"] = soundMock.Object });
+        var session = CreateSession();
+        session.Bind(CreateChart(), chipSet);
+
+        var exception = Record.Exception(
+            () => session.PlayChip(new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "")));
+
+        Assert.Null(exception);
+        soundMock.Verify(s => s.Play(), Times.Never);
+        soundMock.Verify(
+            s => s.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void PlayChip_WhenNoteIsNullOrSessionUnbound_DoesNotThrow()
+    {
+        var bound = CreateSession();
+        bound.Bind(CreateChart(), CreateEmptyPreparedSet());
+        var unbound = CreateSession();
+        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "01") { TimeMs = 100.0 };
+
+        Assert.Null(Record.Exception(() => bound.PlayChip(null)));
+        Assert.Null(Record.Exception(() => unbound.PlayChip(note)));
     }
 
     [Fact]
@@ -421,5 +577,86 @@ public class GameplayAudioSessionTests
 #pragma warning disable SYSLIB0050
         return (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
 #pragma warning restore SYSLIB0050
+    }
+
+    // Fake SourceIds start far above any real OpenAL source id (they are small
+    // sequential ints) so a fake can never alias a real source if a context
+    // appears mid-test from another collection running in parallel.
+    private static int s_nextLiveSourceId = 0x7FFF0000;
+    private static byte[]? s_silencePcm;
+
+    /// <summary>
+    /// A <see cref="SoundEffectInstance"/> whose State reports Playing until
+    /// stopped, used wherever a test needs tracked playback that can be
+    /// observed being stopped. Prefers a real playing SoundEffect/instance
+    /// pair (new SoundEffect self-initializes the OpenAL context under the
+    /// ALSOFT null driver); only when the platform cannot produce one does it
+    /// fall back to an uninitialized instance whose managed SoundState field
+    /// the platform layer reads for sources it cannot query. An instance
+    /// created by <see cref="CreateSoundEffectInstance"/> alone reports
+    /// Stopped unconditionally and cannot exercise this path.
+    /// </summary>
+    private static SoundEffectInstance CreateLiveSoundEffectInstance()
+    {
+        var real = TryCreateRealSoundEffectInstance();
+        if (real != null)
+            return real;
+
+        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance;
+        var type = typeof(SoundEffectInstance);
+        var instance = CreateSoundEffectInstance();
+        type.GetField("HasSourceId", flags)!.SetValue(instance, true);
+        type.GetField("sourceMutex", flags)!.SetValue(instance, new object());
+        type.GetField("SourceId", flags)!.SetValue(
+            instance,
+            Interlocked.Increment(ref s_nextLiveSourceId));
+        type.GetField("SoundState", flags)!.SetValue(instance, SoundState.Playing);
+        var controller = TryGetOpenALController();
+        if (controller != null)
+            type.GetField("controller", flags)!.SetValue(instance, controller);
+        return instance;
+    }
+
+    /// <summary>
+    /// Real playing instance over a silent buffer, or null when the platform
+    /// cannot produce one (no usable OpenAL context).
+    /// </summary>
+    private static SoundEffectInstance? TryCreateRealSoundEffectInstance()
+    {
+        try
+        {
+            // One second of mono PCM16 silence: a real playing source needs a
+            // real buffer, and the duration outlives any test assertion window.
+            var pcm = s_silencePcm ??= new byte[88200];
+            var soundEffect = new SoundEffect(pcm, 44100, AudioChannels.Mono);
+            var instance = soundEffect.CreateInstance();
+            try
+            {
+                instance.Play();
+            }
+            catch
+            {
+                instance.Dispose();
+                return null;
+            }
+            return instance.State == SoundState.Playing ? instance : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The OpenALSoundController singleton if the process already initialized
+    /// audio, else null. Reading the static field directly avoids triggering
+    /// initialization as a side effect.
+    /// </summary>
+    private static object? TryGetOpenALController()
+    {
+        return typeof(SoundEffectInstance).Assembly
+            .GetType("Microsoft.Xna.Framework.Audio.OpenALSoundController")
+            ?.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null);
     }
 }

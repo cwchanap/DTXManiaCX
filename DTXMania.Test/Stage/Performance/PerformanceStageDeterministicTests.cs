@@ -502,7 +502,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        // Non-default profile makes the worker call the overridden
+        // Non-default profile makes the update thread resolve the overridden
         // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
 
@@ -1042,7 +1042,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
-        // Non-default profile makes the worker call the overridden
+        // Non-default profile makes the update thread resolve the overridden
         // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
 
@@ -2986,29 +2986,21 @@ public class PerformanceStageDeterministicTests
         });
 
         var soundMock = new Mock<ISound>();
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var chipSet = CreatePreparedSetWithChips(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var chipSet = CreatePreparedSetWithChips(
+            new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
-            ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-            InstallBoundSession(stage, preparedSet: chipSet);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        InstallBoundSession(stage, preparedSet: chipSet);
 
-            var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
-            judgementManager.IsActive = true;
-            ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
-            ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0);
 
-            soundMock.Verify(s => s.Play(), Times.Once);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        soundMock.Verify(s => s.Play(), Times.Once);
     }
 
     [Fact]
@@ -3116,32 +3108,24 @@ public class PerformanceStageDeterministicTests
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var soundMock = new Mock<ISound>();
-            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var soundMock = new Mock<ISound>();
+        var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
-            // Set timer to playing state at 1010ms (within note's hit window)
-            // so without the autoplay guard, PlayChipForNote WOULD be called
-            InstallBoundSession(stage, preparedSet: chipSet, start: true);
-            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-                new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
+        // Set timer to playing state at 1010ms (within note's hit window)
+        // so without the autoplay guard, PlayChipForNote WOULD be called
+        InstallBoundSession(stage, preparedSet: chipSet, start: true);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
 
-            var args = new LaneHitEventArgs(0, new ButtonState("Player", true, 1.0f));
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+        var args = new LaneHitEventArgs(0, new ButtonState("Player", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
 
-            // Pad must remain Idle (Pressed would mean TriggerPadPress fired)
-            var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
-            Assert.Equal(PadState.Idle, pads[0].State);
-            // Sound must NOT play — autoplay guard prevents it even though a
-            // hittable note exists and the timer is playing
-            soundMock.Verify(s => s.Play(), Times.Never);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        // Pad must remain Idle (Pressed would mean TriggerPadPress fired)
+        var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+        Assert.Equal(PadState.Idle, pads[0].State);
+        // Sound must NOT play — autoplay guard prevents it even though a
+        // hittable note exists and the timer is playing
+        soundMock.Verify(s => s.Play(), Times.Never);
     }
 
     [Fact]
@@ -3161,26 +3145,18 @@ public class PerformanceStageDeterministicTests
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var soundMock = new Mock<ISound>();
-            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var soundMock = new Mock<ISound>();
+        var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
-            // Drive _songTimer.GetCurrentMs(_currentGameTime) -> 1010ms (10ms past the note)
-            InstallBoundSession(stage, preparedSet: chipSet, start: true);
-            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-                new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
+        // Drive _songTimer.GetCurrentMs(_currentGameTime) -> 1010ms (10ms past the note)
+        InstallBoundSession(stage, preparedSet: chipSet, start: true);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
 
-            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+        var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
 
-            soundMock.Verify(s => s.Play(), Times.Once);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        soundMock.Verify(s => s.Play(), Times.Once);
     }
 
     [Fact]
@@ -3201,25 +3177,17 @@ public class PerformanceStageDeterministicTests
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var soundMock = new Mock<ISound>();
-            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var soundMock = new Mock<ISound>();
+        var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
-            InstallBoundSession(stage, preparedSet: chipSet, start: true);
-            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-                new GameTime(TimeSpan.FromMilliseconds(1000.0), TimeSpan.FromSeconds(0.016)));
+        InstallBoundSession(stage, preparedSet: chipSet, start: true);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1000.0), TimeSpan.FromSeconds(0.016)));
 
-            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+        var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
 
-            soundMock.Verify(s => s.Play(), Times.Never);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        soundMock.Verify(s => s.Play(), Times.Never);
     }
 
     [Fact]
@@ -3248,28 +3216,20 @@ public class PerformanceStageDeterministicTests
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var soundMock = new Mock<ISound>();
-            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var soundMock = new Mock<ISound>();
+        var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
-            // Raw clock at 1200ms. Without compensation, distance to note = 200ms > PoorWindow (150ms) → no chip.
-            // With compensation, compensated = 1000ms, distance = 0ms → chip plays.
-            InstallBoundSession(stage, preparedSet: chipSet, start: true);
-            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-                new GameTime(TimeSpan.FromMilliseconds(1200.0), TimeSpan.FromSeconds(0.016)));
+        // Raw clock at 1200ms. Without compensation, distance to note = 200ms > PoorWindow (150ms) → no chip.
+        // With compensation, compensated = 1000ms, distance = 0ms → chip plays.
+        InstallBoundSession(stage, preparedSet: chipSet, start: true);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1200.0), TimeSpan.FromSeconds(0.016)));
 
-            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+        var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
 
-            // Chip sound should play because compensated time (1000ms) matches note exactly
-            soundMock.Verify(s => s.Play(), Times.Once);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        // Chip sound should play because compensated time (1000ms) matches note exactly
+        soundMock.Verify(s => s.Play(), Times.Once);
     }
 
     [Fact]
@@ -3289,32 +3249,26 @@ public class PerformanceStageDeterministicTests
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var soundMock = new Mock<ISound>();
-            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var soundMock = new Mock<ISound>();
+        var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        // Bound but never started: IsPlaying stays false while the chip cache
+        // holds the real mock, so a broken suppression guard would call Play.
+        InstallBoundSession(stage, preparedSet: chipSet);
 
-            // No _songTimer set — defaults to null, so IsPlaying is false.
-            // currentTimeMs would be 0.0 which is within 200ms of the note at 10ms,
-            // but chip playback must be suppressed because the song isn't playing.
-            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-                new GameTime(TimeSpan.FromMilliseconds(10.0), TimeSpan.FromSeconds(0.016)));
+        // currentTimeMs would be within 200ms of the note at 10ms, but chip
+        // playback must be suppressed because the song isn't playing.
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(10.0), TimeSpan.FromSeconds(0.016)));
 
-            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+        var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
 
-            // Pad visual feedback should still fire (pad is pressed)
-            var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
-            Assert.Equal(PadState.Pressed, pads[3].State);
+        // Pad visual feedback should still fire (pad is pressed)
+        var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+        Assert.Equal(PadState.Pressed, pads[3].State);
 
-            // Chip sound must NOT play when song timer is not running
-            soundMock.Verify(s => s.Play(), Times.Never);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        // Chip sound must NOT play when song timer is not running
+        soundMock.Verify(s => s.Play(), Times.Never);
     }
 
     [Fact]
@@ -3820,18 +3774,36 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        var session = InstallBoundSession(stage, start: true);
+        var session = InstallSessionWithLiveAudio(stage, out var bgmInstance, out var chipInstance);
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote())
         {
             IsActive = true
         };
 
         Assert.True(session.IsPlaying);
+        Assert.Equal(SoundState.Playing, bgmInstance.State);
+        Assert.Equal(SoundState.Playing, chipInstance.State);
+        // Capture instance state at the moment the transition is requested:
+        // Back must stop tracked audio before the fade begins, not just by
+        // the time the method returns.
+        var bgmStoppedAtTransition = false;
+        var chipStoppedAtTransition = false;
+        stageManager
+            .Setup(x => x.ChangeStage(StageType.SongSelect, It.IsAny<IStageTransition>()))
+            .Callback(() =>
+            {
+                bgmStoppedAtTransition = bgmInstance.State == SoundState.Stopped;
+                chipStoppedAtTransition = chipInstance.State == SoundState.Stopped;
+            });
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         stage.StageManager = stageManager.Object;
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
 
+        Assert.True(bgmStoppedAtTransition);
+        Assert.True(chipStoppedAtTransition);
+        Assert.False(bgmInstance.IsDisposed);
+        Assert.False(chipInstance.IsDisposed);
         Assert.False(session.IsPlaying);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.False(judgementManager.IsActive);
@@ -5855,61 +5827,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PlayChipForNote_WhenNoteIsNull_ShouldNotThrow()
-    {
-        var soundMock = new Mock<ISound>();
-        var session = CreateBoundSession();
-
-        var ex = Record.Exception(() => session.PlayChip(null));
-
-        Assert.Null(ex);
-        soundMock.Verify(s => s.Play(), Times.Never);
-    }
-
-    [Fact]
-    public void PlayChipForNote_WhenNoteValueIsEmpty_ShouldNotPlayChip()
-    {
-        var soundMock = new Mock<ISound>();
-        var session = CreateBoundSession();
-        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "");
-
-        var ex = Record.Exception(() => session.PlayChip(note));
-
-        Assert.Null(ex);
-        soundMock.Verify(s => s.Play(), Times.Never);
-    }
-
-    [Fact]
-    public void PlayChipForNote_WhenChipSoundCacheIsNull_ShouldNotThrow()
-    {
-        var session = CreateSession();
-        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "01") { TimeMs = 100.0 };
-
-        var ex = Record.Exception(() => session.PlayChip(note));
-
-        Assert.Null(ex);
-    }
-
-    [Fact]
-    public void PlayChipForNote_ShouldHonorChartVolumeAndPan()
-    {
-        var chart = new ParsedChart();
-        chart.SetWavVolumes(new Dictionary<string, int> { ["07"] = 50 });
-        chart.SetWavPans(new Dictionary<string, int> { ["07"] = 100 });
-
-        var soundMock = new Mock<ISound>();
-        var chipSet = CreatePreparedSetWithChips(
-            new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-        var session = CreateBoundSession(chart: chart, preparedSet: chipSet);
-
-        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 100.0 };
-        session.PlayChip(note);
-
-        soundMock.Verify(s => s.Play(0.5f, 0.0f, 1.0f), Times.Once);
-        soundMock.Verify(s => s.Play(), Times.Never);
-    }
-
-    [Fact]
     public void FindNearestNoteForChip_WhenChartManagerIsNull_ShouldReturnNull()
     {
         var stage = CreateStage();
@@ -7108,6 +7025,140 @@ public class PerformanceStageDeterministicTests
 #pragma warning restore SYSLIB0050
     }
 
+    // Fake SourceIds start far above any real OpenAL source id (they are small
+    // sequential ints) so a fake can never alias a real source if a context
+    // appears mid-test from another collection running in parallel.
+    private static int s_nextLiveSourceId = 0x7FFF0000;
+    private static byte[]? s_silencePcm;
+
+    /// <summary>
+    /// A <see cref="SoundEffectInstance"/> whose State reports Playing until
+    /// stopped, used wherever a test needs tracked playback that can be
+    /// observed being stopped. Prefers a real playing SoundEffect/instance
+    /// pair (new SoundEffect self-initializes the OpenAL context under the
+    /// ALSOFT null driver); only when the platform cannot produce one does it
+    /// fall back to an uninitialized instance whose managed SoundState field
+    /// the platform layer reads for sources it cannot query. An instance
+    /// created by <see cref="CreateSoundEffectInstance"/> alone reports
+    /// Stopped unconditionally and cannot exercise this path.
+    /// </summary>
+    private static SoundEffectInstance CreateLiveSoundEffectInstance()
+    {
+        var real = TryCreateRealSoundEffectInstance();
+        if (real != null)
+            return real;
+
+        var instance = CreateSoundEffectInstance();
+        ReflectionHelpers.SetPrivateField(instance, "HasSourceId", true);
+        ReflectionHelpers.SetPrivateField(instance, "sourceMutex", new object());
+        ReflectionHelpers.SetPrivateField(
+            instance,
+            "SourceId",
+            Interlocked.Increment(ref s_nextLiveSourceId));
+        ReflectionHelpers.SetPrivateField(instance, "SoundState", SoundState.Playing);
+        var controller = TryGetOpenALController();
+        if (controller != null)
+            ReflectionHelpers.SetPrivateField(instance, "controller", controller);
+        return instance;
+    }
+
+    /// <summary>
+    /// Real playing instance over a silent buffer, or null when the platform
+    /// cannot produce one (no usable OpenAL context).
+    /// </summary>
+    private static SoundEffectInstance? TryCreateRealSoundEffectInstance()
+    {
+        try
+        {
+            // One second of mono PCM16 silence: a real playing source needs a
+            // real buffer, and the duration outlives any test assertion window.
+            var pcm = s_silencePcm ??= new byte[88200];
+            var soundEffect = new SoundEffect(pcm, 44100, AudioChannels.Mono);
+            var instance = soundEffect.CreateInstance();
+            try
+            {
+                instance.Play();
+            }
+            catch
+            {
+                instance.Dispose();
+                return null;
+            }
+            return instance.State == SoundState.Playing ? instance : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The OpenALSoundController singleton if the process already initialized
+    /// audio, else null. Reading the static field directly avoids triggering
+    /// initialization as a side effect.
+    /// </summary>
+    private static object? TryGetOpenALController()
+    {
+        return typeof(SoundEffectInstance).Assembly
+            .GetType("Microsoft.Xna.Framework.Audio.OpenALSoundController")
+            ?.GetField(
+                "_instance",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(null);
+    }
+
+    /// <summary>
+    /// Installs a bound, started session that already owns one live scheduled-BGM
+    /// instance and one live chip instance, so transition tests can verify the
+    /// stop reaches tracked playback rather than only the silent timer.
+    /// </summary>
+    private static GameplayAudioSession InstallSessionWithLiveAudio(
+        PerformanceStage stage,
+        out SoundEffectInstance bgmInstance,
+        out SoundEffectInstance chipInstance)
+    {
+        bgmInstance = CreateLiveSoundEffectInstance();
+        var bgmSound = new Mock<ISound>();
+        bgmSound
+            .Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+            .Returns(bgmInstance);
+        chipInstance = CreateLiveSoundEffectInstance();
+        var chipSound = new Mock<ISound>();
+        chipSound.Setup(x => x.Play()).Returns(chipInstance);
+
+        var bgmPath = Path.GetFullPath(WriteTempStubWav());
+        var chipPath = Path.GetFullPath(WriteTempStubWav());
+        var soundsByPath = new Dictionary<string, ISound>(StringComparer.Ordinal)
+        {
+            [bgmPath] = bgmSound.Object,
+            [chipPath] = chipSound.Object,
+        };
+        var chart = new ParsedChart("live-audio.dtx") { Bpm = 120.0 };
+        chart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0, AudioFilePath = bgmPath });
+        var preparedSet = PreparedGameplayAudioSet.PrepareAsync(
+            mainBackgroundPath: null,
+            scheduledBgmSourcePaths: new[] { bgmPath },
+            chipSourcePathsByWavId: new Dictionary<string, string> { ["07"] = chipPath },
+            modifiers: new PlaybackModifiers(100, 0),
+            processor: null,
+            cache: null,
+            progress: null,
+            cancellationToken: CancellationToken.None,
+            defaultSoundLoader: path => soundsByPath[Path.GetFullPath(path)],
+            preparedSoundFactory: (_, path) => soundsByPath[Path.GetFullPath(path)])
+            .GetAwaiter()
+            .GetResult();
+
+        var session = InstallBoundSession(stage, chart: chart, preparedSet: preparedSet, start: true);
+
+        // Fire the scheduled BGM event (the live instance survives reaping
+        // because it reports Playing) and play one chip so both tracking lists
+        // hold a real playing instance.
+        session.Advance(150.0);
+        session.PlayChip(new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 120.0 });
+        return session;
+    }
+
     private static T CreateUninitialized<T>() where T : class
     {
 #pragma warning disable SYSLIB0050
@@ -7480,15 +7531,23 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        InstallBoundSession(stage);
+        // A real main background gives the session a timer whose Volume setter
+        // is observable; seed a non-default volume so the assignment is proven.
+        var session = InstallBoundSession(
+            stage,
+            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
+        session.Timer!.Volume = 0.3f;
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_chartEndReachedRealTimeSeconds", 12.5);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
+        Assert.Equal(1.0f, session.Timer.Volume);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.True(judgementManager.IsActive);
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_chartEndReachedRealTimeSeconds"));
     }
 
     [Fact]
@@ -7498,15 +7557,44 @@ public class PerformanceStageDeterministicTests
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
         var bgmChart = new ParsedChart("startsong-mute.dtx") { Bpm = 120.0 };
         bgmChart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0 });
-        InstallBoundSession(stage, chart: bgmChart);
+        var session = InstallBoundSession(
+            stage,
+            chart: bgmChart,
+            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
+        // Seed an audible volume: the scheduled-BGM path must mute it back to 0.
+        session.Timer!.Volume = 0.7f;
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
+        Assert.Equal(0.0f, session.Timer.Volume);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.True(judgementManager.IsActive);
+    }
+
+    [Fact]
+    public void StartSong_WhenChartDefinesBackgroundWavId_AppliesChartVolumeToTimer()
+    {
+        // The legacy (no BGM events) path honors #VOLUME for the master track —
+        // but only if the stage hands its parsed chart to session.Start.
+        var stage = CreateStage();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
+        var session = InstallBoundSession(
+            stage,
+            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
+        var parsedChart = new ParsedChart("startsong-legacy.dtx") { Bpm = 120.0 };
+        parsedChart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 40 });
+        parsedChart.BackgroundWavId = "01";
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
+
+        Assert.Equal(0.4f, session.Timer!.Volume);
     }
 
     [Fact]
@@ -7525,10 +7613,21 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
+        var session = InstallSessionWithLiveAudio(stage, out var bgmInstance, out var chipInstance);
         StageTransitionPayload? capturedPayload = null;
+        var bgmStoppedAtTransition = false;
+        var chipStoppedAtTransition = false;
         stageManager
             .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
-            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
+            {
+                capturedPayload = payload;
+                // Result transitions are instant: tracked BGM/chip audio must
+                // already be stopped when ChangeStage fires, not merely
+                // disposed later in CleanupComponents.
+                bgmStoppedAtTransition = bgmInstance.State == SoundState.Stopped;
+                chipStoppedAtTransition = chipInstance.State == SoundState.Stopped;
+            });
         stage.StageManager = stageManager.Object;
 
         var chartManager = CreateChartManagerWithSingleNote();
@@ -7536,8 +7635,9 @@ public class PerformanceStageDeterministicTests
         var scoreManager = new ScoreManager(chartManager.TotalNotes);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
-        var session = InstallBoundSession(stage, start: true);
         Assert.True(session.IsPlaying);
+        Assert.Equal(SoundState.Playing, bgmInstance.State);
+        Assert.Equal(SoundState.Playing, chipInstance.State);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
@@ -7546,6 +7646,10 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
 
+        Assert.True(bgmStoppedAtTransition);
+        Assert.True(chipStoppedAtTransition);
+        Assert.False(bgmInstance.IsDisposed);
+        Assert.False(chipInstance.IsDisposed);
         Assert.False(session.IsPlaying);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
