@@ -201,11 +201,20 @@ namespace DTXMania.Game.Lib.Stage
         /// the GPU-dependent creation can be excluded from headless coverage.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        private void InitializeChartVideoPlayer()
+        private bool InitializeChartVideoPlayer(StageBackgroundWorkScope? scope)
         {
-            _chartVideoPlayer = CreateChartVideoPlayerIfAvailable();
+            var player = CreateChartVideoPlayerIfAvailable();
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                // A synchronous factory callback may already have started a different run.
+                player?.Dispose();
+                return false;
+            }
+
+            _chartVideoPlayer = player;
             _nextVideoEventIndex = 0;
             _activeVideoEvent = null;
+            return true;
         }
 
         /// <summary>
@@ -248,6 +257,7 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
+            var scope = BackgroundWork;
             var config = _game.ConfigManager.Config;
             _metronomeEnabled = config.Metronome;
             _playbackModifiers = new PlaybackModifiers(
@@ -264,11 +274,14 @@ namespace DTXMania.Game.Lib.Stage
             PublishTelemetry();
 
             // Initialize UI components
-            InitializeComponents();
+            if (!InitializeComponents(scope))
+                return;
 
             // Start chart/audio preparation on the activation's background-work scope;
             // every activation input is snapshotted on this (update) thread before Run.
             _ = StartGameplayInitialization();
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             var configManager = _game?.ConfigManager;
             if (configManager != null)
@@ -440,7 +453,7 @@ namespace DTXMania.Game.Lib.Stage
             Rules = new GameplayRules(config);
         }
 
-        private void InitializeComponents()
+        private bool InitializeComponents(StageBackgroundWorkScope? scope)
         {
             _fallbackWhiteTextureResource = CreateFallbackWhiteTexture();
             try
@@ -465,11 +478,12 @@ namespace DTXMania.Game.Lib.Stage
                 throw;
             }
             // The default factory guards the GPU-dependent player when headless.
-            InitializeChartVideoPlayer();
+            if (!InitializeChartVideoPlayer(scope))
+                return false;
             if (_spriteBatch == null)
             {
                 WireUpInputEventHandlers();
-                return;
+                return true;
             }
 
             // Initialize UX components
@@ -486,6 +500,7 @@ namespace DTXMania.Game.Lib.Stage
             // chart/audio prepare (and after a failed preparation). CleanupGameplayManagers
             // unsubscribes on teardown, keeping the lifecycle balanced.
             WireUpInputEventHandlers();
+            return true;
         }
 
         private void CleanupComponents()
