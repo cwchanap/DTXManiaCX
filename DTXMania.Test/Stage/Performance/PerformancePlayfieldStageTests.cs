@@ -25,6 +25,32 @@ namespace DTXMania.Test.Stage.Performance;
 public class PerformancePlayfieldStageTests
 {
     [Fact]
+    public async Task HeadlessStage_NonDefaultProfile_UsesIsolatedActualCacheFactory()
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessStage(
+            CreateGame(new ConfigData { PlaySpeedPercent = 150 }, input),
+            new Mock<IPerformancePlayfield>().Object);
+        var orphan = Path.Combine(stage.CacheRoot, "orphan.tmp-test");
+        File.WriteAllText(orphan, "owned");
+        try
+        {
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Isolated" }, 0,
+                new ParsedChart("isolated-playfield.dtx")));
+            Assert.NotNull(await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5)));
+            var cache = await stage.CacheCreated.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(Path.GetFullPath(stage.CacheRoot), cache.CacheRoot);
+            Assert.False(File.Exists(orphan));
+        }
+        finally
+        {
+            stage.Dispose();
+            await stage.CacheCleanup!.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.False(Directory.Exists(stage.CacheRoot));
+    }
+
+    [Fact]
     public void Activation_ShouldRouteLoadingInputAndDisposeThePlayfield()
     {
         using var input = new MockInputManagerCompat();
@@ -455,13 +481,13 @@ public class PerformancePlayfieldStageTests
     public async Task ChartPublication_WhenRetired_DropsQueuedAudioAndPreservesFreshTerminal(bool reactivate)
     {
         var directory = Directory.CreateTempSubdirectory("dtx-publication-retirement-");
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+        var oldLanes = new Mock<IPerformancePlayfield>();
+        var newLanes = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessStage(CreateGame(config, input), oldLanes.Object);
         try
         {
-            using var input = new MockInputManagerCompat();
-            var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
-            var oldLanes = new Mock<IPerformancePlayfield>();
-            var newLanes = new Mock<IPerformancePlayfield>();
-            using var stage = new HeadlessStage(CreateGame(config, input), oldLanes.Object);
             var oldChart = new ParsedChart("old-audio.dtx") { Bpm = 117 };
             oldChart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
             oldChart.FinalizeChart();
@@ -515,6 +541,8 @@ public class PerformancePlayfieldStageTests
         }
         finally
         {
+            stage.Deactivate();
+            await stage.Workers.WaitAsync(TimeSpan.FromSeconds(5));
             directory.Delete(recursive: true);
         }
     }
@@ -1030,6 +1058,7 @@ public class PerformancePlayfieldStageTests
 
     private sealed class HeadlessStage : PerformanceStage
     {
+        private readonly IsolatedStageAudioCache _cache = new();
         private readonly IPerformancePlayfield _field;
 
         public HeadlessStage(IStageGame game, IPerformancePlayfield field) : base(game) => _field = field;
@@ -1039,6 +1068,10 @@ public class PerformancePlayfieldStageTests
         public Func<Func<IPerformancePlayfield?>, IPerformancePlayfield?>? TabFactoryWithCreate { get; set; }
         public Func<IPerformancePlayfield>? LanesFactory { get; set; }
         public Task<PreparedGameplayAudioSet?>? PreparationTask { get; private set; }
+        public Task<PreparedGameplayAudioSet?[]> Workers => _cache.Workers;
+        public string CacheRoot => _cache.Root;
+        public Task<PlaybackAudioVariantCache> CacheCreated => _cache.Created;
+        public Task? CacheCleanup => _cache.Cleanup;
         public int HudFactoryCalls { get; private set; }
         public int TabFactoryThread { get; private set; }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
@@ -1046,7 +1079,14 @@ public class PerformancePlayfieldStageTests
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) =>
             FactoryFailure != null ? throw FactoryFailure : LanesFactory?.Invoke() ?? _field;
         internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
-            PreparationTask = base.StartGameplayInitialization();
+            PreparationTask = _cache.Track(base.StartGameplayInitialization());
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() => _cache.Factory();
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+                _cache.Release();
+        }
         protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create)
         {
             TabFactoryThread = Environment.CurrentManagedThreadId;

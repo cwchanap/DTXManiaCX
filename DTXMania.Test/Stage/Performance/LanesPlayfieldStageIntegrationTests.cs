@@ -26,6 +26,34 @@ namespace DTXMania.Test.Stage.Performance;
 public class LanesPlayfieldStageIntegrationTests
 {
     [Fact]
+    public async Task HeadlessLanesStage_NonDefaultProfile_UsesIsolatedActualCacheFactory()
+    {
+        var config = new ConfigData { PlaySpeedPercent = 150 };
+        using var input = new MockInputManagerCompat();
+        var resources = CreateResources();
+        var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object);
+        using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals);
+        Directory.CreateDirectory(stage.CacheRoot);
+        var orphan = Path.Combine(stage.CacheRoot, "orphan.tmp-test");
+        File.WriteAllText(orphan, "owned");
+        try
+        {
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Isolated" }, 0,
+                new ParsedChart("isolated-lanes.dtx")));
+            Assert.NotNull(await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5)));
+            var cache = await stage.CacheCreated.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(Path.GetFullPath(stage.CacheRoot), cache.CacheRoot);
+            Assert.False(File.Exists(orphan));
+        }
+        finally
+        {
+            stage.Dispose();
+            await stage.CacheCleanup!.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.False(Directory.Exists(stage.CacheRoot));
+    }
+
+    [Fact]
     public void LoadingInput_ShouldReachRealPlayfieldPadsExceptAutomatedLaneAndUnsubscribe()
     {
         var config = new ConfigData();
@@ -712,6 +740,7 @@ public class LanesPlayfieldStageIntegrationTests
 
     private sealed class HeadlessLanesStage : PerformanceStage
     {
+        private readonly IsolatedStageAudioCache _cache = new();
         private readonly ConfigData _config;
         private readonly IResourceManager _resources;
         private readonly ILanesVisualFactory _visuals;
@@ -721,6 +750,19 @@ public class LanesPlayfieldStageIntegrationTests
 
         public ITexture? Pixel { get; init; }
         public TabHudDisplay? TabHud { get; init; }
+        public string CacheRoot => _cache.Root;
+        public Task? CacheCleanup => _cache.Cleanup;
+        public Task<PlaybackAudioVariantCache> CacheCreated => _cache.Created;
+        public Task<PreparedGameplayAudioSet?>? PreparationTask { get; private set; }
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() => _cache.Factory();
+        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
+            PreparationTask = _cache.Track(base.StartGameplayInitialization());
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+                _cache.Release();
+        }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override ITexture? CreateFallbackWhiteTexture() => Pixel;
         protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) => create();
