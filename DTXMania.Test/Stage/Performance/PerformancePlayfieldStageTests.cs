@@ -58,12 +58,12 @@ public class PerformancePlayfieldStageTests
         using var stage = new HeadlessStage(CreateGame(new ConfigData(), input), field.Object);
 
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
-        input.TriggerLaneHit(3);
+        InjectLaneHit(input, 3);
 
         field.Verify(x => x.OnLaneInput(3), Times.Once);
         stage.Deactivate();
         field.Verify(x => x.Dispose(), Times.Once);
-        input.TriggerLaneHit(3);
+        InjectLaneHit(input, 3);
         field.Verify(x => x.OnLaneInput(3), Times.Once);
     }
 
@@ -151,8 +151,8 @@ public class PerformancePlayfieldStageTests
         using var stage = new HeadlessStage(CreateGame(config, input), field.Object);
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Mixed" }, 0, new ParsedChart("mixed.dtx")));
 
-        input.TriggerLaneHit(0);
-        input.TriggerLaneHit(1);
+        InjectLaneHit(input, 0);
+        InjectLaneHit(input, 1);
 
         field.Verify(x => x.OnLaneInput(0), Times.Never);
         field.Verify(x => x.OnLaneInput(1), Times.Once);
@@ -281,7 +281,7 @@ public class PerformancePlayfieldStageTests
         chart.FinalizeChart();
         chart.Bpm = 150;
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
-        input.TriggerLaneHit(1);
+        InjectLaneHit(input, 1);
         lanes.Verify(x => x.OnLaneInput(1), Times.Once);
         config.ScrollSpeed = 200;
         config.ShowCombo = true;
@@ -299,7 +299,7 @@ public class PerformancePlayfieldStageTests
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
         Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
-        input.TriggerLaneHit(1);
+        InjectLaneHit(input, 1);
         tab.Verify(x => x.OnLaneInput(1), Times.Once);
         manager.Raise(x => x.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(200, 225));
         tab.Verify(x => x.OnScrollSpeedChanged(225), Times.Once);
@@ -348,7 +348,7 @@ public class PerformancePlayfieldStageTests
         stage.PopulateTelemetry(telemetry);
         Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
         Assert.True(telemetry.PerformanceReady);
-        input.TriggerLaneHit(1);
+        InjectLaneHit(input, 1);
         lanes.Verify(x => x.OnLaneInput(1), Times.Once);
         lanes.Verify(x => x.Dispose(), Times.Never);
         tab.Verify(x => x.Dispose(), Times.Exactly(failure == 2 ? 1 : 0));
@@ -1041,6 +1041,14 @@ public class PerformancePlayfieldStageTests
             events.Add($"{name} remove:{get()}");
         });
         return pixel;
+    }
+
+    private static void InjectLaneHit(MockInputManagerCompat input, int lane)
+    {
+        var button = $"Test.Lane{lane}";
+        input.ModularInputManager.KeyBindings.BindButton(button, lane);
+        Assert.True(input.ModularInputManager.InjectButton(button, true));
+        input.ModularInputManager.Update();
     }
 
     private static IStageGame CreateGame(ConfigData config, MockInputManagerCompat input,

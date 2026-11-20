@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
@@ -31,7 +30,6 @@ using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
-using static DTXMania.Test.TestData.ReflectionHelpers;
 
 namespace DTXMania.Test.Stage.Performance;
 
@@ -1001,19 +999,16 @@ public class PerformanceStageDeterministicTests
     {
         // Each per-asset load is best-effort via TryLoadTexture; a missing skin must not
         // abort the whole load. This exercises every TryLoadTexture call site in the method.
-        var stage = CreateStage();
         var resourceManager = new Mock<IResourceManager>();
         ITexture missingTexture = null;
         resourceManager.Setup(x => x.TryLoadTexture(It.IsAny<string>(), out missingTexture)).Returns(false);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-
-        var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadPerformanceUIAssets"));
-
-        Assert.Null(exception);
-        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_backgroundTexture"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_shutterTexture"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_dangerOverlayTexture"));
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resourceManager));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Missing" }, 0, new ParsedChart("missing.dtx")));
+        stage.LoadPerformanceUIAssets();
+        stage.DrawBasePass(new Rectangle(0, 0, 1920, 1080));
+        stage.DrawUiPass(null);
+        Assert.Equal(new Rectangle(0, 0, 1920, 1080), Assert.Single(stage.FallbackBackgrounds));
         // Every asset path should have been attempted exactly once, through the
         // optional-probe API so the misses stay below Warning.
         resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.AtLeastOnce);
@@ -3375,13 +3370,16 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawBackground_WhenBackgroundTextureExists_ShouldDrawUILayoutBackgroundBounds()
     {
-        var stage = CreateStage();
         var backgroundTexture = CreateTextureMock(width: 512, height: 256);
-
-        ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", backgroundTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground");
+        var resources = new Mock<IResourceManager>();
+        var texture = backgroundTexture.Object;
+        resources.Setup(r => r.TryLoadTexture(TexturePath.PerformanceBackgroundTexture, out texture)).Returns(true);
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Background" }, 0, new ParsedChart("background.dtx")));
+        stage.LoadPerformanceUIAssets();
+        stage.DrawBasePass(new Rectangle(0, 0, 1920, 1080));
+        Assert.Empty(stage.FallbackBackgrounds);
 
         backgroundTexture.Verify(
             texture => texture.Draw(
@@ -3399,16 +3397,11 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawBackground_WhenBackgroundTextureMissing_ShouldUseViewportSizedFallbackPath()
     {
-        var stage = CreateStage();
-        var spriteBatch = CreateSpriteBatchStub(new Viewport(0, 0, 1920, 1080));
-
-        ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", null);
-        ReflectionHelpers.SetPrivateField(stage, "_backgroundRenderer", null);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground"));
-
-        Assert.Null(exception);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fallback" }, 0, new ParsedChart("fallback.dtx")));
+        stage.LoadPerformanceUIAssets();
+        stage.DrawBasePass(new Rectangle(0, 0, 1920, 1080));
+        Assert.Equal(new Rectangle(0, 0, 1920, 1080), Assert.Single(stage.FallbackBackgrounds));
     }
 
     [Fact]
@@ -3689,15 +3682,11 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawShutters_WhenStageIsTransitioning_ShouldDrawAtUILayoutStartPosition()
     {
-        var stage = CreateStage();
         var shutterTexture = CreateTextureMock(width: 96, height: 512);
         var shutterPosition = PerformanceUILayout.Shutter.StartPosition;
-
-        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", shutterTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.FadeOut);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawShutters");
+        using var stage = CreateVisualStage(TexturePath.Shutter, shutterTexture.Object);
+        stage.OnTransitionOut(new InstantTransition());
+        stage.DrawUiPass(null);
 
         shutterTexture.Verify(
             texture => texture.Draw(
@@ -3715,14 +3704,10 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawShutters_WhenStageIsInNormalPhase_ShouldSkipTextureDraw()
     {
-        var stage = CreateStage();
         var shutterTexture = CreateTextureMock(width: 96, height: 512);
-
-        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", shutterTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawShutters");
+        using var stage = CreateVisualStage(TexturePath.Shutter, shutterTexture.Object);
+        stage.OnTransitionComplete();
+        stage.DrawUiPass(null);
 
         shutterTexture.Verify(
             texture => texture.Draw(
@@ -3740,21 +3725,14 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawShutters_WhenTextureMissingDuringTransition_ShouldNotThrow()
     {
-        var stage = CreateStage();
-
-        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", null);
-        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.FadeIn);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawShutters"));
-
-        Assert.Null(exception);
+        using var stage = CreateVisualStage(TexturePath.Shutter, null);
+        Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+        stage.DrawUiPass(null);
     }
 
     [Fact]
     public void DrawOverlays_WhenDangerActive_ShouldPulseDangerTint()
     {
-        var stage = CreateStage();
         var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
         Color? actualDangerColor = null;
         var totalTime = 0.5;
@@ -3773,12 +3751,12 @@ public class PerformanceStageDeterministicTests
             .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
                 (_, _, _, color, _, _, _, _) => actualDangerColor = color);
 
-        ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_isDanger", true);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", totalTime);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawOverlays");
+        using var input = new MockInputManagerCompat();
+        using var stage = CreateVisualStage(TexturePath.Danger, dangerOverlayTexture.Object, input);
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Rules!.GaugeManager!.Reset(15);
+        stage.Update(totalTime);
+        stage.DrawUiPass(null);
 
         dangerOverlayTexture.Verify(
             texture => texture.Draw(
@@ -3797,14 +3775,9 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawOverlays_WhenDangerDisabled_ShouldNotDrawDangerTexture()
     {
-        var stage = CreateStage();
         var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
-
-        ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_isDanger", false);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawOverlays");
+        using var stage = CreateVisualStage(TexturePath.Danger, dangerOverlayTexture.Object);
+        stage.DrawUiPass(null);
 
         dangerOverlayTexture.Verify(
             texture => texture.Draw(
@@ -3822,85 +3795,41 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawFallbackRectangle_WhenDrawerMissingAndWhiteTextureExists_ShouldUseTexturePath()
     {
-        var stage = CreateInspectableStage();
-        Texture2D fallbackWhiteTexture;
-#pragma warning disable SYSLIB0050
-        fallbackWhiteTexture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
-#pragma warning restore SYSLIB0050
-
-        ReflectionHelpers.SetPrivateField(stage, "_fallbackRectangleDrawer", null);
-        ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTexture", fallbackWhiteTexture);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "DrawFallbackRectangle",
-            new Rectangle(12, 34, 56, 78),
-            Color.LightBlue,
-            0.2f);
-
-        Assert.Same(fallbackWhiteTexture, stage.DrawFallbackTextureArgument);
-        Assert.Equal(new Rectangle(12, 34, 56, 78), stage.DrawFallbackTextureRectangle);
-        Assert.Equal(Color.LightBlue, stage.DrawFallbackTextureColor);
-        Assert.Equal(0.2f, stage.DrawFallbackTextureDepth);
+        var pixel = new Mock<ITexture>();
+        using var stage = new InspectablePerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData()), pixel.Object);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
+        stage.DrawUiPass(null);
+        Assert.Same(pixel.Object, stage.DrawnPixel);
+        Assert.Equal((new Rectangle(580, 350, 120, 20), Color.White, 0.1f), Assert.Single(stage.Draws));
+        stage.Deactivate();
+        pixel.Verify(p => p.RemoveReference(), Times.Once);
     }
 
     [Fact]
     public void DrawGameplayState_WhenLoading_ShouldUseFallbackRectangleDrawerForCenteredText()
     {
-        var stage = CreateStage();
-        Rectangle? actualRectangle = null;
-        Color? actualColor = null;
-        float? actualDepth = null;
-
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", true);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
-            {
-                actualRectangle = rectangle;
-                actualColor = color;
-                actualDepth = depth;
-            }));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
-
-        Assert.Equal(new Rectangle(580, 350, 120, 20), actualRectangle);
-        Assert.Equal(Color.White, actualColor);
-        Assert.Equal(0.1f, actualDepth);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
+        stage.DrawUiPass(null);
+        Assert.Equal((new Rectangle(580, 350, 120, 20), Color.White, 0.1f),
+            Assert.Single(stage.FallbackRectangles));
     }
 
     [Fact]
     public void DrawGameplayState_WhenReadyCountdownActive_ShouldUseFallbackRectangleDrawerForPulsingReadyText()
     {
-        var stage = CreateStage();
-        Rectangle? actualRectangle = null;
-        Color? actualColor = null;
-        float? actualDepth = null;
-
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 0.125);
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
-            {
-                actualRectangle = rectangle;
-                actualColor = color;
-                actualDepth = depth;
-            }));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
-
-        Assert.Equal(new Rectangle(592, 350, 96, 20), actualRectangle);
-        Assert.Equal(Color.Yellow, actualColor);
-        Assert.Equal(0.1f, actualDepth);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Ready" }, 0, new ParsedChart("ready.dtx")));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(0.125);
+        stage.DrawUiPass(null);
+        Assert.Equal((new Rectangle(592, 350, 96, 20), Color.Yellow, 0.1f),
+            Assert.Single(stage.FallbackRectangles));
+        stage.Update(0.25);
+        stage.DrawUiPass(null);
+        Assert.Equal((new Rectangle(592, 350, 96, 20), Color.Yellow * 0f, 0.1f),
+            stage.FallbackRectangles[1]);
     }
 
     [Fact]
@@ -4153,64 +4082,60 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void InitializeReadyFont_WhenSpriteBatchIsMissing_ShouldLeaveFontNull()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "InitializeReadyFont"));
-
-        Assert.Null(exception);
-        Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_readyFont"));
+        var resources = new Mock<IResourceManager>();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "No GPU" }, 0, new ParsedChart("headless.dtx")));
+        resources.Verify(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+        stage.DrawUiPass(null);
+        Assert.Single(stage.FallbackRectangles);
     }
 
     [Fact]
     public void TryLoadTexture_WhenResourceManagerUnavailableOrLoadFails_ShouldReturnNull()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", null);
+        var missingGame = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
+        Mock.Get(missingGame).SetupGet(g => g.ResourceManager).Returns((IResourceManager)null!);
+        using var missing = new HeadlessPerformanceStage(missingGame);
+        missing.Activate(new SongPlayRequest(new SongListNode { Title = "No resources" }, 0,
+            new ParsedChart("no-resources.dtx")));
+        missing.LoadPerformanceUIAssets();
+        missing.DrawBasePass(new Rectangle(0, 0, 1920, 1080));
+        Assert.Single(missing.FallbackBackgrounds);
 
-        var missingManagerResult = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", "missing");
-        Assert.Null(missingManagerResult);
-
-        var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.TryLoadTexture("throws", out It.Ref<ITexture>.IsAny)).Throws(new InvalidOperationException("boom"));
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-
-        var loadFailureResult = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", "throws");
-        Assert.Null(loadFailureResult);
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(x => x.TryLoadTexture(TexturePath.PerformanceBackgroundTexture, out It.Ref<ITexture>.IsAny))
+            .Throws(new InvalidOperationException("boom"));
+        var shutter = CreateTextureMock(96, 512);
+        var value = shutter.Object;
+        resources.Setup(x => x.TryLoadTexture(TexturePath.Shutter, out value)).Returns(true);
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Failure" }, 0, new ParsedChart("failure.dtx")));
+        stage.LoadPerformanceUIAssets();
+        stage.DrawBasePass(new Rectangle(0, 0, 1920, 1080));
+        stage.DrawUiPass(null);
+        Assert.Single(stage.FallbackBackgrounds);
+        shutter.Verify(t => t.Draw(null!, It.IsAny<Rectangle>(), null, Color.White, 0f, Vector2.Zero,
+            SpriteEffects.None, 0.2f), Times.Once);
     }
 
     [Fact]
     public void TryLoadTexture_WhenLoadSucceeds_ShouldReturnTexture()
     {
-        var stage = CreateStage();
         var texture = CreateTextureMock();
         var resourceManager = new Mock<IResourceManager>();
         var textureResult = texture.Object;
-        resourceManager.Setup(x => x.TryLoadTexture("ok", out textureResult)).Returns(true);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-
-        var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", "ok");
-
-        Assert.Same(texture.Object, result);
+        resourceManager.Setup(x => x.TryLoadTexture(TexturePath.PerformanceBackgroundTexture, out textureResult)).Returns(true);
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resourceManager));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Assets" }, 0, new ParsedChart("assets.dtx")));
+        stage.LoadPerformanceUIAssets();
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        texture.Verify(t => t.Draw(null!, PerformanceUILayout.Background.Bounds, null, Color.White, 0f,
+            Vector2.Zero, SpriteEffects.None, 1f), Times.Once);
         // The probe keeps a missing optional asset out of the Warning path.
         resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public void DrawCenteredText_WhenTextIsEmpty_ShouldReturnWithoutDrawing()
-    {
-        var stage = CreateStage();
-        var fallbackInvoked = false;
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((_, _, _) => fallbackInvoked = true));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawCenteredText", "", Color.White);
-
-        Assert.False(fallbackInvoked);
     }
 
     [Fact]
@@ -4240,9 +4165,8 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessVideoEvents_WhenChartHasNoVideoEvents_ShouldNotStartPlayer()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart());
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 10_000.0);
+        using var stage = CreateVideoStage(out var player, CreateVideoChart());
+        AdvanceVideo(stage, 10_000);
 
         Assert.Empty(player.StartedPaths);
         Assert.Empty(player.UpdateValues);
@@ -4251,9 +4175,8 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessVideoEvents_WhenBeforeFirstEvent_ShouldNotStartPlayer()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(5000.0, "movie.avi")));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 4999.0);
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(5000.0, "movie.avi")));
+        AdvanceVideo(stage, 4999);
 
         Assert.Empty(player.StartedPaths);
         Assert.Empty(player.UpdateValues);
@@ -4262,24 +4185,22 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessVideoEvents_WhenEventBecomesDue_ShouldStartOnceAndForwardRelativeMediaTime()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+        AdvanceVideo(stage, 1000);
 
         Assert.Equal(new[] { "movie.avi" }, player.StartedPaths);
         Assert.Equal(new[] { 500.0 }, player.UpdateValues);
-        Assert.Equal(500.0, ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent")!.TimeMs);
     }
 
     [Fact]
     public void ProcessVideoEvents_WhenSeveralEventsAreDue_ShouldStartOnlyLastDueEvent()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(
             VideoEvent(100.0, "first.avi", "01"),
             VideoEvent(300.0, "second.avi", "02"),
             VideoEvent(700.0, "third.avi", "03")));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 800.0);
+        AdvanceVideo(stage, 800);
 
         Assert.Equal(new[] { "third.avi" }, player.StartedPaths);
         Assert.Single(player.UpdateValues);
@@ -4291,10 +4212,9 @@ public class PerformanceStageDeterministicTests
     {
         // The stage runs frozen at 50% play speed (set by CreateVideoStage); the
         // forwarded media time must stay raw logical chart ms, never rescaled.
-        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1500.0);
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+        AdvanceVideo(stage, 1000);
+        AdvanceVideo(stage, 500);
 
         Assert.Single(player.StartedPaths);
         Assert.Equal(new[] { 500.0, 1000.0 }, player.UpdateValues);
@@ -4303,16 +4223,16 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessVideoEvents_WhenUnresolvedEventIsDue_ShouldLeaveFallbackAndAllowLaterValidEvent()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(
             VideoEvent(500.0, "", "01"),
             VideoEvent(700.0, "movie.avi", "02")));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 600.0);
+        AdvanceVideo(stage, 600);
 
         Assert.Empty(player.StartedPaths);
-        Assert.Null(ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent"));
+        Assert.Empty(player.UpdateValues);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 800.0);
+        AdvanceVideo(stage, 200);
 
         Assert.Equal(new[] { "movie.avi" }, player.StartedPaths);
         Assert.Equal(new[] { 100.0 }, player.UpdateValues);
@@ -4324,18 +4244,16 @@ public class PerformanceStageDeterministicTests
         // A valid event starts the video, then a later unresolved event (empty
         // path) becomes due: the active generation must be stopped and the
         // active event cleared so the static background reappears.
-        var stage = CreateVideoStage(out var player, CreateVideoChart(
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(
             VideoEvent(500.0, "movie.avi", "01"),
             VideoEvent(900.0, "", "02")));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 600.0);
+        AdvanceVideo(stage, 600);
         Assert.Equal(new[] { "movie.avi" }, player.StartedPaths);
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent"));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+        AdvanceVideo(stage, 400);
 
         Assert.Equal(1, player.StopCount);
-        Assert.Null(ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent"));
         // No further Update calls after the active event is cleared.
         Assert.Equal(new[] { 100.0 }, player.UpdateValues);
     }
@@ -4343,10 +4261,11 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void StopGameplayAudioInstances_WhenVideoIsActive_ShouldStopPlayer()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "StopGameplayAudioInstances");
+        using var input = new SwitchableBackInputManager();
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")), input);
+        AdvanceVideo(stage, 1000);
+        input.BackTriggered = true;
+        stage.Update(0);
 
         Assert.Equal(1, player.StopCount);
     }
@@ -4354,12 +4273,64 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void CleanupComponents_WhenVideoPlayerExists_ShouldDisposeAndClearPlayer()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+        stage.Deactivate();
 
         Assert.Equal(1, player.DisposeCount);
-        Assert.Null(ReflectionHelpers.GetPrivateField<IChartVideoPlayer>(stage, "_chartVideoPlayer"));
+        stage.Deactivate();
+        Assert.Equal(1, player.DisposeCount);
+    }
+
+    [Fact]
+    public void VideoPlayer_ReactivationResetsScheduleAndDisposesEachGenerationOwner()
+    {
+        var chart = CreateVideoChart(VideoEvent(500, "movie.avi"));
+        using var stage = CreateVideoStage(out var first, chart);
+        AdvanceVideo(stage, 1000);
+        stage.Deactivate();
+        Assert.Equal(1, first.DisposeCount);
+        var second = new RecordingChartVideoPlayer();
+        stage.VideoPlayer = second;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Again" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1);
+        AdvanceVideo(stage, 1000);
+        Assert.Equal(new[] { "movie.avi" }, second.StartedPaths);
+        Assert.Equal(new[] { 500d }, second.UpdateValues);
+        Assert.Equal(new[] { 500d }, first.UpdateValues);
+        stage.Deactivate();
+        Assert.Equal(1, second.DisposeCount);
+    }
+
+    [Fact]
+    public async Task VideoPlayer_MissingFileLeavesStaticBackgroundAndIsDisposed()
+    {
+        var logs = new ConcurrentQueue<string>();
+        var player = new FfmpegChartVideoPlayer(work => Task.Run(work), null, logs.Enqueue);
+        var background = CreateTextureMock(1280, 720);
+        var resources = new Mock<IResourceManager>();
+        var texture = background.Object;
+        resources.Setup(r => r.TryLoadTexture(TexturePath.PerformanceBackgroundTexture, out texture)).Returns(true);
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resources))
+            { VideoPlayer = player };
+        var missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + "-missing.avi");
+        var chart = CreateVideoChart(VideoEvent(100, missing));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Missing video" }, 0, chart));
+        stage.LoadPerformanceUIAssets();
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1);
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        stage.Update(0.2);
+        Assert.NotNull(player.GenerationTask);
+        await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Single(logs);
+        Assert.False(player.HasCurrentFrame);
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
+        background.Verify(t => t.Draw(null!, PerformanceUILayout.Background.Bounds, null, Color.White, 0f,
+            Vector2.Zero, SpriteEffects.None, 1f), Times.Exactly(2));
+        stage.Deactivate();
+        Assert.Throws<ObjectDisposedException>(() => player.Start(missing));
     }
 
     [Fact]
@@ -4377,38 +4348,62 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawBackground_WhenVideoPlayerDraws_ShouldConsumePinnedLayout()
     {
-        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_spriteBatch",
-            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground");
+        using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+        AdvanceVideo(stage, 1000);
+        stage.DrawBasePass(new Rectangle(0, 0, 1280, 720));
 
         var draw = Assert.Single(player.DrawCalls);
         Assert.Equal(PerformanceUILayout.Background.Bounds, draw.Bounds);
         Assert.Equal(0.95f, draw.Depth);
     }
 
+    [Fact]
+    public void BasePass_DrawsStaticBackgroundThenVideoBeforePlayfield()
+    {
+        var order = new List<string>();
+        var background = CreateTextureMock(1280, 720);
+        background.Setup(t => t.Draw(null!, PerformanceUILayout.Background.Bounds, null, Color.White, 0f,
+            Vector2.Zero, SpriteEffects.None, 1f)).Callback(() => order.Add("background"));
+        var resources = new Mock<IResourceManager>();
+        var texture = background.Object;
+        resources.Setup(r => r.TryLoadTexture(TexturePath.PerformanceBackgroundTexture, out texture)).Returns(true);
+        var player = new RecordingChartVideoPlayer { OnDraw = () => order.Add("video") };
+        var playfield = new Mock<IPerformancePlayfield>();
+        playfield.Setup(p => p.DrawBase(null!, It.IsAny<ChartManager?>(), It.IsAny<bool>(), It.IsAny<double>()))
+            .Callback(() => order.Add("playfield"));
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resources))
+            { VideoPlayer = player, Playfield = playfield.Object };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Order" }, 0, CreateVideoChart()));
+        stage.LoadPerformanceUIAssets();
+        stage.DrawBasePass(new Rectangle(0, 0, 1920, 1080));
+
+        Assert.Equal(new[] { "background", "video", "playfield" }, order);
+        Assert.Equal((PerformanceUILayout.Background.Bounds, 0.95f),
+            (Assert.Single(player.DrawCalls).Bounds, player.DrawCalls[0].Depth));
+    }
+
     #endregion
 
-    private static PerformanceStage CreateVideoStage(out RecordingChartVideoPlayer player, ParsedChart chart)
+    private static HeadlessPerformanceStage CreateVideoStage(out RecordingChartVideoPlayer player, ParsedChart chart,
+        MockInputManagerCompat? input = null)
     {
-        var stage = CreateStage();
         player = new RecordingChartVideoPlayer();
-        ReflectionHelpers.SetPrivateField(stage, "_chartVideoPlayer", player);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(50, 0));
+        var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData { PlaySpeedPercent = 50 }, input);
+        Mock.Get(game).Setup(g => g.CanPerformStageTransition()).Returns(true);
+        var stage = new HeadlessPerformanceStage(game)
+            { VideoPlayer = player };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Video" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1);
         return stage;
     }
 
+    private static void AdvanceVideo(PerformanceStage stage, double logicalMs) => stage.Update(logicalMs / 500);
+
     private static ParsedChart CreateVideoChart(params ChartVideoEvent[] events)
     {
-        var chart = new ParsedChart("video-schedule.dtx") { Bpm = 120.0 };
+        var chart = new ParsedChart("video-schedule.dtx") { Bpm = 120.0, DurationMs = 60000 };
         foreach (var videoEvent in events)
         {
             chart.AddVideoEvent(videoEvent);
@@ -4431,13 +4426,17 @@ public class PerformanceStageDeterministicTests
         public List<RecordedVideoDraw> DrawCalls { get; } = new();
         public int StopCount { get; private set; }
         public int DisposeCount { get; private set; }
+        public Action? OnDraw { get; init; }
 
         public void Start(string videoFilePath) => StartedPaths.Add(videoFilePath);
 
         public void Update(double mediaTimeMs) => UpdateValues.Add(mediaTimeMs);
 
-        public void Draw(SpriteBatch spriteBatch, Rectangle destinationBounds, float layerDepth) =>
+        public void Draw(SpriteBatch spriteBatch, Rectangle destinationBounds, float layerDepth)
+        {
             DrawCalls.Add(new RecordedVideoDraw(destinationBounds, layerDepth));
+            OnDraw?.Invoke();
+        }
 
         public void Stop() => StopCount++;
 
@@ -4562,26 +4561,6 @@ public class PerformanceStageDeterministicTests
 
     #endregion
 
-    private static PerformanceStage CreateStage(BaseGame? game = null)
-    {
-#pragma warning disable SYSLIB0050
-        var stage = (PerformanceStage)FormatterServices.GetUninitializedObject(typeof(PerformanceStage));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
-        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
-        return stage;
-    }
-
-    private static InspectablePerformanceStage CreateInspectableStage(BaseGame? game = null)
-    {
-#pragma warning disable SYSLIB0050
-        var stage = (InspectablePerformanceStage)FormatterServices.GetUninitializedObject(typeof(InspectablePerformanceStage));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
-        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
-        return stage;
-    }
-
     private static SpriteJudgementTextPopupManager CreateSpriteJudgementTextPopupManager()
     {
         return SpriteJudgementTextPopupManager.CreateForTesting(CreateSpriteJudgementTexture());
@@ -4644,19 +4623,6 @@ public class PerformanceStageDeterministicTests
         return path;
     }
 
-    private static SpriteBatch CreateSpriteBatchStub(Viewport viewport)
-    {
-#pragma warning disable SYSLIB0050
-        var spriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
-        var graphicsDevice = (GraphicsDevice)FormatterServices.GetUninitializedObject(typeof(GraphicsDevice));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(graphicsDevice, "_viewport", viewport);
-        ReflectionHelpers.SetPrivateField(graphicsDevice, "_resourcesLock", new object());
-        ReflectionHelpers.SetPrivateField(graphicsDevice, "_resources", new List<WeakReference>());
-        ReflectionHelpers.SetProperty(spriteBatch, nameof(SpriteBatch.GraphicsDevice), graphicsDevice);
-        return spriteBatch;
-    }
-
     private static Mock<ITexture> CreateTextureMock(int width = 1, int height = 1)
     {
         var texture = new Mock<ITexture>();
@@ -4664,6 +4630,19 @@ public class PerformanceStageDeterministicTests
         texture.SetupGet(x => x.Height).Returns(height);
         texture.Setup(x => x.RemoveReference());
         return texture;
+    }
+
+    private static HeadlessPerformanceStage CreateVisualStage(string path, ITexture? texture,
+        MockInputManagerCompat? input = null)
+    {
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.TryLoadTexture(path, out texture!)).Returns(texture != null);
+        var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input, resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Visual" }, 0,
+            new ParsedChart("visual.dtx") { DurationMs = 10000 }));
+        stage.LoadPerformanceUIAssets();
+        return stage;
     }
 
     private static Mock<ISound> CreateSoundMock()
@@ -5004,28 +4983,19 @@ public class PerformanceStageDeterministicTests
 
     private sealed class InspectablePerformanceStage : PerformanceStage
     {
-        public InspectablePerformanceStage(BaseGame game)
-            : base(game)
-        {
-        }
-
-        public Texture2D? DrawFallbackTextureArgument { get; private set; }
-
-        public Rectangle? DrawFallbackTextureRectangle { get; private set; }
-
-        public Color? DrawFallbackTextureColor { get; private set; }
-
-        public float? DrawFallbackTextureDepth { get; private set; }
+        private readonly ITexture _pixel;
+        public InspectablePerformanceStage(IStageGame game, ITexture pixel) : base(game) => _pixel = pixel;
+        public List<(Rectangle, Color, float)> Draws { get; } = new();
+        public ITexture? DrawnPixel { get; private set; }
 
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
-            => () => throw new InvalidOperationException("Legacy drawing fixtures do not prepare audio.");
-
-        internal override void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
+            => () => throw new InvalidOperationException("Default-profile test does not use a cache.");
+        protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
+        protected override ITexture? CreateFallbackWhiteTexture() => _pixel;
+        internal override void DrawFallbackTexture(ITexture texture, Rectangle rectangle, Color color, float depth)
         {
-            DrawFallbackTextureArgument = texture;
-            DrawFallbackTextureRectangle = destinationRectangle;
-            DrawFallbackTextureColor = color;
-            DrawFallbackTextureDepth = layerDepth;
+            DrawnPixel = texture;
+            Draws.Add((rectangle, color, depth));
         }
     }
 
@@ -5255,79 +5225,14 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawGameplayState_WhenLoading_ShouldDrawLoadingText()
-    {
-        var stage = CreateStage();
-        Rectangle? actualRectangle = null;
-        Color? actualColor = null;
-        float? actualDepth = null;
-
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", true);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
-            {
-                actualRectangle = rectangle;
-                actualColor = color;
-                actualDepth = depth;
-            }));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
-
-        Assert.NotNull(actualRectangle);
-        Assert.Equal(Color.White, actualColor);
-        Assert.Equal(0.1f, actualDepth);
-    }
-
-    [Fact]
-    public void DrawGameplayState_WhenReadyWithCountdown_ShouldDrawPulsingReadyText()
-    {
-        var stage = CreateStage();
-        Rectangle? actualRectangle = null;
-        Color? actualColor = null;
-        float? actualDepth = null;
-
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
-        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 0.125);
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
-            {
-                actualRectangle = rectangle;
-                actualColor = color;
-                actualDepth = depth;
-            }));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
-
-        Assert.NotNull(actualRectangle);
-        Assert.Equal(0.1f, actualDepth);
-    }
-
-    [Fact]
     public void DrawGameplayState_WhenNotLoadingAndNotReady_ShouldNotDraw()
     {
-        var stage = CreateStage();
-        var fallbackInvoked = false;
-
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((_, _, _) => fallbackInvoked = true));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
-
-        Assert.False(fallbackInvoked);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Playing" }, 0, new ParsedChart("playing.dtx")));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1);
+        stage.DrawUiPass(null);
+        Assert.Empty(stage.FallbackRectangles);
     }
 
     [Fact]
@@ -5886,6 +5791,9 @@ public class PerformanceStageDeterministicTests
         public Action<BeatMarker>? OnMetronomeClick { get; set; }
         public IPerformancePlayfield? Playfield { get; set; }
         public Func<TabHudDisplay>? MakeHud { get; set; }
+        public IChartVideoPlayer? VideoPlayer { get; set; }
+        public List<(Rectangle Bounds, Color Color, float Depth)> FallbackRectangles { get; } = new();
+        public List<Rectangle> FallbackBackgrounds { get; } = new();
         public TabHudDisplay? LastHud { get; private set; }
         public Task<PreparedGameplayAudioSet?>? LastPreparationTask { get; private set; }
         public ScrollSpeedIndicator InitializeFonts() => InitializeReadyFont();
@@ -5918,8 +5826,10 @@ public class PerformanceStageDeterministicTests
         internal override TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
             string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art) =>
             LastHud = MakeHud?.Invoke() ?? CreateReadyHeadlessTabHud();
-        protected override IChartVideoPlayer CreateChartVideoPlayer() =>
-            throw new InvalidOperationException("Headless activation must not create a video player.");
+        protected override IChartVideoPlayer? CreateChartVideoPlayerIfAvailable() => VideoPlayer;
+        internal override void DrawFallbackRectangle(Rectangle bounds, Color color, float depth) =>
+            FallbackRectangles.Add((bounds, color, depth));
+        internal override void DrawFallbackBackground(Rectangle viewport) => FallbackBackgrounds.Add(viewport);
     }
 
     private static TabHudDisplay CreateReadyHeadlessTabHud()
@@ -6139,52 +6049,30 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawCenteredText_WithReadyFont_ShouldMeasureAndDrawAtCenteredPosition()
     {
-        var stage = CreateStage();
-        var spriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
-        GC.SuppressFinalize(spriteBatch);
         var font = new Mock<IFont>();
-        font.Setup(f => f.MeasureString("READY")).Returns(new Vector2(100, 20));
+        font.Setup(f => f.MeasureString("READY...")).Returns(new Vector2(100, 20));
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.LoadFont("NotoSerifJP", 24)).Returns(font.Object);
+        resources.Setup(r => r.LoadFont("NotoSerifJP", 14)).Returns(new Mock<IFont>().Object);
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), resources: resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Ready" }, 0, new ParsedChart("ready.dtx")));
+        stage.InitializeFonts();
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(0.125);
+        stage.DrawUiPass(null);
 
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", font.Object);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawCenteredText", "READY", Color.White);
-
-        font.Verify(f => f.MeasureString("READY"), Times.Once);
+        font.Verify(f => f.MeasureString("READY..."), Times.Once);
         font.Verify(f => f.DrawString(
-            spriteBatch,
-            "READY",
+            null!,
+            "READY...",
             new Vector2((PerformanceUILayout.ScreenWidth / 2) - 50, (PerformanceUILayout.ScreenHeight / 2) - 10),
-            Color.White,
+            Color.Yellow,
             0f,
             Vector2.Zero,
             Vector2.One,
             SpriteEffects.None,
             0.1f), Times.Once);
-    }
-
-    [Fact]
-    public void DrawCenteredText_WithoutReadyFont_ShouldDrawFallbackRectangle()
-    {
-        var stage = CreateStage();
-        Rectangle? capturedRect = null;
-        Color? capturedColor = null;
-        float? capturedDepth = null;
-
-        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
-        ReflectionHelpers.SetPrivateField(stage, "_fallbackRectangleDrawer",
-            (Action<Rectangle, Color, float>)((rect, color, depth) =>
-            {
-                capturedRect = rect;
-                capturedColor = color;
-                capturedDepth = depth;
-            }));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "DrawCenteredText", "READY", Color.Cyan);
-
-        Assert.Equal(new Rectangle(610, 350, 60, 20), capturedRect);
-        Assert.Equal(Color.Cyan, capturedColor);
-        Assert.Equal(0.1f, capturedDepth);
     }
 
     [Fact]
