@@ -1,84 +1,83 @@
-# HPA-800 — Implementation plan (single PR; <=3 engineer days)
+# HPA-800 — Reviewed implementation plan (one PR; <=3 engineer days)
 
-**Design:** [HPA-800 design](../../proposals/2026-11-19-hpa-800-design.md)  
+**Design:** [revised HPA-800 design](../../proposals/2026-11-19-hpa-800-design.md)  
+**Review addressed:** https://github.com/cwchanap/DTXManiaCX/pull/251#pullrequestreview-5987239671  
 **Linear:** https://linear.app/cwchanap/issue/HPA-800  
-**Branch and PR:** `plan/hpa-800-performance-session-playfields`; continue implementation on **this same PR** after design review.  
-**Baseline:** main `241d78d8ed040a3d7d69f01562462b5ad57ad7ab` (HPA-799 merged).  
-**Status:** Plan only. No implementation or test execution was performed while writing these documents.
+**Branch:** `plan/hpa-800-performance-session-playfields` — implement **on this existing draft PR**, not a second PR.  
+**Baseline:** main `241d78d8ed040a3d7d69f01562462b5ad57ad7ab`, after HPA-799 PR #250.  
+**Status:** Docs-only review revision; no production code, tests or screenshots have been executed.
 
-## Agent contract
+## Agent contract / budget
 
-Deliver one focused, behavior-preserving refactor in at most 3 engineer days. Do **not** open a second PR for this ticket or introduce implementation-only helper tickets. Prefer direct constructors and existing MonoGame abstractions. There is no need for a DI framework, new background-work queue, compatibility layer, or new assets/SFX. Do not implement HPA-724 or HPA-773 here.
+No behavior, timing, visual, scoring or MIDI change. No pause/replay, no new Tab effects/BPM UI, no added art/SFX and no new async queue or DI framework. Respect YAGNI/KISS. Hard ceiling **3 engineer days**, including test migration, MCP E2E and visual inspection.
 
-**Acceptance is automated.** MCP drives the app end to end on one platform. Where there is no Linear UI mockup, compare fresh screenshots with baseline CX Neon screenshots; never make manual/human sign-off an acceptance condition.
+**Execution budget:** baseline 0.10d; audio session + its tests 0.65d; gameplay rules + their tests 0.75d; two playfields + their tests 0.85d; automated end-to-end/visual verification 0.50d; ~0.15d buffer. In each coding step move or retire **that step's** private-method tests immediately; do not defer all old tests to a final 0.7d sweep. Keep the full canonical suite green at each step.
 
-## Step 0 — Establish baseline and reduce test surface (~0.20 day)
+The existing `PerformanceStageDeterministicTests.cs` has ~8,438 lines, hundreds of private reflection calls and ~288 tests. Do **not** translate them 1:1. The current `InvokePrivateMethod` target names are the migration map; retain unique observable regression scenarios in focused tests, delete duplicate/private-implementation assertions, and preserve existing dedicated component tests. Do not retain dead production fields for old tests. No private-field reflection or `GetUninitializedObject` in surviving PerformanceStage-specific tests.
 
-- [ ] Confirm main/branch SHA, HPA-799 merged and branch up to date; inspect actual `PerformanceStage.cs`, `BaseStage.BackgroundWork`, `StageBackgroundWorkScope`, `GameplayAutoPlaySmokeTests` and `DefaultSkinFirstRunSmokeTests`.
-- [ ] Group the approximately 287 facts in `PerformanceStageDeterministicTests` by *observable behavior*, not by private method name. Identify unique regressions (audio ownership, chart-first publication, BGM, raw versus judgement time, Tab fallback, scoring/fail/result and resource lifetime) and redundant implementation coverage.
-- [ ] Identify the current HPA-797 screenshot-tour artifacts as the visual baseline. No screenshot framework build or pixel-snapshot rewrite.
+## Step 0 — Baseline and references (~0.10 day)
 
-**Exit:** A short migration checklist inside the PR description or plan notes, with no hidden legacy-compatibility requirement.
+- [ ] Verify current main/PR head, HPA-799 scope behavior, and status of existing unit/E2E tests; note any pre-existing failures separately.
+- [ ] Read `PerformanceStage`, `StageBackgroundWorkScope`, `SkillPanelDisplay`, `SkillManager`, current full-autoplay/Tab E2E, and HPA-797 screenshot paths. Use behavior groupings below; no test-by-test triage exercise.
+- [ ] Capture the current main's existing E2E tour PNGs (`05-lanes-performance.png` / `07-tab-performance.png`) as a comparison baseline through the MCP-driven acceptance harness in Step 4; no new harness.
 
-## Step 1 — Move session preparation and runtime audio ownership (~0.65 day)
+## Step 1 — `GameplayAudioSession` and its tests (~0.65 day)
 
-Files: `DTXMania.Game/Lib/Stage/PerformanceStage.cs` and one new internal `Lib/Stage/Performance/GameplaySession.cs` (or `GameplaySessionLoader.cs` if the agent prefers that name). Reuse `AudioLoader`, `PreparedGameplayAudioSet`, `ChartManager`, `SongTimer` and `StageBackgroundWorkScope`; do not fork them.
+Files: `Lib/Stage/Performance/GameplayAudioSession.cs`, `PerformanceStage.cs`, affected session/audio tests.
 
-- [ ] Capture request chart/path, frozen modifiers, requested display style, logger and all worker dependencies **on update thread before Run**. Keep the worker-local parse/notation/audio work in the new session owner.
-- [ ] Keep two-phase callbacks: **chart+notation first** on update thread, then prepared audio. Chart publication initializes shared gameplay managers and lets Tab layout appear under LOADING. A failed chart publication prevents subsequent audio binding. Progress uses existing `Latest`.
-- [ ] Move prepared audio/audio loader/timer/chip-sound ownership and sorted BGM queue + active instance cleanup into the session owner. Preserve initial background sound, per-WAV volume/pan, silent GameTime clock fallback, metronome and frozen playback modifiers; leave video scheduling where it is unless genuinely necessary to compile.
-- [ ] On deactivation, discard stale outputs through scope retirement, dispose unbound audio once, stop active BGM/chip instances, unsubscribe events and avoid cross-activation callbacks. Keep chart setup/binding errors and progress behavior.
-- [ ] Add constructor-driven session tests: chart-before-audio, cancellation/re-entry, late dropped sound, audio bind failure, early scroll-speed change, frozen speed/pitch, BGM exact-boundary/multiple-due ordering, per-WAV volume/pan and no double disposal.
+- [ ] Keep scheduling `BackgroundWork.Run`/`Post`/`Latest` and its chart/progress/error callbacks in the stage. Move the worker-local `PrepareGameplayCore` into a static/pure `GameplayAudioSession.Prepare(...)` with chart/path, speed/pitch, requested notation style, logger, progress, prepared-audio variant dependencies and cancellation passed **as immutable snapshots before worker launch**. No worker reads mutable stage or GPU state.
+- [ ] Preserve **chart first**, including notation chart publish behind LOADING, then audio-preparation success/failure. Leave `ChartManager` creation for Step 2, from the update-thread chart callback. On chart-apply failure, do not bind the prepared set; on stale completion, run `onDropped` disposal **exactly once**.
+- [ ] Move into one concrete session: `AudioLoader`, `PreparedGameplayAudioSet`, `SongTimer`, `ChipSoundCache`, BGM scheduling, active BGM instances and metronome. Methods for bind/start/advance(raw clock)/play chip/stop/dispose should preserve existing event order, volume/pan, silent-clock fallback, playback modifiers and no audio bleed after Back/Result. Do not refactor parser, timer, audio variants or video scheduling internals.
+- [ ] Delete unused `LoadBGMSoundsAsync` rather than moving it. Remove its reflection-only tests with no real production path; migrate real BGM, metronome, chip, `StartSong`-audio and preparation tests to session constructors and the existing scope fixture.
+- [ ] Test chart-before-audio; progress; cancellation + reactivation; stale audio onDropped and once-only disposal; binding failure; silent clock; frozen profiles; BGM at exact boundaries/simultaneous overdue events; metronome and WAV volume/pan; Back/Result stop.
 
-**Exit:** Stage calls session start/bind/advance/stop methods. No asynchronous fields or `Task.Run` orchestration duplicated in Stage. Focused session tests green.
+**Exit:** `dotnet test DTXMania.Test/DTXMania.Test.csproj` **fully green**, not only new tests. Changes to old tests for moved session methods are part of this commit.
 
-## Step 2 — Extract Lanes and Tab playfields without changing pixels (~0.95 day)
+## Step 2 — GPU-free `GameplayRules` + shared HUD snapshot (~0.75 day)
 
-Files: `PerformanceStage.cs`, a tiny `IPerformancePlayfield.cs` and `LanesPlayfield.cs`/`TabPlayfield.cs` under `Lib/Stage/Performance`. Reuse existing renderers/palette/layout constants and skin textures; do not create replacement rendering systems.
+Files: `Lib/Stage/Performance/GameplayRules.cs`, `PerformanceStage.cs`, `TabHudDisplay.cs`, `SkillPanelDisplay.cs`, affected rules/HUD tests.
 
-- [ ] Define a minimal internal interface for visuals: effective mode, update, lane-hit/judgement feedback, draw within base/overlay/UI/additive passes, dispose. Stage keeps `SpriteBatch.Begin/End` and their ordering; no duplicate drawing loop.
-- [ ] Create a Lanes presentation during activation for immediate loading-time pad feedback. Move the existing lane backgrounds, measure lines, notes/pads/judgement line, lane popups/effects and legacy HUD draw calls into it. Keep shared judgement/scoring/autoplay managers outside both playfields.
-- [ ] When the chart is published and Tab requested, build pure notation strip and Tab HUD using current skin resources. Publish `TabPlayfield` **only after both are ready**. On any failure, clean up partial resources and keep Lanes; never draw mixed HUDs. Keep chart-first, audio-later readiness.
-- [ ] Move the Tab key flashes/popup filtering, partial-autoplay judgement handling and HUD snapshot composition to the Tab side. Keep existing hit, combo, score and skill computations as shared inputs. Do not add new Tab features.
-- [ ] Replace stage's scattered `_notationStrip == null` / `IsTabHudActive` branches with calls to the chosen `IPerformancePlayfield`. Keep one mode-selection decision at chart publication. Preserve scroll-speed toast, gameplay state overlay, BGA layering and resource teardown order.
-- [ ] Add constructor-driven playfield tests: Lanes default, Tab success/fallback, loading-time pad input, partial automated lanes, judgement flash/popup, mode exclusivity, drawing pass calls and owned/borrowed texture cleanup.
+- [ ] Move frozen gameplay rules, `ChartManager`, judgement/score/combo/gauge/skill managers, event fan-out, AutoAddGauge policy, autoplay cursor, time-compensated judgement, completion/check + summary building into **one concrete class with direct constructor dependencies**. Stage still performs Back/Result transition and owns ready/loading lifecycle.
+- [ ] Preserve exact note/hit ordering. Automated notes: `ResolveAutoHit` first; maintain its emitted judgement events; then playfield `OnAutoHit(lane)` pad feedback and session chip sound. Manual hits use compensated clock for judgement/chip lookup; BGM/BGA/autoplay/visuals use raw chart clock. Preserve the real-time end-of-song buffer.
+- [ ] Remove the dependency of Tab HUD on Lanes widgets. Adapt the existing `TabHudFrameState` into a **single shared frame snapshot** (rename to `PerformanceFrameState` if needed; no parallel duplicate DTO) from `ScoreManager.CurrentScore`, `ComboManager.CurrentCombo/MaxCombo`, `SkillManager.CurrentSkill` and its O(1) judgement counters. Verify counts against `JudgementManager.GetJudgementCount` in unit tests, **not five scans of the note chart per rendered frame**. Keep final Result summary/telemetry semantics.
+- [ ] Move Fast/Slow from `SkillPanelDisplay.ProcessJudgement` into the rules: same `HitTimingFeedback.ProjectDelta` rounded milliseconds, hits only, no increments for rounded-zero/autoplay. `SkillPanelDisplay` becomes presentation-only and receives the shared snapshot. Lanes and Tab never reach across playfields for data.
+- [ ] Migrate `FreezeRunConfiguration`, `ProcessAutoPlay`, `UpdateGameplayManagers`, `OnJudgementMade`, `CheckStageCompletion`, `FinalizePerformance`, failure/summary and judgement-count tests to direct `GameplayRules` construction. Use stage `PopulateTelemetry` for outer read-only behavior; remove duplicate reflection-specific tests.
 
-**Exit:** Mode-specific visual changes would be made in `TabPlayfield`/`LanesPlayfield` without editing `PerformanceStage`; stage only orchestrates shared lifecycle, clocks, input, scoring, pause and transitions.
+**Exit:** Full canonical unit suite **green**; shared metrics snapshot verified and GPU-free rules covered without private stage reflection.
 
-## Step 3 — Migrate stage tests, keeping genuine regressions (~0.70 day)
+## Step 3 — `LanesPlayfield` / `TabPlayfield` + their tests (~0.85 day)
 
-Files: affected `DTXMania.Test/Stage/Performance/*` and focused new session/playfield tests. Avoid test rewrite outside this subsystem.
+Files: `Lib/Stage/Performance/IPerformancePlayfield.cs`, `LanesPlayfield.cs`, `TabPlayfield.cs`, `PerformanceStage.cs`, relevant visual tests.
 
-- [ ] Replace `GetUninitializedObject`, `ReflectionHelpers.GetPrivateField` and `SetPrivateField` usage in surviving **PerformanceStage-specific** tests with constructor-created stage/session/playfield objects, fakes or observable APIs. Do not keep private stage fields solely to appease old tests.
-- [ ] Consolidate/remove duplicate assertions about private internals. Preserve unique behavior checks for input/MIDI routing, autoplay clock, compensation, non-default play speed, song completion, resource failure and stage reactivation.
-- [ ] Run focused suites at each extraction boundary. Keep draw resource / ownership tests deterministic without requiring a GPU. Device-dependent graphics coverage remains covered by real MCP screenshot evidence, not skipped unit tests.
-- [ ] Confirm event handlers subscribe exactly once and do not survive activation cleanup; stage telemetry, chart/sample clock and Result payload remain consistent.
+- [ ] Define minimal interface: effective mode, update, `OnLaneInput`, `OnAutoHit`, `OnJudgement(event, snapshot)`, `OnScrollSpeedChanged`, `DrawBase/Overlay/Hud/Additive` within stage-owned `SpriteBatch` passes, dispose. No generic hierarchy.
+- [ ] Stage creates Lanes visual components at activation so pad input flashes during LOADING/countdown. Lanes owns lane-note rendering, judgement line, pads, Lanes popups/effects, lane flash, skill/score/combo/gauge view widgets and scroll-speed note positioning; it only **renders** the shared gameplay model.
+- [ ] When chart/notation publishes, try to construct Tab strip + HUD + art on update thread. Publish Tab only if **both** ready, else immediately release partial Tab resources and keep complete Lanes. Preserve fallback and pass order, including video behind strip; no per-playfield Begin/End.
+- [ ] Route manual hits, auto pad feedback, judgement popup/key flashes and scroll-speed changes through the active playfield; eliminate `_notationStrip == null` and `IsTabHudActive` branches from stage draw/input/judgement hot paths. Keep the single mode-selection branch at chart publication.
+- [ ] Add `protected virtual` factories for playfield creation (existing stage seam pattern) so a headless constructor-created stage can be tested with fake visuals; do not add extra DI framework. Retain existing borrowed `ITexture` owner/child dispose order.
+- [ ] Delete dead-only texture loads/fields (`_laneDividerTexture`, `_laneFlashTexture`, `_progressFillTexture`, `_comboDigitsTexture`, `_scoreDigitsTexture`, `_judgeStringsTexture`) after confirming no live reads. Delete unused stage-only `_isPaused` and pause overlay; **do not** change `SongTimer` pause capability or danger overlay.
+- [ ] Port `Draw*`, `TryConstructNotationStrip`, pad feedback, Tab readiness, effects/scroll-speed and texture-lifetime tests alongside extraction; trim private-state duplicates, retain unique fallback/ownership/visual gating assertions.
 
-**Exit:** All relevant unit tests pass and no PerformanceStage-specific test relies on private-field reflection/uninitialized Stage instances; unrelated test suites stay untouched.
+**Exit:** Full canonical unit suite **green**; stage only orchestrates activation/loading, input/Back/Result, four SpriteBatch passes and telemetry; no mode branch scattered through rendering.
 
-## Step 4 — Full verification and MCP visual journey (~0.50 day)
+## Step 4 — MCP end-to-end and visual acceptance (~0.50 day)
 
-Run on one supported development platform (macOS is sufficient unless the change unexpectedly touches platform-specific code):
+On **one supported native platform** (macOS is enough for platform-neutral changes), **MCP must drive and report the E2E acceptance**. Reuse the **existing repeatable out-of-process JSON-RPC E2E suite** rather than building another manual click script.
 
-- [ ] Build the game and run the canonical unit suite; ensure no new warnings/errors. Example:
-  - `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj`
-  - `dotnet test DTXMania.Test/DTXMania.Test.csproj`
-  - Optional cross-build: `dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj -p:EnableWindowsTargeting=true` (does not count as native Windows E2E).
-- [ ] Run the actual out-of-process game E2E suite, such as:
-  - `DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj ALSOFT_DRIVERS=null dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter 'Category=E2E' -p:EnableWindowsTargeting=true`
-- [ ] **MCP E2E (required, not merely headless tests):** launch clean CX Neon, navigate Title -> SongSelect -> Lanes gameplay (autoplay and manual/injected hit) -> Result -> SongSelect -> Tab gameplay -> Result; exercise pause/resume, return/replay, and loading fallback when feasible. Assert game telemetry for stage order, score/combo/judgements, logical song time and completion. Test BGM event order/audio-ownership behavior deterministically; do not claim acoustic verification for a silent-clock run.
-- [ ] **MCP visual check (required):** save fresh 1280x720 screenshots for Lanes and Tab during gameplay, plus Result if its presentation is touched. Compare against current-main HPA-797 tour captures: position, clipping, note staff/lane geometry, hit line, HUD, key flashes, BGA behind strip, alpha/depth ordering and correct CX Neon skin. Record actual screenshots and findings in the PR. No mockup exists for this refactor.
-- [ ] Verify Lanes fallback to a usable entire Lanes screen when Tab glyph/HUD resources fail; one supported platform's E2E is sufficient for platform-neutral changes. Run native Windows only if a Windows-only code path is modified.
-- [ ] Attach tested SHA, commands/results, MCP wire/telemetry logs, screenshot paths or artifacts, and remaining limitations to this same PR. Do not report tests as passing until they have executed.
+- [ ] MCP runs build and canonical unit tests at implementation head (e.g. `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj`; `dotnet test DTXMania.Test/DTXMania.Test.csproj`), recording command, exit code, totals and tested SHA. Cross-build Windows only as useful; it does not count as Windows-native gameplay.
+- [ ] MCP runs `Category=E2E` at baseline revision and at implementation head (on macOS: `DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj ALSOFT_DRIVERS=null dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter 'Category=E2E' -p:EnableWindowsTargeting=true`). Its existing game process/JSON-RPC fixtures assert Lanes and effective Tab autoplay, judgements, result transitions, input/MIDI, BGA and tab import. Do not claim standalone CLI output is MCP acceptance unless the MCP actually ran/observed it.
+- [ ] **Visual check via MCP:** collect baseline and head HPA-797 `05-lanes-performance.png` and `07-tab-performance.png` 1280x720 images (and Result if touched), and visually inspect both against each other for layout, clipping, combo/score/skill, staff/notes/hit marker, flashing overlays, render depth, BGA occlusion and CX Neon. Save screenshots and comparison observations as PR evidence. No Linear mockup is provided.
+- [ ] Unit-test Tab missing strip/font/HUD fallback through injected factories (full Lanes only); do not damage the skin to force an E2E error. Validate Back-to-SongSelect and normal Result/complete, **not** pause or replay, which do not exist.
+- [ ] Attach MCP logs/telemetry/test output, screenshot artifact links and any limitations to **this PR**, with a factual tested SHA. One platform is sufficient absent platform-specific implementation. Silent-clock tests do not prove audible playback; skipped graphics tests do not prove visuals.
 
-**Exit:** All end-to-end criteria in the design document are demonstrably met through automated evidence; screenshots are visually checked, not simply captured.
+**Exit:** MCP E2E, canonical unit suite and visual screenshot comparison pass on the implementation head. No human acceptance step.
 
-## Final PR review checklist
+## Final PR criteria
 
-- [ ] `PerformanceStage` no longer parses charts/prepares BGM or branches throughout rendering on Tab-versus-Lanes.
-- [ ] No second timer, async queue, duplicated scoring/judgement rules, compatibility shim, or broad DI machinery.
-- [ ] Chart-before-audio behavior, single logical clock, latency compensation, frozen profile, ownership disposal, on-drop behavior and audio/video layering preserved.
-- [ ] Unit tests + at least one platform's MCP-driven full gameplay journey pass, and Lanes/Tab screenshots match the expected existing layout.
-- [ ] One Linear ticket, one implementation PR, <=3 engineer days; no art/SFX bundled.
+- [ ] `PerformanceStage` is primarily orchestration; `GameplayAudioSession` owns prepared sounds/transport, `GameplayRules` owns shared game state, and one `IPerformancePlayfield` is active.
+- [ ] Both HUDs use the same **manager-sourced** state, O(1) counters and a single correct Fast/Slow classification. No extra frame-wide note scans.
+- [ ] Existing input/autoplay/judgement/score/timing contracts, chart-first publication, fallback, BGM/BGA layering and immediate audio stop remain unchanged.
+- [ ] No second queue, DI container, new gameplay feature, dead legacy state or test compatibility fields introduced.
+- [ ] Full unit suite remains green **after each extraction**, and MCP runs the existing E2E suite plus fresh baseline/head visual comparison on one supported platform.
+- [ ] Implementation and verification stay in this **one PR** within 3 engineer days.
 
-**Scope guard:** The 8,438-line reflection-heavy stage test file is the largest risk. Prioritize distinctive behavior coverage and consolidate/remove redundant tests; **do not** retain obsolete stage internals to save test rewrites. If preserving the actual unique regressions cannot fit the 3-day cap, surface the gap on this PR rather than silently relaxing acceptance or opening additional PRs.
+**Scope risk:** Hundreds of old reflection assertions are not all valuable coverage; only the actual externally observable regression cases should survive. If this rewrite cannot fit the hard timebox without losing unique behavior coverage, report the blocker on this PR before proceeding; do not silently weaken tests or create an extra implementation PR.
