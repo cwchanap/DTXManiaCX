@@ -74,8 +74,6 @@ namespace DTXMania.Game.Lib.Stage
         private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
-        private ScoreManager _scoreManager = null!;
-        private ComboManager _comboManager = null!;
         private GaugeManager _gaugeManager = null!;
         private SkillManager? _skillManager;
         private SkillPanelDisplay? _skillPanelDisplay;
@@ -1714,14 +1712,13 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize managers
             Rules!.InitializeJudgement(_inputManager);
 
-            _scoreManager = new ScoreManager(chartManager.TotalNotes);
-            _comboManager = new ComboManager();
+            Rules.InitializeScoreAndCombo();
             _gaugeManager = new GaugeManager(
                 GaugeManager.StartingLife,
                 Rules?.DamageLevel ?? GaugeDamageLevel.Normal,
                 Rules?.Risky ?? RiskyRange.Default,
                 Rules?.FailureEnabled ?? true);
-            _skillManager = new SkillManager(chartManager.TotalNotes, _comboManager);
+            _skillManager = new SkillManager(chartManager.TotalNotes, Rules.ComboManager!);
 
             // Initialize UI state values
             _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
@@ -1742,15 +1739,17 @@ namespace DTXMania.Game.Lib.Stage
         private void WireUpEventHandlers()
         {
             var judgementManager = Rules?.JudgementManager;
-            if (judgementManager == null || _scoreManager == null || _comboManager == null || _gaugeManager == null)
+            var scoreManager = Rules?.ScoreManager;
+            var comboManager = Rules?.ComboManager;
+            if (judgementManager == null || scoreManager == null || comboManager == null || _gaugeManager == null)
                 return;
 
             // Subscribe to judgement events and forward to all managers
             judgementManager.JudgementMade += OnJudgementMade;
 
             // Subscribe to manager events for UI updates
-            _scoreManager.ScoreChanged += OnScoreChanged;
-            _comboManager.ComboChanged += OnComboChanged;
+            scoreManager.ScoreChanged += OnScoreChanged;
+            comboManager.ComboChanged += OnComboChanged;
             _gaugeManager.GaugeChanged += OnGaugeChanged;
             _gaugeManager.Failed += OnPlayerFailed;
             _skillManager.SkillChanged += OnSkillChanged;
@@ -1829,12 +1828,12 @@ namespace DTXMania.Game.Lib.Stage
             // Forward judgement to all managers. Gauge follows the frozen
             // AutoAddGauge policy only for automated-lane judgements;
             // manual-lane judgements always reach the gauge.
-            _scoreManager?.ProcessJudgement(e);
-            _comboManager?.ProcessJudgement(e);
+            Rules?.ScoreManager?.ProcessJudgement(e);
+            Rules?.ComboManager?.ProcessJudgement(e);
             if (!FrozenAutoPlayLanes.Contains(e.Lane) || (Rules?.AutoAddGauge ?? true))
                 _gaugeManager?.ProcessJudgement(e);
             _skillManager?.ProcessJudgement(e);
-            _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
+            _skillPanelDisplay?.ProcessJudgement(e, Rules?.ComboManager?.MaxCombo ?? 0);
 
             // Spawn hit effect for successful hits (non-Miss)
             if (e.IsHit())
@@ -2107,14 +2106,14 @@ namespace DTXMania.Game.Lib.Stage
                 judgementManager.JudgementMade -= OnJudgementMade;
             }
 
-            if (_scoreManager != null)
+            if (Rules?.ScoreManager is { } scoreManager)
             {
-                _scoreManager.ScoreChanged -= OnScoreChanged;
+                scoreManager.ScoreChanged -= OnScoreChanged;
             }
 
-            if (_comboManager != null)
+            if (Rules?.ComboManager is { } comboManager)
             {
-                _comboManager.ComboChanged -= OnComboChanged;
+                comboManager.ComboChanged -= OnComboChanged;
             }
 
             if (_gaugeManager != null)
@@ -2136,10 +2135,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Dispose managers
             Rules?.ClearJudgement();
-            _scoreManager?.Dispose();
-            _scoreManager = null;
-            _comboManager?.Dispose();
-            _comboManager = null;
+            Rules?.ClearScoreAndCombo();
             _gaugeManager?.Dispose();
             _gaugeManager = null;
             _skillManager?.Dispose();
@@ -2599,8 +2595,8 @@ namespace DTXMania.Game.Lib.Stage
                 UsedAutoPlay = FrozenAutoPlayLanes.Count > 0,
                 PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent,
                 PitchSemitones = _playbackModifiers.PitchSemitones,
-                Score = _scoreManager?.CurrentScore ?? 0,
-                MaxCombo = _comboManager?.MaxCombo ?? 0,
+                Score = Rules?.ScoreManager?.CurrentScore ?? 0,
+                MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0,
                 ClearFlag = reason == CompletionReason.SongComplete,
                 PerfectCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
                 GreatCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
@@ -2682,9 +2678,9 @@ namespace DTXMania.Game.Lib.Stage
                 songTimerHasReadablePosition && currentGameTime != null
                 ? audioSession!.GetCurrentMs(currentGameTime)
                 : 0.0;
-            telemetry.Score = _scoreManager?.CurrentScore ?? 0;
-            telemetry.CurrentCombo = _comboManager?.CurrentCombo ?? 0;
-            telemetry.MaxCombo = _comboManager?.MaxCombo ?? 0;
+            telemetry.Score = Rules?.ScoreManager?.CurrentScore ?? 0;
+            telemetry.CurrentCombo = Rules?.ComboManager?.CurrentCombo ?? 0;
+            telemetry.MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0;
             telemetry.Gauge = _gaugeManager?.CurrentLife ?? 0.0f;
             telemetry.HasFailed = _gaugeManager?.HasFailed ?? false;
             telemetry.TotalNotes = chartManager?.TotalNotes ?? 0;

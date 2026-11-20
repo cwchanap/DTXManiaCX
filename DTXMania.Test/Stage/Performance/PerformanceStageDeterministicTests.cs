@@ -73,16 +73,13 @@ public class PerformanceStageDeterministicTests
         var chart = new ParsedChart("telemetry.dtx");
         chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
         var chartManager = BindChart(stage, chart);
-        var scoreManager = new ScoreManager(1);
-        var comboManager = new ComboManager();
+        stage.Rules!.InitializeScoreAndCombo();
         var gaugeManager = new GaugeManager();
         var judgementManager = CreateActiveJudgement(stage);
         var selectedSong = new SongListNode { Title = "E2E AutoPlay Smoke" };
 
         ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
         ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 0);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
@@ -2152,10 +2149,15 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void OnScoreChanged_WhenDisplayExists_ShouldPropagateCurrentScore()
     {
-        var stage = CreateStage();
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, CreateSingleNoteChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
         var scoreDisplay = CreateScoreDisplay();
         ReflectionHelpers.SetPrivateField(stage, "_scoreDisplay", scoreDisplay);
 
+        stage.Rules!.ScoreManager!.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Perfect));
+        Assert.Equal(1000000, scoreDisplay.Score);
         ReflectionHelpers.InvokePrivateMethod(stage, "OnScoreChanged", null, new ScoreChangedEventArgs { CurrentScore = 123456 });
 
         Assert.Equal(123456, scoreDisplay.Score);
@@ -2164,10 +2166,15 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void OnComboChanged_WhenDisplayExists_ShouldPropagateCurrentCombo()
     {
-        var stage = CreateStage();
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, CreateSingleNoteChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
         var comboDisplay = CreateComboDisplay();
         ReflectionHelpers.SetPrivateField(stage, "_comboDisplay", comboDisplay);
 
+        stage.Rules!.ComboManager!.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Perfect));
+        Assert.Equal(1, comboDisplay.Combo);
         ReflectionHelpers.InvokePrivateMethod(stage, "OnComboChanged", null, new ComboChangedEventArgs { CurrentCombo = 87 });
 
         Assert.Equal(87, comboDisplay.Combo);
@@ -2269,8 +2276,8 @@ public class PerformanceStageDeterministicTests
         var judgementManager = stage.Rules!.JudgementManager;
         Assert.NotNull(judgementManager);
         Assert.False(judgementManager!.IsActive);
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
+        Assert.IsType<ScoreManager>(stage.Rules.ScoreManager);
+        Assert.IsType<ComboManager>(stage.Rules.ComboManager);
         Assert.NotNull(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
         Assert.Equal(0.5f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentGaugeValue"));
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"));
@@ -2323,8 +2330,8 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupGameplayManagers");
 
         Assert.Null(stage.Rules!.JudgementManager);
-        Assert.Null(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
+        Assert.Null(stage.Rules.ScoreManager);
+        Assert.Null(stage.Rules.ComboManager);
         Assert.Null(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
     }
 
@@ -2386,6 +2393,21 @@ public class PerformanceStageDeterministicTests
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
         config.AutoPlayLanes.Clear();
         UpdateUntil(stage, () => stage.AudioSession != null);
+        var score = Assert.IsType<ScoreManager>(stage.Rules!.ScoreManager);
+        var combo = Assert.IsType<ComboManager>(stage.Rules.ComboManager);
+        var managerCallbacks = new List<(string Manager, int Score, int Combo, float Gauge)>();
+        score.ScoreChanged += (_, _) =>
+        {
+            var snapshot = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(snapshot);
+            managerCallbacks.Add(("score", score.CurrentScore, combo.CurrentCombo, snapshot.Gauge ?? 0));
+        };
+        combo.ComboChanged += (_, _) =>
+        {
+            var snapshot = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(snapshot);
+            managerCallbacks.Add(("combo", score.CurrentScore, combo.CurrentCombo, snapshot.Gauge ?? 0));
+        };
         var callbacks = new List<(int Lane, int? Score, int? Combo)>();
         stage.Rules!.JudgementManager!.JudgementMade += (_, judgement) =>
         {
@@ -2414,6 +2436,13 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(
             new (int Lane, int? Score, int? Combo)[] { (0, 500000, 1), (1, 1000000, 2) },
             callbacks);
+        Assert.Equal(
+            new (string Manager, int Score, int Combo, float Gauge)[]
+            {
+                ("score", 500000, 0, 50f), ("combo", 500000, 1, 50f),
+                ("score", 1000000, 1, 52f), ("combo", 1000000, 2, 52f)
+            },
+            managerCallbacks);
         stage.Deactivate();
     }
 
@@ -2434,9 +2463,13 @@ public class PerformanceStageDeterministicTests
         var firstRules = Assert.IsType<GameplayRules>(stage.Rules);
         Assert.Null(firstRules.ChartManager);
         Assert.Null(firstRules.JudgementManager);
+        Assert.Null(firstRules.ScoreManager);
+        Assert.Null(firstRules.ComboManager);
         UpdateUntil(stage, () => stage.AudioSession != null);
         var firstManager = Assert.IsType<ChartManager>(firstRules.ChartManager);
         var firstJudgement = Assert.IsType<JudgementManager>(firstRules.JudgementManager);
+        var firstScore = Assert.IsType<ScoreManager>(firstRules.ScoreManager);
+        var firstCombo = Assert.IsType<ComboManager>(firstRules.ComboManager);
         Assert.False(firstJudgement.IsActive);
         Assert.Equal(1, firstManager.TotalNotes);
         stage.Update(1.1);
@@ -2451,8 +2484,14 @@ public class PerformanceStageDeterministicTests
         stage.Deactivate();
         Assert.Null(firstRules.ChartManager);
         Assert.Null(firstRules.JudgementManager);
+        Assert.Null(firstRules.ScoreManager);
+        Assert.Null(firstRules.ComboManager);
         Assert.False(firstJudgement.IsActive);
         Assert.Null(firstJudgement.GetNoteRuntimeData(firstChart.Notes[0].Id));
+        firstScore.Reset();
+        firstCombo.Reset();
+        Assert.Equal(1000000, firstScore.CurrentScore);
+        Assert.Equal(1, firstCombo.CurrentCombo);
 
         stage.PopulateTelemetry(telemetry);
         Assert.False(telemetry.PerformanceReady);
@@ -2469,9 +2508,13 @@ public class PerformanceStageDeterministicTests
         Assert.NotSame(firstRules, secondRules);
         Assert.Null(secondRules.ChartManager);
         Assert.Null(secondRules.JudgementManager);
+        Assert.Null(secondRules.ScoreManager);
+        Assert.Null(secondRules.ComboManager);
         UpdateUntil(stage, () => stage.AudioSession != null);
         Assert.NotSame(firstManager, secondRules.ChartManager);
         Assert.NotSame(firstJudgement, secondRules.JudgementManager);
+        Assert.NotSame(firstScore, Assert.IsType<ScoreManager>(secondRules.ScoreManager));
+        Assert.NotSame(firstCombo, Assert.IsType<ComboManager>(secondRules.ComboManager));
         Assert.False(Assert.IsType<JudgementManager>(secondRules.JudgementManager).IsActive);
         Assert.Equal(2, secondRules.ChartManager!.TotalNotes);
         stage.PopulateTelemetry(telemetry);
@@ -3502,8 +3545,7 @@ public class PerformanceStageDeterministicTests
             .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
         CreateActiveJudgement(stage);
 
@@ -3530,8 +3572,7 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-test.dtx") { DurationMs = 1000.0 });
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
         CreateActiveJudgement(stage);
         ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
@@ -3560,8 +3601,7 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-failed-test.dtx") { DurationMs = 1000.0 });
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
 
         var gaugeManager = new GaugeManager();
         ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
@@ -3880,11 +3920,9 @@ public class PerformanceStageDeterministicTests
             .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var scoreManager = new ScoreManager(1);
-        var comboManager = new ComboManager();
+        stage.Rules!.InitializeScoreAndCombo();
+        var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = new GaugeManager(startingLife: 2.0f);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         CreateActiveJudgement(stage);
         ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, comboManager));
@@ -5246,20 +5284,17 @@ public class PerformanceStageDeterministicTests
     public void OnJudgementMade_WhenJudgementIsHitAndLaneFlushIsEnabled_ShouldTriggerVisualFeedbackAndLaneFlash()
     {
         var config = new ConfigData { EnableLaneFlush = true };
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
-        var stage = CreateStage(game);
-        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        var scoreManager = new ScoreManager(10);
-        var comboManager = new ComboManager();
+        using var stage = CreateStageWithPolicy(config);
+        BindChart(stage, BuildChart(Enumerable.Range(0, 10).Select(i => new Note { LaneIndex = 0, TimeMs = i * 100 })));
+        stage.Rules!.InitializeScoreAndCombo();
+        var scoreManager = stage.Rules.ScoreManager!;
+        var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = new GaugeManager();
         var attackManager = CreateNxAttackEffectManager();
         var noteRenderer = CreateNoteRenderer();
         var popupManager = CreateSpriteJudgementTextPopupManager();
         var padRenderer = CreatePadRenderer();
         var skillPanelDisplay = CreateSkillPanelDisplayState();
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
@@ -5311,19 +5346,16 @@ public class PerformanceStageDeterministicTests
     public void OnJudgementMade_WhenJudgementIsMissAndLaneFlushIsEnabled_ShouldNotTriggerHitVisualFeedback()
     {
         var config = new ConfigData { EnableLaneFlush = true };
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
-        var stage = CreateStage(game);
-        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        var scoreManager = new ScoreManager(10);
-        var comboManager = new ComboManager();
+        using var stage = CreateStageWithPolicy(config);
+        BindChart(stage, BuildChart(Enumerable.Range(0, 10).Select(i => new Note { LaneIndex = 0, TimeMs = i * 100 })));
+        stage.Rules!.InitializeScoreAndCombo();
+        var scoreManager = stage.Rules.ScoreManager!;
+        var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = new GaugeManager();
         var attackManager = CreateNxAttackEffectManager();
         var noteRenderer = CreateNoteRenderer();
         var popupManager = CreateSpriteJudgementTextPopupManager();
         var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
@@ -5353,11 +5385,11 @@ public class PerformanceStageDeterministicTests
         var config = new ConfigData { AutoAddGauge = false };
         config.AutoPlayLanes.Add(2);
         using var stage = CreateStageWithPolicy(config);
-        var scoreManager = new ScoreManager(1);
-        var comboManager = new ComboManager();
+        BindChart(stage, CreateSingleNoteChart());
+        stage.Rules!.InitializeScoreAndCombo();
+        var scoreManager = stage.Rules.ScoreManager!;
+        var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = new GaugeManager();
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
 
         ReflectionHelpers.InvokePrivateMethod(
@@ -5403,8 +5435,7 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("nofail-test.dtx") { DurationMs = 5000.0 });
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
 
         var gaugeManager = new GaugeManager();
         ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
@@ -5434,8 +5465,7 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("failed-test.dtx") { DurationMs = 5000.0 });
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
 
         var gaugeManager = new GaugeManager();
         ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
@@ -7472,14 +7502,11 @@ public class PerformanceStageDeterministicTests
 
         var chartManager = BindChart(stage, CreateSingleNoteChart());
         var judgementManager = CreateActiveJudgement(stage);
-        var scoreManager = new ScoreManager(chartManager.TotalNotes);
-        var comboManager = new ComboManager();
+        stage.Rules!.InitializeScoreAndCombo();
         var gaugeManager = new GaugeManager();
         Assert.True(session.IsPlaying);
         Assert.Equal(SoundState.Playing, bgmInstance.State);
         Assert.Equal(SoundState.Playing, chipInstance.State);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
@@ -7508,8 +7535,7 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         var chartManager = BindChart(stage, CreateSingleNoteChart());
         CreateActiveJudgement(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.PlayerFailed);
@@ -8114,14 +8140,21 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void OnJudgementMade_WithHit_ShouldSpawnNxAttackAndSpriteJudgementText()
     {
-        var stage = CreateStage();
+        using var stage = CreateStageWithPolicy(new ConfigData());
+        BindChart(stage, CreateSingleNoteChart());
+        stage.Rules!.InitializeScoreAndCombo();
         var attackManager = CreateNxAttackEffectManager();
         var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256));
+        var gaugeManager = new GaugeManager();
+        var skillManager = new SkillManager(1, stage.Rules.ComboManager!);
+        var callbacks = new List<string>();
+        stage.Rules.ScoreManager!.ScoreChanged += (_, _) => callbacks.Add("score");
+        stage.Rules.ComboManager!.ComboChanged += (_, _) => callbacks.Add("combo");
+        gaugeManager.GaugeChanged += (_, _) => callbacks.Add("gauge");
+        skillManager.SkillChanged += (_, _) => callbacks.Add("skill");
 
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
-        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
-        ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, new ComboManager()));
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_skillManager", skillManager);
         ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", null);
         ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", spriteTextManager);
@@ -8134,19 +8167,21 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, attackManager.SpawnCallCountForTesting);
 #endif
         Assert.Equal(1, spriteTextManager.ActivePopupCount);
+        Assert.Equal(new[] { "score", "combo", "gauge", "skill" }, callbacks);
+        Assert.Equal(SongScore.CalculatePlayingSkill(1, 1, 0, 1), skillManager.CurrentSkill);
     }
 
     [Fact]
     public void OnJudgementMade_WithMiss_ShouldSkipNxAttackAndShowSpriteJudgementText()
     {
-        var stage = CreateStage();
+        using var stage = CreateStageWithPolicy(new ConfigData());
+        BindChart(stage, CreateSingleNoteChart());
+        stage.Rules!.InitializeScoreAndCombo();
         var attackManager = CreateNxAttackEffectManager();
         var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256));
 
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
-        ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, new ComboManager()));
+        ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, stage.Rules.ComboManager!));
         ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", null);
         ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", spriteTextManager);
@@ -8170,8 +8205,7 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         var chartManager = BindChart(stage, CreateSingleNoteChart());
         CreateActiveJudgement(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        stage.Rules!.InitializeScoreAndCombo();
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
         ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
@@ -8236,10 +8270,8 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         var chartManager = BindChart(stage, CreateSingleNoteChart());
         var judgementManager = CreateActiveJudgement(stage);
-        var comboManager = new ComboManager();
+        stage.Rules!.InitializeScoreAndCombo();
         var gaugeManager = new GaugeManager();
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(chartManager.TotalNotes));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         InstallBoundSession(stage).Dispose();
 
@@ -8258,11 +8290,10 @@ public class PerformanceStageDeterministicTests
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var comboManager = new ComboManager();
+        stage.Rules!.InitializeScoreAndCombo();
+        var comboManager = stage.Rules.ComboManager!;
         var skillManager = new SkillManager(chartManager.TotalNotes, comboManager);
         CreateActiveJudgement(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(chartManager.TotalNotes));
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
         ReflectionHelpers.SetPrivateField(stage, "_skillManager", skillManager);
 
@@ -8345,24 +8376,23 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void CleanupGameplayManagers_ShouldUnsubscribeEvents()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var scoreManager = new ScoreManager(chartManager.TotalNotes);
-        var comboManager = new ComboManager();
-        var gaugeManager = new GaugeManager();
-        var skillManager = new SkillManager(chartManager.TotalNotes, comboManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
-        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
-        ReflectionHelpers.SetPrivateField(stage, "_skillManager", skillManager);
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, CreateSingleNoteChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var rules = stage.Rules!;
+        var score = Assert.IsType<ScoreManager>(rules.ScoreManager);
+        EventHandler<ScoreChangedEventArgs> observer = (_, _) => { };
+        score.ScoreChanged += observer;
+        var subscribers = ReflectionHelpers.GetPrivateField<EventHandler<ScoreChangedEventArgs>>(score, "ScoreChanged");
+        Assert.Contains(subscribers!.GetInvocationList(), callback => callback.Target == stage);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupGameplayManagers");
+        stage.Deactivate();
 
-        Assert.Null(stage.Rules!.JudgementManager);
-        Assert.Null(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
+        Assert.Equal(observer, ReflectionHelpers.GetPrivateField<EventHandler<ScoreChangedEventArgs>>(score, "ScoreChanged"));
+        Assert.Null(rules.JudgementManager);
+        Assert.Null(rules.ScoreManager);
+        Assert.Null(rules.ComboManager);
         Assert.Null(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
         Assert.Null(ReflectionHelpers.GetPrivateField<SkillManager>(stage, "_skillManager"));
     }
@@ -8373,12 +8403,10 @@ public class PerformanceStageDeterministicTests
         using var stage = CreateStageWithPolicy(new ConfigData());
         var chartManager = BindChart(stage, CreateSingleNoteChart());
         var judgementManager = CreateActiveJudgement(stage);
-        var scoreManager = new ScoreManager(chartManager.TotalNotes);
-        var comboManager = new ComboManager();
+        stage.Rules!.InitializeScoreAndCombo();
+        var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = new GaugeManager();
         var skillManager = new SkillManager(chartManager.TotalNotes, comboManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
-        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_skillManager", skillManager);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
