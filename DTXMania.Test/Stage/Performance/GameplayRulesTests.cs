@@ -15,6 +15,83 @@ namespace DTXMania.Test.Stage.Performance;
 public class GameplayRulesTests
 {
     [Fact]
+    public void InitializeGaugeAndSkill_UsesFrozenPolicyBoundChartAndRulesCombo()
+    {
+        var config = new ConfigData { DamageLevel = GaugeDamageLevel.High, Risky = 2, NoFail = false };
+        var rules = new GameplayRules(config);
+        config.DamageLevel = GaugeDamageLevel.Low;
+        config.Risky = 0;
+        config.NoFail = true;
+        var chart = new ParsedChart("gauge-skill.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 2000 });
+        rules.BindChart(chart);
+        rules.InitializeScoreAndCombo();
+
+        Assert.Null(rules.GaugeManager);
+        Assert.Null(rules.SkillManager);
+        rules.InitializeGaugeAndSkill();
+        var gauge = Assert.IsType<GaugeManager>(rules.GaugeManager);
+        var skill = Assert.IsType<SkillManager>(rules.SkillManager);
+        Assert.Equal(GaugeManager.StartingLife, gauge.CurrentLife);
+        Assert.Equal(2, skill.TotalNotes);
+
+        var hit = new JudgementEvent(0, 0, 0, JudgementType.Perfect);
+        rules.ComboManager!.ProcessJudgement(hit);
+        skill.ProcessJudgement(hit);
+        Assert.Equal(SongScore.CalculatePlayingSkill(2, 1, 0, 1), skill.CurrentSkill);
+        var miss = new JudgementEvent(1, 0, 0, JudgementType.Miss);
+        gauge.ProcessJudgement(miss);
+        Assert.Equal(45.5f, gauge.CurrentLife);
+        Assert.False(gauge.HasFailed);
+        gauge.ProcessJudgement(miss);
+        Assert.True(gauge.HasFailed);
+        rules.ClearGaugeAndSkill();
+        rules.ClearScoreAndCombo();
+    }
+
+    [Fact]
+    public void ClearGaugeAndSkill_DisposesAndAllowsFreshManagersForNextChart()
+    {
+        var rules = new GameplayRules(new ConfigData { NoFail = true, Risky = 1 });
+        var first = new ParsedChart("first-gauge-skill.dtx");
+        first.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        rules.BindChart(first);
+        rules.InitializeScoreAndCombo();
+        rules.InitializeGaugeAndSkill();
+        var oldGauge = Assert.IsType<GaugeManager>(rules.GaugeManager);
+        var oldSkill = Assert.IsType<SkillManager>(rules.SkillManager);
+        var miss = new JudgementEvent(0, 0, 0, JudgementType.Miss);
+        oldGauge.ProcessJudgement(miss);
+        Assert.False(oldGauge.HasFailed);
+
+        rules.ClearGaugeAndSkill();
+        Assert.Null(rules.GaugeManager);
+        Assert.Null(rules.SkillManager);
+        oldGauge.ProcessJudgement(miss);
+        oldSkill.ProcessJudgement(miss);
+        Assert.Equal(47f, oldGauge.CurrentLife);
+        Assert.Equal(0, oldSkill.MissCount);
+        rules.ClearGaugeAndSkill();
+        rules.ClearScoreAndCombo();
+
+        var second = new ParsedChart("second-gauge-skill.dtx");
+        second.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        second.Notes.Add(new Note { LaneIndex = 1, TimeMs = 2000 });
+        rules.BindChart(second);
+        rules.InitializeScoreAndCombo();
+        rules.InitializeGaugeAndSkill();
+        var newGauge = Assert.IsType<GaugeManager>(rules.GaugeManager);
+        var newSkill = Assert.IsType<SkillManager>(rules.SkillManager);
+        Assert.NotSame(oldGauge, newGauge);
+        Assert.NotSame(oldSkill, newSkill);
+        Assert.Equal(GaugeManager.StartingLife, newGauge.CurrentLife);
+        Assert.Equal(2, newSkill.TotalNotes);
+        rules.ClearGaugeAndSkill();
+        rules.ClearScoreAndCombo();
+    }
+
+    [Fact]
     public void InitializeScoreAndCombo_UsesBoundChartAndStartsEmpty()
     {
         var rules = new GameplayRules(null);

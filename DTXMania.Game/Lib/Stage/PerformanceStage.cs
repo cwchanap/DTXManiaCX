@@ -74,8 +74,6 @@ namespace DTXMania.Game.Lib.Stage
         private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
-        private GaugeManager _gaugeManager = null!;
-        private SkillManager? _skillManager;
         private SkillPanelDisplay? _skillPanelDisplay;
         private SkillMeterDisplay? _skillMeterDisplay;
         private TabHudDisplay? _tabHudDisplay;
@@ -521,8 +519,7 @@ namespace DTXMania.Game.Lib.Stage
             _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);
             _comboDisplay = new ComboDisplay(_resourceManager, graphicsDevice);
 
-            // Skill displays (SkillManager itself is constructed in InitializeGameplayManagers
-            // because it needs ComboManager + ChartManager.TotalNotes which arrive later)
+            // GameplayRules initializes SkillManager once the chart and combo exist.
             var skillChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
             // The difficulty badge name comes from the selected song-select slot (the chart entity has
             // none once loaded from the DB). This is the same label the song-select panel shows.
@@ -1705,20 +1702,14 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void InitializeGameplayManagers()
         {
-            var chartManager = Rules?.ChartManager;
-            if (chartManager == null || _inputManager == null)
+            if (Rules?.ChartManager == null || _inputManager == null)
                 return;
 
             // Initialize managers
             Rules!.InitializeJudgement(_inputManager);
 
             Rules.InitializeScoreAndCombo();
-            _gaugeManager = new GaugeManager(
-                GaugeManager.StartingLife,
-                Rules?.DamageLevel ?? GaugeDamageLevel.Normal,
-                Rules?.Risky ?? RiskyRange.Default,
-                Rules?.FailureEnabled ?? true);
-            _skillManager = new SkillManager(chartManager.TotalNotes, Rules.ComboManager!);
+            Rules.InitializeGaugeAndSkill();
 
             // Initialize UI state values
             _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
@@ -1741,7 +1732,10 @@ namespace DTXMania.Game.Lib.Stage
             var judgementManager = Rules?.JudgementManager;
             var scoreManager = Rules?.ScoreManager;
             var comboManager = Rules?.ComboManager;
-            if (judgementManager == null || scoreManager == null || comboManager == null || _gaugeManager == null)
+            var gaugeManager = Rules?.GaugeManager;
+            var skillManager = Rules?.SkillManager;
+            if (judgementManager == null || scoreManager == null || comboManager == null
+                || gaugeManager == null || skillManager == null)
                 return;
 
             // Subscribe to judgement events and forward to all managers
@@ -1750,9 +1744,9 @@ namespace DTXMania.Game.Lib.Stage
             // Subscribe to manager events for UI updates
             scoreManager.ScoreChanged += OnScoreChanged;
             comboManager.ComboChanged += OnComboChanged;
-            _gaugeManager.GaugeChanged += OnGaugeChanged;
-            _gaugeManager.Failed += OnPlayerFailed;
-            _skillManager.SkillChanged += OnSkillChanged;
+            gaugeManager.GaugeChanged += OnGaugeChanged;
+            gaugeManager.Failed += OnPlayerFailed;
+            skillManager.SkillChanged += OnSkillChanged;
         }
 
         /// <summary>
@@ -1831,8 +1825,8 @@ namespace DTXMania.Game.Lib.Stage
             Rules?.ScoreManager?.ProcessJudgement(e);
             Rules?.ComboManager?.ProcessJudgement(e);
             if (!FrozenAutoPlayLanes.Contains(e.Lane) || (Rules?.AutoAddGauge ?? true))
-                _gaugeManager?.ProcessJudgement(e);
-            _skillManager?.ProcessJudgement(e);
+                Rules?.GaugeManager?.ProcessJudgement(e);
+            Rules?.SkillManager?.ProcessJudgement(e);
             _skillPanelDisplay?.ProcessJudgement(e, Rules?.ComboManager?.MaxCombo ?? 0);
 
             // Spawn hit effect for successful hits (non-Miss)
@@ -2116,15 +2110,15 @@ namespace DTXMania.Game.Lib.Stage
                 comboManager.ComboChanged -= OnComboChanged;
             }
 
-            if (_gaugeManager != null)
+            if (Rules?.GaugeManager is { } gaugeManager)
             {
-                _gaugeManager.GaugeChanged -= OnGaugeChanged;
-                _gaugeManager.Failed -= OnPlayerFailed;
+                gaugeManager.GaugeChanged -= OnGaugeChanged;
+                gaugeManager.Failed -= OnPlayerFailed;
             }
 
-            if (_skillManager != null)
+            if (Rules?.SkillManager is { } skillManager)
             {
-                _skillManager.SkillChanged -= OnSkillChanged;
+                skillManager.SkillChanged -= OnSkillChanged;
             }
 
             // Unsubscribe from input events
@@ -2136,10 +2130,7 @@ namespace DTXMania.Game.Lib.Stage
             // Dispose managers
             Rules?.ClearJudgement();
             Rules?.ClearScoreAndCombo();
-            _gaugeManager?.Dispose();
-            _gaugeManager = null;
-            _skillManager?.Dispose();
-            _skillManager = null;
+            Rules?.ClearGaugeAndSkill();
         }
 
         #endregion
@@ -2549,7 +2540,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            if (_gaugeManager?.HasFailed == true)
+            if (Rules?.GaugeManager?.HasFailed == true)
             {
                 FinalizePerformance(CompletionReason.PlayerFailed);
             }
@@ -2585,7 +2576,7 @@ namespace DTXMania.Game.Lib.Stage
             var summaryChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
             int summaryLevel = summaryChart?.DrumLevel ?? 0;
             int summaryLevelDec = summaryChart?.DrumLevelDec ?? 0;
-            double summaryPlayingSkill = _skillManager?.CurrentSkill ?? 0.0;
+            double summaryPlayingSkill = Rules?.SkillManager?.CurrentSkill ?? 0.0;
             double summaryGameSkill = SongScore.CalculateGameSkill(
                 summaryPlayingSkill, summaryLevel, summaryLevelDec);
 
@@ -2604,7 +2595,7 @@ namespace DTXMania.Game.Lib.Stage
                 PoorCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
                 MissCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
                 TotalNotes = Rules?.ChartManager?.TotalNotes ?? 0,
-                FinalLife = _gaugeManager?.CurrentLife ?? 0.0f,
+                FinalLife = Rules?.GaugeManager?.CurrentLife ?? 0.0f,
                 CompletionReason = reason,
                 PlayingSkill = summaryPlayingSkill,
                 GameSkill = summaryGameSkill,
@@ -2681,8 +2672,8 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.Score = Rules?.ScoreManager?.CurrentScore ?? 0;
             telemetry.CurrentCombo = Rules?.ComboManager?.CurrentCombo ?? 0;
             telemetry.MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0;
-            telemetry.Gauge = _gaugeManager?.CurrentLife ?? 0.0f;
-            telemetry.HasFailed = _gaugeManager?.HasFailed ?? false;
+            telemetry.Gauge = Rules?.GaugeManager?.CurrentLife ?? 0.0f;
+            telemetry.HasFailed = Rules?.GaugeManager?.HasFailed ?? false;
             telemetry.TotalNotes = chartManager?.TotalNotes ?? 0;
             telemetry.PerfectCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
             telemetry.GreatCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
