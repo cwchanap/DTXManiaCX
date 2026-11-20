@@ -69,21 +69,14 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PopulateTelemetry_WhenManagersExist_ShouldExposePerformanceState()
     {
-        using var stage = CreateStageWithAutoPlay(Enumerable.Range(0, PerformanceUILayout.LaneCount).ToArray());
+        var config = new ConfigData();
+        config.AutoPlayLanes.UnionWith(Enumerable.Range(0, PerformanceUILayout.LaneCount));
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
         var chart = new ParsedChart("telemetry.dtx");
         chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        var chartManager = BindChart(stage, chart);
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var judgementManager = CreateActiveJudgement(stage);
-        var selectedSong = new SongListNode { Title = "E2E AutoPlay Smoke" };
-
-        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 0);
-        InstallBoundSession(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 1.5);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "E2E AutoPlay Smoke" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
 
         var telemetry = new GameTelemetrySnapshot();
 
@@ -99,106 +92,157 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, telemetry.CurrentCombo);
         Assert.Equal(0, telemetry.MaxCombo);
         Assert.Equal(GaugeManager.StartingLife, telemetry.Gauge);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_WhenAutoPlayIsPartial_ShouldReportAutoPlayDisabled()
     {
-        using var stage = CreateStageWithAutoPlay(0, 1);
+        var config = new ConfigData();
+        config.AutoPlayLanes.UnionWith(new[] { 0, 1 });
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
         var chart = new ParsedChart("partial-autoplay-telemetry.dtx");
         chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        BindChart(stage, chart);
-        InstallBoundSession(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Partial" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
 
         var telemetry = new GameTelemetrySnapshot();
 
         stage.PopulateTelemetry(telemetry);
 
         Assert.False(telemetry.AutoPlayEnabled);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_WhenNotationStripReady_ShouldReportTabStyle()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        using var input = new MockInputManagerCompat();
+        var resources = CreateNotationResourceManager(completeBravura: true);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab }, input, resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, CreateFinalizedTabChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
 
         var telemetry = new GameTelemetrySnapshot();
 
         stage.PopulateTelemetry(telemetry);
 
         Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_WhenNotationStripMissing_ShouldReportLanesStyle()
     {
-        var stage = CreateStage();
+        using var input = new MockInputManagerCompat();
+        var resources = CreateNotationResourceManager(completeBravura: false);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab }, input, resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fallback" }, 0, CreateFinalizedTabChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
 
         var telemetry = new GameTelemetrySnapshot();
 
         stage.PopulateTelemetry(telemetry);
 
         Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
+        stage.Deactivate();
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenSongTimerMissing_ShouldReportPerformanceNotReady()
+    public async Task PopulateTelemetry_WhenSongTimerMissing_ShouldReportPerformanceNotReady()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var chart = new ParsedChart("telemetry.dtx");
-        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        BindChart(stage, chart);
-
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
-
-        var telemetry = new GameTelemetrySnapshot();
-
-        stage.PopulateTelemetry(telemetry);
-
-        Assert.False(telemetry.PerformanceReady);
+        var directory = CreateTempDirectory();
+        using var stage = new GatedVariantStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { PlaySpeedPercent = 50 }));
+        try
+        {
+            var chart = new ParsedChart("telemetry.dtx");
+            chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "timer.wav");
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, chart));
+            await stage.ProcessorEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var telemetry = new GameTelemetrySnapshot();
+            UpdateUntil(stage, () =>
+            {
+                stage.PopulateTelemetry(telemetry);
+                return telemetry.TotalNotes == 1;
+            });
+            Assert.Null(stage.AudioSession);
+            Assert.False(telemetry.PerformanceReady);
+        }
+        finally
+        {
+            stage.Deactivate();
+            stage.ReleaseProcessor.TrySetResult();
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenAudioPreparationInProgress_ShouldExposeFrozenProfileAndMetrics()
+    public async Task PopulateTelemetry_WhenAudioPreparationInProgress_ShouldExposeFrozenProfileAndMetrics()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(75, -3));
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_audioPreparationProgress",
-            new AudioPreparationProgress(
-                CompletedCount: 3,
-                TotalCount: 5,
-                CurrentRole: "chip",
-                CacheHitCount: 2,
-                Elapsed: TimeSpan.FromSeconds(1),
-                DecodedByteEstimate: 4096));
+        var directory = CreateTempDirectory();
+        var config = new ConfigData { PlaySpeedPercent = 75, PitchSemitones = -3 };
+        using var stage = new GatedVariantStage(CreateHeadlessGame(new StageTestLogger(), config));
+        try
+        {
+            var chart = new ParsedChart("progress-telemetry.dtx");
+            chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "audio.wav");
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Progress" }, 0, chart));
+            await stage.ProcessorEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var telemetry = new GameTelemetrySnapshot();
+            UpdateUntil(stage, () =>
+            {
+                stage.PopulateTelemetry(telemetry);
+                return telemetry.AudioPreparationTotal == 1;
+            });
+            config.PlaySpeedPercent = 100;
+            config.PitchSemitones = 0;
+            Assert.Equal(75, telemetry.PlaySpeedPercent);
+            Assert.Equal(-3, telemetry.PitchSemitones);
+            Assert.True(telemetry.PlaybackProfileFrozen);
+            Assert.Equal(0, telemetry.AudioPreparationCompleted);
+            Assert.Equal(1, telemetry.AudioPreparationTotal);
+            Assert.Equal(0, telemetry.AudioPreparationCacheHits);
+            Assert.Equal(0L, telemetry.PreparedAudioBytes);
+            stage.ReleaseProcessor.TrySetResult();
+            UpdateUntil(stage, () => stage.AudioSession != null);
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal(1, telemetry.AudioPreparationCompleted);
+            Assert.Equal(1, telemetry.AudioPreparationTotal);
+            Assert.Equal(0, telemetry.AudioPreparationCacheHits);
+            Assert.Equal(8L, telemetry.PreparedAudioBytes);
+            Assert.Equal(75, telemetry.PlaySpeedPercent);
+            Assert.Equal(-3, telemetry.PitchSemitones);
+            stage.Deactivate();
 
-        var telemetry = new GameTelemetrySnapshot();
-
-        stage.PopulateTelemetry(telemetry);
-
-        Assert.Equal(75, telemetry.PlaySpeedPercent);
-        Assert.Equal(-3, telemetry.PitchSemitones);
-        Assert.True(telemetry.PlaybackProfileFrozen);
-        Assert.Equal(3, telemetry.AudioPreparationCompleted);
-        Assert.Equal(5, telemetry.AudioPreparationTotal);
-        Assert.Equal(2, telemetry.AudioPreparationCacheHits);
-        Assert.Equal(4096L, telemetry.PreparedAudioBytes);
+            config.PlaySpeedPercent = 75;
+            config.PitchSemitones = -3;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Cached" }, 0, chart));
+            UpdateUntil(stage, () => stage.AudioSession != null);
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal(1, telemetry.AudioPreparationCompleted);
+            Assert.Equal(1, telemetry.AudioPreparationCacheHits);
+            Assert.Equal(8L, telemetry.PreparedAudioBytes);
+            stage.Deactivate();
+        }
+        finally
+        {
+            if (stage.IsActive)
+                stage.Deactivate();
+            stage.ReleaseProcessor.TrySetResult();
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
     public void PopulateTelemetry_WhenAudioPreparationHasNotReported_ShouldExposeZeroMetrics()
     {
-        var stage = CreateStage();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("initial.dtx")));
 
         var telemetry = new GameTelemetrySnapshot();
 
@@ -208,22 +252,21 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, telemetry.AudioPreparationTotal);
         Assert.Equal(0, telemetry.AudioPreparationCacheHits);
         Assert.Equal(0L, telemetry.PreparedAudioBytes);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_WhenChartManagerMissing_ShouldReportPerformanceNotReady()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.0);
-        InstallBoundSession(stage);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
 
         var telemetry = new GameTelemetrySnapshot();
 
         stage.PopulateTelemetry(telemetry);
 
         Assert.False(telemetry.PerformanceReady);
+        stage.Deactivate();
     }
 
     private static Task<PreparedGameplayAudioSet?> StartGameplayInitialization(PerformanceStage stage)
@@ -1909,6 +1952,8 @@ public class PerformanceStageDeterministicTests
     {
         private TaskCompletionSource? _processorEntered;
         private TaskCompletionSource? _releaseProcessor;
+        private TaskCompletionSource? _processorCompleted;
+        private string? _cacheRoot;
 
         public GatedVariantStage(IStageGame game)
             : base(game)
@@ -1926,11 +1971,15 @@ public class PerformanceStageDeterministicTests
         {
             _processorEntered ??= NewGate();
             _releaseProcessor ??= NewGate();
+            _processorCompleted ??= NewGate();
+            _cacheRoot ??= Path.Combine(
+                Path.GetTempPath(), "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N"));
         }
 
         public TaskCompletionSource ProcessorEntered => _processorEntered!;
 
         public TaskCompletionSource ReleaseProcessor => _releaseProcessor!;
+        public TaskCompletionSource ProcessorCompleted => _processorCompleted!;
 
         private static TaskCompletionSource NewGate() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1942,14 +1991,13 @@ public class PerformanceStageDeterministicTests
         {
             var entered = ProcessorEntered;
             var release = ReleaseProcessor;
-            return () => new GatedProcessor(entered, release);
+            var completed = ProcessorCompleted;
+            return () => new GatedProcessor(entered, release, completed);
         }
 
         protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
         {
-            var cacheRoot = Path.Combine(
-                Path.GetTempPath(),
-                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N"));
+            var cacheRoot = _cacheRoot!;
             return () => new PlaybackAudioVariantCache(cacheRoot);
         }
 
@@ -1957,11 +2005,13 @@ public class PerformanceStageDeterministicTests
         {
             private readonly TaskCompletionSource _entered;
             private readonly TaskCompletionSource _release;
+            private readonly TaskCompletionSource _completed;
 
-            public GatedProcessor(TaskCompletionSource entered, TaskCompletionSource release)
+            public GatedProcessor(TaskCompletionSource entered, TaskCompletionSource release, TaskCompletionSource completed)
             {
                 _entered = entered;
                 _release = release;
+                _completed = completed;
             }
 
             public async Task<PreparedAudioArtifact> PrepareAsync(
@@ -1978,8 +2028,15 @@ public class PerformanceStageDeterministicTests
                 // WaitAsync waiter from the still-parked processor, so the worker
                 // task would complete without witnessing this continuation (the
                 // cancellation test parks in the default profile instead).
-                cancellationToken.ThrowIfCancellationRequested();
-                return new PreparedAudioArtifact(44100, 1, new byte[8]);
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return new PreparedAudioArtifact(44100, 1, new byte[8]);
+                }
+                finally
+                {
+                    _completed.TrySetResult();
+                }
             }
         }
     }
@@ -2345,6 +2402,340 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public async Task Telemetry_ConcurrentPollDuringJudgementSeesLastCompletePublication()
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var chart = new ParsedChart("telemetry-atomic.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        input.ModularInputManager.KeyBindings.BindButton("Test.Atomic", 0);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Atomic" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Atomic", true));
+        input.ModularInputManager.Update();
+
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        stage.Rules!.ScoreManager!.ScoreChanged += (_, _) =>
+        {
+            entered.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+        };
+        var update = Task.Run(() => stage.Update(0.1));
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            for (int i = 0; i < 1000; i++)
+            {
+                var snapshot = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(snapshot);
+                Assert.Equal(0, snapshot.Score);
+                Assert.Equal(0, snapshot.PerfectCount);
+                Assert.Equal(0, snapshot.CurrentCombo);
+            }
+        }
+        finally
+        {
+            release.Set();
+            await update.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        var completed = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(completed);
+        Assert.Equal(1000000, completed.Score);
+        Assert.Equal(1, completed.PerfectCount);
+        Assert.Equal(1, completed.CurrentCombo);
+        stage.Deactivate();
+    }
+
+    [Theory]
+    [InlineData(0)] // Poor hit
+    [InlineData(1)] // timeout Miss
+    [InlineData(2)] // late manual Miss (Hit status)
+    public async Task Telemetry_FailurePublishesStatusBeforeReentrantTransitionAndReactivation(int failureKind)
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData { Risky = 1 }, input));
+        var chart = new ParsedChart("failure-snapshot.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 1, TimeMs = 1000 });
+        var nextChart = new ParsedChart("new-snapshot.dtx") { DurationMs = 10000 };
+        nextChart.Notes.Add(new Note { Id = 0, LaneIndex = 2, TimeMs = 1000 });
+        input.ModularInputManager.KeyBindings.BindButton("Test.First", 0);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Fail", 1);
+        var manager = new Mock<IStageManager>();
+        stage.StageManager = manager.Object;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Failed" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.First", true));
+        input.ModularInputManager.Update();
+        stage.Update(0.1);
+        var judgement = stage.Rules!.JudgementManager!;
+        var preEventSkill = stage.Rules.SkillManager!.CurrentSkill;
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        GameTelemetrySnapshot? atTransition = null;
+        PerformanceSummary? summary = null;
+        int[]? scanned = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(),
+                It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
+            {
+                atTransition = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(atTransition);
+                summary = Assert.IsType<PerformanceResult>(payload).Summary;
+                scanned = Enum.GetValues<JudgementType>().Select(judgement.GetJudgementCount).ToArray();
+                entered.Set();
+                Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+                stage.Deactivate();
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Next" }, 0, nextChart));
+            });
+        if (failureKind != 1)
+        {
+            Assert.True(input.ModularInputManager.InjectButton("Test.Fail", true));
+            input.ModularInputManager.Update();
+        }
+        var update = Task.Run(() => stage.Update(failureKind switch
+        {
+            0 => 1.02,
+            1 => 1.101,
+            _ => 1.06
+        }));
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.NotNull(summary);
+            Assert.NotNull(atTransition);
+            Assert.Equal(preEventSkill, summary!.PlayingSkill);
+            Assert.True(atTransition!.StageCompleted);
+            Assert.True(atTransition.HasFailed);
+            Assert.False(atTransition.PerformanceReady);
+            Assert.Equal(1, atTransition.PerfectCount);
+            Assert.Equal(failureKind == 0 ? 1 : 0, atTransition.PoorCount);
+            Assert.Equal(failureKind == 1 ? 1 : 0, atTransition.MissCount);
+            Assert.Equal(scanned, new[] { summary.PerfectCount, summary.GreatCount,
+                summary.GoodCount, summary.PoorCount, summary.MissCount });
+            for (int i = 0; i < 1000; i++)
+            {
+                var poll = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(poll);
+                Assert.True(poll.StageCompleted);
+                Assert.Equal(atTransition.Score, poll.Score);
+                Assert.Equal(atTransition.PoorCount, poll.PoorCount);
+                Assert.Equal(atTransition.MissCount, poll.MissCount);
+            }
+        }
+        finally
+        {
+            release.Set();
+            await update.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        var next = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(next);
+        Assert.Equal("Next", next.SelectedSongTitle);
+        Assert.False(next.StageCompleted);
+        Assert.Equal(0, next.TotalJudgements);
+        Assert.Null(judgement.GetNoteRuntimeData(chart.Notes[1].Id));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.PopulateTelemetry(next);
+        Assert.True(next.PerformanceReady);
+        Assert.Equal(1, next.TotalNotes);
+        Assert.Equal(0, next.Score);
+        stage.Deactivate();
+    }
+
+    [Fact]
+    public async Task Telemetry_ConcurrentPollingAcrossAudioCancellationHitsAndReactivation()
+    {
+        var directory = CreateTempDirectory();
+        try
+        {
+            var config = new ConfigData { PlaySpeedPercent = 50 };
+            using var input = new MockInputManagerCompat();
+            using var stage = new GatedVariantStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+            input.ModularInputManager.KeyBindings.BindButton("Test.Left", 0);
+            input.ModularInputManager.KeyBindings.BindButton("Test.Right", 1);
+            var first = new ParsedChart("gated-snapshot.dtx") { DurationMs = 100000 };
+            first.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 90000 });
+            first.BackgroundAudioPath = CreatePlaceholderSource(directory, "gated.wav");
+            var second = new ParsedChart("live-snapshot.dtx") { DurationMs = 100000 };
+            second.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 90000 });
+            using var stop = new CancellationTokenSource();
+            var progressSeen = 0;
+            var cleanupSeen = 0;
+            var hitSeen = 0;
+            var poll = Task.Run(() =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    var snapshot = new GameTelemetrySnapshot();
+                    stage.PopulateTelemetry(snapshot);
+                    if (snapshot.SelectedSongTitle == "Gated" && snapshot.TotalNotes == 1 &&
+                        snapshot.AudioPreparationTotal == 1 && !snapshot.PerformanceReady.GetValueOrDefault())
+                        Interlocked.Exchange(ref progressSeen, 1);
+                    if (snapshot.SelectedSongTitle == "Live" && snapshot.TotalNotes == 0 &&
+                        !snapshot.PerformanceReady.GetValueOrDefault() && snapshot.LastLaneHitLane == null)
+                        Interlocked.Exchange(ref cleanupSeen, 1);
+                    if (snapshot.LastLaneHitLane is int lane)
+                    {
+                        Assert.Equal(lane == 0 ? "Test.Left" : "Test.Right", snapshot.LastLaneHitButtonId);
+                        Assert.NotNull(snapshot.LastLaneHitSongTimeMs);
+                        var time = (int)Math.Round(snapshot.LastLaneHitSongTimeMs!.Value);
+                        Assert.Equal(lane == 0 ? 100 : 0, time % 200);
+                        Interlocked.Exchange(ref hitSeen, time);
+                    }
+                }
+            });
+            try
+            {
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Gated" }, 0, first));
+                await stage.ProcessorEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                UpdateUntil(stage, () => Volatile.Read(ref progressSeen) == 1);
+                stage.Deactivate();
+                config.PlaySpeedPercent = 100;
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Live" }, 0, second));
+                stage.ReleaseProcessor.TrySetResult();
+                await stage.ProcessorCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                UpdateUntil(stage, () => stage.AudioSession != null);
+                stage.Update(1.1);
+                for (int i = 1; i <= 20; i++)
+                {
+                    stage.Update(0.1);
+                    string button = i % 2 == 1 ? "Test.Left" : "Test.Right";
+                    Assert.True(input.ModularInputManager.InjectButton(button, true));
+                    input.ModularInputManager.Update();
+                    Assert.True(input.ModularInputManager.InjectButton(button, false));
+                    input.ModularInputManager.Update();
+                    stage.Update(0);
+                    int expectedTime = i * 100;
+                    Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref hitSeen) == expectedTime,
+                        TimeSpan.FromSeconds(5)), $"poller did not observe hit {i}");
+                }
+                stage.Deactivate();
+                Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref cleanupSeen) == 1, TimeSpan.FromSeconds(5)));
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, second));
+                UpdateUntil(stage, () => stage.AudioSession != null);
+                var fresh = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(fresh);
+                Assert.Equal("Fresh", fresh.SelectedSongTitle);
+                Assert.Equal(100, fresh.PlaySpeedPercent);
+                Assert.Equal(0, fresh.AudioPreparationTotal);
+                Assert.Equal(0L, fresh.PreparedAudioBytes);
+                Assert.Equal(0, fresh.TotalJudgements);
+                Assert.Null(fresh.LastLaneHitLane);
+                stage.Deactivate();
+            }
+            finally
+            {
+                stage.ReleaseProcessor.TrySetResult();
+                stop.Cancel();
+                await poll.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Telemetry_ConcurrentPollWhileTabResourcesAreBeingDisposed()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var releases = 0;
+        var resources = CreateNotationResourceManager(true, () =>
+        {
+            if (Interlocked.Increment(ref releases) == 1)
+            {
+                entered.Set();
+                Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+            }
+        });
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input, resources));
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, CreateFinalizedTabChart()));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var deactivation = Task.Run(stage.Deactivate);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            for (int i = 0; i < 1000; i++)
+            {
+                var snapshot = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(snapshot);
+                Assert.Equal("Tab", snapshot.SelectedSongTitle);
+                Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), snapshot.NoteDisplayStyle);
+                Assert.True(snapshot.PerformanceReady);
+                Assert.Equal(1, snapshot.TotalNotes);
+            }
+        }
+        finally
+        {
+            release.Set();
+            await deactivation.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        var cleaned = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(cleaned);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), cleaned.NoteDisplayStyle);
+        Assert.False(cleaned.PerformanceReady);
+        Assert.Equal(0, cleaned.TotalNotes);
+    }
+
+    [Fact]
+    public void Telemetry_StatusCountsMatchChartScansAndExcludeLateManualMiss()
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData { NoFail = true }, input));
+        var chart = new ParsedChart("status-telemetry.dtx") { DurationMs = 10000 };
+        for (int i = 0; i < 6; i++)
+        {
+            chart.Notes.Add(new Note { Id = i, LaneIndex = i, TimeMs = 1000 * (i + 1) });
+            input.ModularInputManager.KeyBindings.BindButton($"Test.Status{i}", i);
+        }
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Statuses" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        var judgement = stage.Rules!.JudgementManager!;
+        var telemetry = new GameTelemetrySnapshot();
+        void CheckCounts()
+        {
+            stage.PopulateTelemetry(telemetry);
+            int?[] counts = { telemetry.PerfectCount, telemetry.GreatCount, telemetry.GoodCount,
+                telemetry.PoorCount, telemetry.MissCount };
+            foreach (var type in Enum.GetValues<JudgementType>())
+                Assert.Equal(judgement.GetJudgementCount(type), counts[(int)type]);
+        }
+        double previousTime = 0;
+        double[] hitTimes = { 1000, 2040, 3080, 4120, 5160 };
+        for (int lane = 0; lane < hitTimes.Length; lane++)
+        {
+            Assert.True(input.ModularInputManager.InjectButton($"Test.Status{lane}", true));
+            input.ModularInputManager.Update();
+            stage.Update((hitTimes[lane] - previousTime) / 1000.0);
+            previousTime = hitTimes[lane];
+            CheckCounts();
+        }
+        stage.Update((6201 - previousTime) / 1000.0);
+        CheckCounts();
+        Assert.Equal(1, telemetry.PerfectCount);
+        Assert.Equal(1, telemetry.GreatCount);
+        Assert.Equal(1, telemetry.GoodCount);
+        Assert.Equal(1, telemetry.PoorCount);
+        Assert.Equal(1, telemetry.MissCount);
+        Assert.Equal(2, stage.Rules.BuildFrameState(6201).MissCount);
+        Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
+        Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[5].Id)!.Status);
+        stage.Deactivate();
+    }
+
+    [Fact]
     public void ChartPublication_InitializesGameplayAndIgnoresCountdownInput()
     {
         using var input = new MockInputManagerCompat();
@@ -2450,7 +2841,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1000000, telemetry.Score);
         Assert.Equal(2, telemetry.CurrentCombo);
         Assert.Equal(
-            new (int Lane, int? Score, int? Combo)[] { (0, 500000, 1), (1, 1000000, 2) },
+            new (int Lane, int? Score, int? Combo)[] { (0, 0, 0), (1, 500000, 1) },
             callbacks);
         Assert.Equal(
             new (string Manager, int Score, int Combo, float Gauge)[]
@@ -3116,25 +3507,32 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PopulateTelemetry_LastHitRecorded_ShouldDeconstructConsistently()
     {
-        // Guards the torn-read fix: the three LastLaneHit* telemetry values must all come
-        // from the same immutable record snapshot, never a mix of two different hits.
-        // A single record reference is read once (atomic) and then deconstructed.
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHit", new PerformanceStage.LastLaneHit(7, "MIDI.42", 5678.5));
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var chart = new ParsedChart("last-hit.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 7, TimeMs = 9000 });
+        input.ModularInputManager.KeyBindings.BindButton("MIDI.42", 7);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Hit" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(1.5);
+        Assert.True(input.ModularInputManager.InjectButton("MIDI.42", true));
+        input.ModularInputManager.Update();
+        stage.Update(0);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
 
         Assert.Equal(7, telemetry.LastLaneHitLane);
         Assert.Equal("MIDI.42", telemetry.LastLaneHitButtonId);
-        Assert.Equal(5678.5, telemetry.LastLaneHitSongTimeMs);
+        Assert.Equal(1500, telemetry.LastLaneHitSongTimeMs);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_NoHitRecorded_ShouldReportNullLastHit()
     {
-        var stage = CreateStage();
-        // _lastLaneHit is null by default (no hit recorded).
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -3147,53 +3545,36 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PopulateTelemetry_WhenSongTimerPlaying_ShouldReportCurrentSongTimeMs()
     {
-        // Exercises the PopulateTelemetry snapshot path where songTimerPlaying is true
-        // and currentGameTime is not null, so GetCurrentMs is called.
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var chart = new ParsedChart("playing-telemetry.dtx");
-        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        BindChart(stage, chart);
-        InstallBoundSession(stage, start: true);
-        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-            new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        var chart = new ParsedChart("playing-telemetry.dtx") { DurationMs = 10000 };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Playing" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(2);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
 
-        // SongTimer is playing with _startTime=Zero, so GetCurrentMs = 2000 - 0 = 2000.
-        // Telemetry reports the raw clock: latency compensation happens in
-        // PerformanceStage.GetPlayerJudgementTimeMs (player judgement only),
-        // never inside SongTimer.GetCurrentMs.
-        Assert.True(telemetry.CurrentSongTimeMs > 0.0);
+        Assert.Equal(2000.0, telemetry.CurrentSongTimeMs);
         Assert.True(telemetry.PerformanceReady);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_WhenSongTimerPaused_ShouldReportFrozenLogicalTime()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var chart = new ParsedChart("paused-telemetry.dtx");
-        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        BindChart(stage, chart);
-        var session = InstallBoundSession(
-            stage,
-            modifiers: new PlaybackModifiers(150, 0),
-            start: true);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
+            new StageTestLogger(), new ConfigData { PlaySpeedPercent = 150, PitchSemitones = -4 }));
+        var chart = new ParsedChart("paused-telemetry.dtx") { DurationMs = 10000 };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Paused" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(1);
+        var session = stage.AudioSession!;
         session.Timer!.Pause(new GameTime(
-            TimeSpan.FromMilliseconds(1000),
+            TimeSpan.FromMilliseconds(2100),
             TimeSpan.Zero));
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_currentGameTime",
-            new GameTime(TimeSpan.FromMilliseconds(5000), TimeSpan.Zero));
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(150, -4));
+        stage.Update(3);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -3203,42 +3584,40 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(150, telemetry.PlaySpeedPercent);
         Assert.Equal(-4, telemetry.PitchSemitones);
         Assert.True(telemetry.PlaybackProfileFrozen);
+        stage.Deactivate();
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenSongTimerPlayingButCurrentGameTimeNull_ShouldReportZeroSongTime()
+    public void PopulateTelemetry_WhenAudioBindsBeforeFirstUpdate_ShouldReportZeroSongTime()
     {
-        // Exercises the branch where songTimerPlaying is true but currentGameTime is null,
-        // so CurrentSongTimeMs falls back to 0.0.
-        using var stage = CreateStageWithPolicy(new ConfigData());
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var chart = new ParsedChart("null-gametime.dtx");
-        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        BindChart(stage, chart);
-        InstallBoundSession(stage, start: true);
-        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", null);
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "First frame" }, 0, chart));
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            stage.BackgroundWork!.Drain();
+            return stage.AudioSession != null;
+        }, TimeSpan.FromSeconds(5)));
+        Assert.False(stage.AudioSession!.IsPlaying);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
 
         Assert.Equal(0.0, telemetry.CurrentSongTimeMs);
         Assert.True(telemetry.PerformanceReady);
+        stage.Deactivate();
     }
 
     [Fact]
     public void PopulateTelemetry_WhenSongTimerNotPlaying_ShouldReportZeroSongTimeAndNotReady()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var chart = new ParsedChart("stopped-telemetry.dtx");
-        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
-        BindChart(stage, chart);
-        // Stopped timer: _isPlaying = false
-        InstallBoundSession(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
-            new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
-        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
+        var chart = new ParsedChart("stopped-telemetry.dtx") { DurationMs = 10000 };
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Stopped" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.AudioSession!.StopAll();
+        stage.Update(0);
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
@@ -3246,6 +3625,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.0, telemetry.CurrentSongTimeMs);
         // _isReady is false and songTimerPlaying is false, so PerformanceReady is false.
         Assert.False(telemetry.PerformanceReady);
+        stage.Deactivate();
     }
 
     [Fact]
@@ -6905,9 +7285,10 @@ public class PerformanceStageDeterministicTests
         Assert.True(input.ModularInputManager.InjectButton("Test.Manual", true));
         input.ModularInputManager.Update();
         stage.PopulateTelemetry(gameplay);
-        Assert.Equal(1, gameplay.LastLaneHitLane);
+        Assert.Null(gameplay.LastLaneHitLane);
         stage.Update(0.1);
         stage.PopulateTelemetry(gameplay);
+        Assert.Equal(1, gameplay.LastLaneHitLane);
         Assert.Equal(2, gameplay.PerfectCount);
         Assert.Equal(1000000, gameplay.Score);
         stage.Deactivate();

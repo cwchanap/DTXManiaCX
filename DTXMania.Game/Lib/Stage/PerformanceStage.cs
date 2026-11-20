@@ -141,17 +141,10 @@ namespace DTXMania.Game.Lib.Stage
         private GameTime _currentGameTime = null!;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
-        // Last-hit telemetry, published on the Update thread (OnLaneHitForPadFeedback) and
-        // read on the Kestrel API thread (PopulateTelemetry). Collapsed into a single
-        // immutable reference so the API thread can never observe a torn combination
-        // (e.g. a stale lane paired with a fresh song time): reference assignment is
-        // atomic on .NET, and the record's init-only fields are fully constructed before
-        // the reference is published. "No hit yet" is represented by a null reference.
-        // Matches the existing non-volatile cross-thread read pattern used by the other
-        // PopulateTelemetry fields (completion, _isLoading, ...); freshness is not a
-        // goal here — only internal consistency of the three values.
+        // Input and lifecycle changes are captured together in the published snapshot.
         internal sealed record LastLaneHit(int Lane, string? ButtonId, double SongTimeMs);
         private LastLaneHit? _lastLaneHit;
+        private PublishedTelemetry _publishedTelemetry = new();
         private Texture2D? _fallbackWhiteTexture;
 
         // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
@@ -297,6 +290,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Freeze run configuration from config
             FreezeRunConfiguration();
+            PublishTelemetry();
 
             // Initialize UI components
             InitializeComponents();
@@ -326,10 +320,12 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             CleanupComponents();
+            PublishTelemetry();
         }
 
         protected override void OnUpdate(double deltaTime)
         {
+            var scope = BackgroundWork;
             // Update total time for precise GameTime tracking
             _totalTime += deltaTime;
 
@@ -341,6 +337,8 @@ namespace DTXMania.Game.Lib.Stage
 
             // Handle input
             HandleInput();
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             // Update UI manager
             _uiManager?.Update(deltaTime);
@@ -353,9 +351,13 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update gameplay state
             UpdateGameplay(deltaTime);
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             // Update song timer
             _audioSession?.UpdateTimer(_currentGameTime);
+            if (scope != null && ReferenceEquals(scope, BackgroundWork))
+                PublishTelemetry();
         }
 
 
@@ -792,6 +794,7 @@ namespace DTXMania.Game.Lib.Stage
             // This prevents premature texture disposal that causes gauge flickering
 
             // Return to song selection stage
+            PublishTelemetry();
             StageManager?.ChangeStage(StageType.SongSelect,
                 new DTXManiaFadeTransition(0.5));
         }
@@ -823,6 +826,7 @@ namespace DTXMania.Game.Lib.Stage
             _isLoading = false;
             _isReady = false;
             _loadErrorMessage = message;
+            PublishTelemetry();
             LogPerformanceError(message, exception);
         }
 
@@ -991,6 +995,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 FailLoading($"Chart setup failed: {ex.Message}", ex);
             }
+            PublishTelemetry();
         }
 
         /// <summary>
@@ -1036,6 +1041,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (!ownershipTransferred)
                     audioSet.Dispose();
+                PublishTelemetry();
             }
         }
 
@@ -1047,6 +1053,7 @@ namespace DTXMania.Game.Lib.Stage
         private void ApplyAudioPreparationProgress(AudioPreparationProgress progress)
         {
             _audioPreparationProgress = progress;
+            PublishTelemetry();
         }
 
         /// <summary>
@@ -1132,6 +1139,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void UpdateGameplay(double deltaTime)
         {
+            var scope = BackgroundWork;
             if (_isLoading)
             {
                 return;
@@ -1184,6 +1192,8 @@ namespace DTXMania.Game.Lib.Stage
                 var playerJudgementTimeMs = GetPlayerJudgementTimeMs(currentTimeMs);
 
                 UpdateGameplayManagers(currentTimeMs, playerJudgementTimeMs);
+                if (!ReferenceEquals(scope, BackgroundWork))
+                    return;
                 
                 // Update song progress
                 UpdateSongProgress(currentTimeMs);
@@ -1928,10 +1938,20 @@ namespace DTXMania.Game.Lib.Stage
             double logicalSongTimeMs,
             double pendingHitTimeMs)
         {
-            if (FrozenAutoPlayLanes.Count > 0)
-                Rules?.ProcessAutoPlay(logicalSongTimeMs, PlayAutoNote);
+            var scope = BackgroundWork;
+            var rules = Rules;
+            if (rules != null && rules.AutoPlayLanes.Count > 0)
+                rules.ProcessAutoPlay(logicalSongTimeMs, note =>
+                {
+                    if (ReferenceEquals(rules, Rules))
+                        PlayAutoNote(note);
+                });
 
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
             _audioSession?.UpdateMetronome(logicalSongTimeMs);
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             // Pending hits and timeout misses both use the latency-compensated
             // logical time. Miss scanning must share the compensated clock so a
@@ -2389,6 +2409,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Pass the summary to ResultStage
             // No debounce needed here since this is an automatic transition based on game completion
+            PublishTelemetry();
             StageManager?.ChangeStage(StageType.Result, new InstantTransition(),
                 new PerformanceResult(summary, _selectedSong, _selectedDifficulty));
         }
@@ -2398,74 +2419,112 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Telemetry
 
-        public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
+        private sealed record PublishedTelemetry
         {
-            ArgumentNullException.ThrowIfNull(telemetry);
+            internal string? SelectedSongTitle { get; init; }
+            internal int SelectedDifficulty { get; init; }
+            internal bool PerformanceReady { get; init; }
+            internal int PlaySpeedPercent { get; init; } = 100;
+            internal int PitchSemitones { get; init; }
+            internal bool PlaybackProfileFrozen { get; init; } = true;
+            internal int AudioPreparationCompleted { get; init; }
+            internal int AudioPreparationTotal { get; init; }
+            internal int AudioPreparationCacheHits { get; init; }
+            internal long PreparedAudioBytes { get; init; }
+            internal bool AutoPlayEnabled { get; init; }
+            internal bool StageCompleted { get; init; }
+            internal double CurrentSongTimeMs { get; init; }
+            internal int Score { get; init; }
+            internal int CurrentCombo { get; init; }
+            internal int MaxCombo { get; init; }
+            internal float Gauge { get; init; }
+            internal bool HasFailed { get; init; }
+            internal int TotalNotes { get; init; }
+            internal int PerfectCount { get; init; }
+            internal int GreatCount { get; init; }
+            internal int GoodCount { get; init; }
+            internal int PoorCount { get; init; }
+            internal int MissCount { get; init; }
+            internal string NoteDisplayStyle { get; init; } = nameof(DrumsNoteDisplayStyle.Lanes);
+            internal LastLaneHit? LastHit { get; init; }
+        }
 
-            telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
-            telemetry.SelectedDifficulty = _selectedDifficulty;
-            // Snapshot _audioSession and _currentGameTime into locals before checking/calling.
-            // PopulateTelemetry runs on the Kestrel API thread while the game thread can null
-            // these fields during stage cleanup (line 448). Reading the field multiple times
-            // (null check, then IsPlaying, then GetCurrentMs) opens a window where the game
-            // thread nulls it between reads and throws NullReferenceException. A single local
-            // read collapses that window. Matches the _lastLaneHit snapshot pattern below.
+        // Called only by the update/lifecycle thread; the API thread never touches live objects.
+        private void PublishTelemetry()
+        {
             var audioSession = _audioSession;
             var currentGameTime = _currentGameTime;
             var chartManager = Rules?.ChartManager;
-            var songTimerPlaying = audioSession != null && audioSession.IsPlaying;
-            var songTimerPaused = audioSession != null && audioSession.IsPaused;
-            var songTimerHasReadablePosition =
-                songTimerPlaying || songTimerPaused;
-            telemetry.PerformanceReady = !_isLoading
-                && chartManager != null
-                && audioSession != null
-                && Rules?.IsCompleted != true
-                && (_isReady || songTimerHasReadablePosition);
-            telemetry.PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent;
-            telemetry.PitchSemitones = _playbackModifiers.PitchSemitones;
-            telemetry.PlaybackProfileFrozen = true;
-            var audioPreparationProgress = _audioPreparationProgress;
-            var preparedAudioSet = audioSession?.PreparedSet;
-            telemetry.AudioPreparationCompleted =
-                audioPreparationProgress?.CompletedCount ?? 0;
-            telemetry.AudioPreparationTotal =
-                audioPreparationProgress?.TotalCount ?? 0;
-            telemetry.AudioPreparationCacheHits =
-                audioPreparationProgress?.CacheHitCount ?? 0;
-            telemetry.PreparedAudioBytes =
-                preparedAudioSet?.DecodedPcmBytes
-                ?? audioPreparationProgress?.DecodedByteEstimate
-                ?? 0L;
-            // Full autoplay only: partial automation reports as manual play.
-            telemetry.AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount;
-            telemetry.StageCompleted = Rules?.IsCompleted == true;
-            telemetry.CurrentSongTimeMs =
-                songTimerHasReadablePosition && currentGameTime != null
-                ? audioSession!.GetCurrentMs(currentGameTime)
-                : 0.0;
-            telemetry.Score = Rules?.ScoreManager?.CurrentScore ?? 0;
-            telemetry.CurrentCombo = Rules?.ComboManager?.CurrentCombo ?? 0;
-            telemetry.MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0;
-            telemetry.Gauge = Rules?.GaugeManager?.CurrentLife ?? 0.0f;
-            telemetry.HasFailed = Rules?.GaugeManager?.HasFailed ?? false;
-            telemetry.TotalNotes = chartManager?.TotalNotes ?? 0;
-            telemetry.PerfectCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
-            telemetry.GreatCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
-            telemetry.GoodCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
-            telemetry.PoorCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
-            telemetry.MissCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
-            // HPA-411 effective style: the strip reference is nulled before disposal and
-            // only retained after IsReady, so a live reference means Tab is actually active.
-            telemetry.NoteDisplayStyle = (_notationStrip != null
-                ? DrumsNoteDisplayStyle.Tab
-                : DrumsNoteDisplayStyle.Lanes).ToString();
-            // Snapshot the reference once (atomic read) then read its immutable fields, so
-            // the API thread can never observe a torn combination across two different hits.
-            var lastHit = _lastLaneHit;
-            telemetry.LastLaneHitLane = lastHit?.Lane;
-            telemetry.LastLaneHitButtonId = lastHit?.ButtonId;
-            telemetry.LastLaneHitSongTimeMs = lastHit?.SongTimeMs;
+            var judgement = Rules?.JudgementManager;
+            var progress = _audioPreparationProgress;
+            var readable = audioSession != null && (audioSession.IsPlaying || audioSession.IsPaused);
+            var snapshot = new PublishedTelemetry
+            {
+                SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
+                SelectedDifficulty = _selectedDifficulty,
+                PerformanceReady = !_isLoading && chartManager != null && audioSession != null
+                    && Rules?.IsCompleted != true && (_isReady || readable),
+                PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent,
+                PitchSemitones = _playbackModifiers.PitchSemitones,
+                AudioPreparationCompleted = progress?.CompletedCount ?? 0,
+                AudioPreparationTotal = progress?.TotalCount ?? 0,
+                AudioPreparationCacheHits = progress?.CacheHitCount ?? 0,
+                PreparedAudioBytes = audioSession?.PreparedSet?.DecodedPcmBytes
+                    ?? progress?.DecodedByteEstimate ?? 0L,
+                AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount,
+                StageCompleted = Rules?.IsCompleted == true,
+                CurrentSongTimeMs = readable && currentGameTime != null
+                    ? audioSession!.GetCurrentMs(currentGameTime) : 0.0,
+                Score = Rules?.ScoreManager?.CurrentScore ?? 0,
+                CurrentCombo = Rules?.ComboManager?.CurrentCombo ?? 0,
+                MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0,
+                Gauge = Rules?.GaugeManager?.CurrentLife ?? 0.0f,
+                HasFailed = Rules?.GaugeManager?.HasFailed ?? false,
+                TotalNotes = chartManager?.TotalNotes ?? 0,
+                PerfectCount = judgement?.GetStatusCount(JudgementType.Perfect) ?? 0,
+                GreatCount = judgement?.GetStatusCount(JudgementType.Great) ?? 0,
+                GoodCount = judgement?.GetStatusCount(JudgementType.Good) ?? 0,
+                PoorCount = judgement?.GetStatusCount(JudgementType.Poor) ?? 0,
+                MissCount = judgement?.GetStatusCount(JudgementType.Miss) ?? 0,
+                NoteDisplayStyle = _notationStrip != null
+                    ? nameof(DrumsNoteDisplayStyle.Tab) : nameof(DrumsNoteDisplayStyle.Lanes),
+                LastHit = _lastLaneHit
+            };
+            Volatile.Write(ref _publishedTelemetry, snapshot);
+        }
+
+        public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
+        {
+            ArgumentNullException.ThrowIfNull(telemetry);
+            var snapshot = Volatile.Read(ref _publishedTelemetry);
+            telemetry.SelectedSongTitle = snapshot.SelectedSongTitle;
+            telemetry.SelectedDifficulty = snapshot.SelectedDifficulty;
+            telemetry.PerformanceReady = snapshot.PerformanceReady;
+            telemetry.PlaySpeedPercent = snapshot.PlaySpeedPercent;
+            telemetry.PitchSemitones = snapshot.PitchSemitones;
+            telemetry.PlaybackProfileFrozen = snapshot.PlaybackProfileFrozen;
+            telemetry.AudioPreparationCompleted = snapshot.AudioPreparationCompleted;
+            telemetry.AudioPreparationTotal = snapshot.AudioPreparationTotal;
+            telemetry.AudioPreparationCacheHits = snapshot.AudioPreparationCacheHits;
+            telemetry.PreparedAudioBytes = snapshot.PreparedAudioBytes;
+            telemetry.AutoPlayEnabled = snapshot.AutoPlayEnabled;
+            telemetry.StageCompleted = snapshot.StageCompleted;
+            telemetry.CurrentSongTimeMs = snapshot.CurrentSongTimeMs;
+            telemetry.Score = snapshot.Score;
+            telemetry.CurrentCombo = snapshot.CurrentCombo;
+            telemetry.MaxCombo = snapshot.MaxCombo;
+            telemetry.Gauge = snapshot.Gauge;
+            telemetry.HasFailed = snapshot.HasFailed;
+            telemetry.TotalNotes = snapshot.TotalNotes;
+            telemetry.PerfectCount = snapshot.PerfectCount;
+            telemetry.GreatCount = snapshot.GreatCount;
+            telemetry.GoodCount = snapshot.GoodCount;
+            telemetry.PoorCount = snapshot.PoorCount;
+            telemetry.MissCount = snapshot.MissCount;
+            telemetry.NoteDisplayStyle = snapshot.NoteDisplayStyle;
+            telemetry.LastLaneHitLane = snapshot.LastHit?.Lane;
+            telemetry.LastLaneHitButtonId = snapshot.LastHit?.ButtonId;
+            telemetry.LastLaneHitSongTimeMs = snapshot.LastHit?.SongTimeMs;
         }
 
         #endregion

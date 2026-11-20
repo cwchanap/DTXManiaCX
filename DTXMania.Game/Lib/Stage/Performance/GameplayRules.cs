@@ -124,12 +124,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 Score = ScoreManager?.CurrentScore ?? 0,
                 MaxCombo = ComboManager?.MaxCombo ?? 0,
                 ClearFlag = reason == CompletionReason.SongComplete,
-                PerfectCount = JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
-                GreatCount = JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
-                GoodCount = JudgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
-                PoorCount = JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
+                PerfectCount = JudgementManager?.GetStatusCount(JudgementType.Perfect) ?? 0,
+                GreatCount = JudgementManager?.GetStatusCount(JudgementType.Great) ?? 0,
+                GoodCount = JudgementManager?.GetStatusCount(JudgementType.Good) ?? 0,
+                PoorCount = JudgementManager?.GetStatusCount(JudgementType.Poor) ?? 0,
                 // Late manual Miss events have Hit status, so Result intentionally excludes them.
-                MissCount = JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
+                MissCount = JudgementManager?.GetStatusCount(JudgementType.Miss) ?? 0,
                 TotalNotes = ChartManager?.TotalNotes ?? 0,
                 FinalLife = GaugeManager?.CurrentLife ?? 0.0f,
                 CompletionReason = reason,
@@ -159,7 +159,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     judgementManager.GetNoteRuntimeData(note.Id)?.Status == NoteStatus.Pending)
                 {
                     judgementManager.ResolveAutoHit(note.Id);
+                    if (JudgementManager != null && !ReferenceEquals(judgementManager, JudgementManager))
+                        return;
                     feedback(note);
+                    if (!ReferenceEquals(judgementManager, JudgementManager))
+                        return;
                 }
 
                 _autoPlayNoteIndex++;
@@ -241,10 +245,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void OnJudgementMade(object? sender, JudgementEvent e)
         {
             ScoreManager?.ProcessJudgement(e);
+            if (!ReferenceEquals(sender, JudgementManager))
+                return;
             ComboManager?.ProcessJudgement(e);
+            if (!ReferenceEquals(sender, JudgementManager))
+                return;
             if (!AutoPlayLanes.Contains(e.Lane) || AutoAddGauge)
                 GaugeManager?.ProcessJudgement(e);
-            // Failure can synchronously tear down or replace the managers.
+            // Any manager callback can synchronously tear down or replace the run.
             if (!ReferenceEquals(sender, JudgementManager))
                 return;
             SkillManager?.ProcessJudgement(e);
