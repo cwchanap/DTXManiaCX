@@ -2626,118 +2626,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal("future", remaining[0].WavId);
     }
 
-    [Theory]
-    [InlineData(50, 875.0)]
-    [InlineData(100, 750.0)]
-    [InlineData(150, 625.0)]
-    public void GetPlayerJudgementTimeMs_WhenAudioLatencyOffsetConfigured_ShouldScaleRealOffset(
-        int playSpeedPercent,
-        double expectedLogicalTimeMs)
-    {
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager),
-            CreateConfigManager(new ConfigData { AudioLatencyOffsetMs = 250 }));
-        var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_playbackModifiers",
-            new PlaybackModifiers(playSpeedPercent, 0));
-
-        Assert.Equal(
-            expectedLogicalTimeMs,
-            ReflectionHelpers.InvokePrivateMethod<double>(
-                stage,
-                "GetPlayerJudgementTimeMs",
-                1000.0));
-        Assert.Equal(0.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetPlayerJudgementTimeMs", 100.0));
-    }
-
-    [Fact]
-    public void GetPlayerJudgementTimeMs_WhenDefaultOffsetIsZero_ShouldReturnRawTime()
-    {
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(
-            game,
-            nameof(BaseGame.ConfigManager),
-            CreateConfigManager(new ConfigData()));
-        var stage = CreateStage(game);
-
-        Assert.Equal(
-            1000.0,
-            ReflectionHelpers.InvokePrivateMethod<double>(
-                stage,
-                "GetPlayerJudgementTimeMs",
-                1000.0));
-    }
-
-    [Fact]
-    public void UpdateGameplayManagers_WhenAutoPlayDisabled_ShouldStillAdvanceMissDetection()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1301.0, 1301.0);
-
-        Assert.Equal(1, judgementManager.GetJudgementCount(JudgementType.Miss));
-    }
-
-    [Fact]
-    public void UpdateGameplayManagers_MissScanningUsesCompensatedClock_NotRawLogicalTime()
-    {
-        // Note at 1000ms, hit window ±200ms. Raw logical time 1301ms is past
-        // the raw miss deadline (1200ms), but the compensated clock (1000ms)
-        // is still within the hit window. Miss scanning must use the
-        // compensated clock so the player keeps the full reaction window
-        // after the note becomes audible under output latency.
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "UpdateGameplayManagers",
-            1301.0,
-            1000.0);
-
-        Assert.Equal(
-            0,
-            judgementManager.GetJudgementCount(JudgementType.Miss));
-    }
-
-    [Fact]
-    public void UpdateGameplayManagers_WhenAutoPlayEnabled_ShouldTriggerAutoHitBeforeMissDetection()
-    {
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
-        judgementManager.Update(1000.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-    }
-
-    [Fact]
-    public void UpdateGameplayManagers_WhenJudgementClockIsLatencyAdjusted_ShouldAutoPlayUseRawSongClock()
-    {
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 750.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-    }
-
     [Fact]
     public void InitializeMetronome_WhenDisabled_ShouldNotLoadClickSoundsOrCreatePlayer()
     {
@@ -2901,284 +2789,133 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessAutoPlay_WhenNextNoteIsInFuture_ShouldLeaveIndexUnchanged()
+    public void AutoPlay_JudgementPrecedesChipFeedback()
     {
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(3);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = new ParsedChart("auto-feedback.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { LaneIndex = 3, TimeMs = 100, Value = "07" });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 900.0);
+        var order = new List<string>();
+        stage.Rules!.JudgementManager!.JudgementMade += (_, _) => order.Add("judgement");
+        var sound = new Mock<ISound>();
+        sound.Setup(s => s.Play()).Callback(() => order.Add("chip"));
+        var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = sound.Object });
+        var session = stage.AudioSession!;
+        session.Dispose();
+        session.Bind(chart, prepared);
+        stage.Update(1.1);
+        stage.Update(0.1);
 
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.Equal(new[] { "judgement", "chip" }, order);
+        sound.Verify(s => s.Play(), Times.Once);
     }
 
     [Fact]
-    public void ProcessAutoPlay_WhenNoteIsSlightlyEarly_ShouldNotTriggerUntilScheduledTime()
+    public void GameplayFrame_AutoplayThenMetronomeThenCompensatedManualJudgement()
     {
-        // Note is at 1000ms. Calling ProcessAutoPlay at 955ms (45ms early) should NOT trigger.
-        // Previously, a ±50ms window allowed early triggering which caused audible timing issues.
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        var config = new ConfigData { Metronome = true, AudioLatencyOffsetMs = 250 };
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = new ParsedChart("frame-order.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 750 });
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        chart.BeatMarkers.Add(new BeatMarker { TimeMs = 1000 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        var order = new List<string>();
+        stage.OnMetronomeClick = _ => order.Add("metronome");
+        stage.Rules!.JudgementManager!.JudgementMade += (_, e) =>
+            order.Add($"{e.Lane}:{e.Type}:{e.DeltaMs}");
+        input.ModularInputManager.KeyBindings.BindButton("Test.Manual", 1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Manual", true));
+        input.ModularInputManager.Update();
 
-        // 45ms before note time - should NOT trigger
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 955.0);
+        stage.Update(1.0);
 
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-
-        // At exactly note time - should trigger
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.Equal(new[] { "0:Perfect:0", "metronome", "1:Perfect:0" }, order);
     }
 
     [Fact]
-    public void ProcessAutoPlay_WhenNoteIsLateDueToFrameHitch_ShouldStillAutoHit()
+    public void GameplayFrame_LiveLatencyAndFrozenSpeedApplyToManualChipHitAndMiss()
     {
-        // Autoplay should never skip a pending note, even if the frame arrived
-        // late due to a GC pause, frame hitch, or low FPS. A note at 1000ms
-        // processed at 1100ms (100ms late) must still be auto-hit.
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = new ParsedChart("latency-frame.dtx") { DurationMs = 10000 };
+        var manual = new Note { LaneIndex = 1, TimeMs = 1000, Value = "07" };
+        var missed = new Note { LaneIndex = 2, TimeMs = 1000 };
+        var automatic = new Note { LaneIndex = 0, TimeMs = 1250 };
+        chart.Notes.AddRange(new[] { manual, missed, automatic });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        config.AudioLatencyOffsetMs = 250;
+        config.PlaySpeedPercent = 150;
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var sound = new Mock<ISound>();
+        var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = sound.Object });
+        var session = stage.AudioSession!;
+        session.Dispose();
+        session.Bind(chart, prepared);
+        stage.Update(1.1);
+        stage.Update(1.25);
 
-        // 100ms past note time — well beyond any reasonable frame budget
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1100.0);
-        judgementManager.Update(1100.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+        var judgement = stage.Rules!.JudgementManager!;
+        Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(automatic.Id)!.Status);
+        Assert.Equal(NoteStatus.Pending, judgement.GetNoteRuntimeData(manual.Id)!.Status);
+        Assert.Equal(NoteStatus.Pending, judgement.GetNoteRuntimeData(missed.Id)!.Status);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Manual", 1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Manual", true));
+        input.ModularInputManager.Update();
+        sound.Verify(s => s.Play(), Times.Once);
+        stage.Update(0);
+        Assert.Equal(JudgementType.Perfect, judgement.GetNoteRuntimeData(manual.Id)!.JudgementEvent!.Type);
+        stage.Update(0.201);
+        Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(missed.Id)!.Status);
     }
 
     [Fact]
-    public void ProcessAutoPlay_FrameHitchScenario_NoteAt1000ms_Frames999Then1051_ShouldAutoHit()
+    public void AutoPlay_ReentrantDeactivationCleansUpAndNextActivationStartsFresh()
     {
-        // Exact regression scenario from review: frame at 999ms (note still in future),
-        // then frame at 1051ms (51ms past note). The old code would skip because
-        // 51ms > 50ms autoPlayWindowMs. Autoplay must always hit pending past-due notes.
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        // Frame 1: 999ms — note at 1000ms is in the future, should NOT trigger
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 999.0);
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-
-        // Frame 2: 1051ms — note is 51ms late. Must still auto-hit, not skip.
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1051.0);
-        judgementManager.Update(1051.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_WhenNextNoteIsWithinWindow_ShouldQueueHitAndPressPad()
-    {
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
-        judgementManager.Update(1000.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_WhenNoteWasAlreadyResolved_ShouldAdvanceIndexWithoutTriggeringPadPress()
-    {
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        judgementManager.EnqueueLaneHit(0, "PreResolved");
-        judgementManager.Update(1000.0);
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_WhenDueManualNotePrecedesAutomatedNote_ShouldAdvanceCursorAndResolveAutomatedNote()
-    {
-        using var stage = CreateStageWithAutoPlay(1);
-        var chartManager = BindChart(stage, BuildChart(new[]
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var first = new ParsedChart("auto-teardown.dtx") { DurationMs = 10000 };
+        first.Notes.Add(new Note { LaneIndex = 0, TimeMs = 100 });
+        first.Notes.Add(new Note { LaneIndex = 0, TimeMs = 200 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "First" }, 0, first));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var oldRules = stage.Rules!;
+        var count = 0;
+        oldRules.JudgementManager!.JudgementMade += (_, _) =>
         {
-            new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x11, value: "01"),
-            new Note(laneIndex: 1, bar: 0, tick: 192, channel: 0x12, value: "01")
-        }));
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+            count++;
+            stage.Deactivate();
+        };
+        stage.Update(1.1);
+        stage.Update(0.5);
+        Assert.Equal(1, count);
+        Assert.Null(oldRules.JudgementManager);
+        Assert.Null(oldRules.ChartManager);
+        Assert.Null(stage.AudioSession);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 2000.0);
-
-        Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
-        Assert.Equal(
-            JudgementType.Perfect,
-            judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.JudgementEvent!.Type);
-        var padVisuals = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
-        Assert.Equal(PadState.Idle, padVisuals![0].State);
-        Assert.Equal(PadState.Pressed, padVisuals[1].State);
-    }
-
-    [Fact]
-    public void UpdateGameplayManagers_WithAutoPlayDisabled_DoesNotProcessAutoPlay()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
-
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-        Assert.NotEqual(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-    }
-
-    [Fact]
-    public void UpdateGameplayManagers_WithAutoPlayEnabled_AdvancesAutoPlay()
-    {
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
-
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_NoteInWindow_PlaysChipForNote()
-    {
-        using var stage = CreateStageWithAutoPlay(3);
-        var chartManager = BindChart(stage, BuildChart(new[]
-        {
-            new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
-        }));
-
-        var soundMock = new Mock<ISound>();
-        var chipSet = CreatePreparedSetWithChips(
-            new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-
-        InstallBoundSession(stage, preparedSet: chipSet);
-
-        var judgementManager = CreateActiveJudgement(stage);
-        judgementManager.IsActive = true;
-
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0);
-
-        soundMock.Verify(s => s.Play(), Times.Once);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_NoteInWindow_NoChipCache_DoesNotThrow()
-    {
-        using var stage = CreateStageWithAutoPlay(3);
-        var chartManager = BindChart(stage, BuildChart(new[]
-        {
-            new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
-        }));
-        InstallBoundSession(stage);
-
-        var judgementManager = CreateActiveJudgement(stage);
-        judgementManager.IsActive = true;
-
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
-
-        var ex = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0));
-
-        Assert.Null(ex);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_NoteFarPastHitWindow_StillResolvedAsHit()
-    {
-        // Regression test: Previously, ProcessAutoPlay used EnqueueLaneHit which
-        // went through FindNearestUnhitNote with a 200ms hit detection window.
-        // If a note was >200ms past its time (GC pause, frame hitch), the hit
-        // was enqueued but couldn't be matched → note got marked Missed instead.
-        // With ResolveAutoHit, autoplay directly resolves by note ID, bypassing
-        // the window entirely. A note at 1000ms processed at 1500ms (400ms late)
-        // must still be auto-hit with Perfect timing.
-        using var stage = CreateStageWithAutoPlay(0);
-        var chartManager = BindChart(stage, CreateSingleNoteChart());
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        // 500ms past note time — far beyond the 200ms hit detection window.
-        // With the old EnqueueLaneHit flow, this note would be Missed.
-        // With ResolveAutoHit, it's deterministically resolved as Hit.
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1500.0);
-
-        // No need for judgementManager.Update — ResolveAutoHit is immediate
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-
-        // Verify it got Perfect timing
-        var noteData = judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!;
-        Assert.Equal(JudgementType.Perfect, noteData.JudgementEvent!.Type);
-        Assert.Equal(0.0, noteData.JudgementEvent.DeltaMs);
-    }
-
-    [Fact]
-    public void ProcessAutoPlay_MultipleNotesFarPastHitWindow_AllResolvedAsHit()
-    {
-        // Multiple notes all >200ms past their time — all must be resolved.
-        // This simulates a long GC pause where the song jumps forward significantly.
-        using var stage = CreateStageWithAutoPlay(0, 1, 2);
-        var chartManager = BindChart(stage, BuildChart(new[]
-        {
-            new Note(laneIndex: 0, bar: 0, tick: 10, channel: 0x11, value: "01"),
-            new Note(laneIndex: 1, bar: 0, tick: 19, channel: 0x12, value: "01"),
-            new Note(laneIndex: 2, bar: 0, tick: 29, channel: 0x13, value: "01"),
-        }));
-        var judgementManager = CreateActiveJudgement(stage);
-        var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-
-        // Jump to 1000ms — all notes are 700-900ms past their time, well beyond 200ms window
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
-
-        Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[2].Id)!.Status);
+        config.AutoPlayLanes.Clear();
+        config.AutoPlayLanes.Add(1);
+        var second = new ParsedChart("auto-reactivate.dtx") { DurationMs = 10000 };
+        second.Notes.Add(new Note { LaneIndex = 1, TimeMs = 100 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Second" }, 0, second));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(0.1);
+        Assert.NotSame(oldRules, stage.Rules);
+        Assert.Equal(NoteStatus.Hit, stage.Rules!.JudgementManager!.GetNoteRuntimeData(second.Notes[0].Id)!.Status);
     }
 
     [Fact]
@@ -3768,7 +3505,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.0);
         ReflectionHelpers.SetPrivateField(stage, "_stageElapsedTime", 15.0);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.25);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 8);
         ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", backgroundTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", shutterTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_laneBgTexture", laneBgTexture.Object);
@@ -3800,7 +3536,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_totalTime"));
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_stageElapsedTime"));
         Assert.Equal(1.0, ReflectionHelpers.GetPrivateField<double>(stage, "_readyCountdown"));
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
         Assert.Null(ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
         Assert.Null(stage.Rules?.ChartManager);
         backgroundTexture.Verify(x => x.RemoveReference(), Times.Once);
@@ -5314,6 +5049,7 @@ public class PerformanceStageDeterministicTests
     public void Judgement_WhenHit_UpdatesManagersBeforeVisualFeedbackAndLaneFlash()
     {
         var config = new ConfigData { EnableLaneFlush = true };
+        config.AutoPlayLanes.Add(0);
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
         var chart = new ParsedChart("visual-hit.dtx") { DurationMs = 10000 };
@@ -5342,12 +5078,13 @@ public class PerformanceStageDeterministicTests
         scoreManager.ScoreChanged += (_, _) => order.Add("score");
         comboManager.ComboChanged += (_, _) => order.Add("combo");
         gaugeManager.GaugeChanged += (_, _) => order.Add("gauge");
-        skillManager.SkillChanged += (_, _) =>
+        EventHandler<SkillChangedEventArgs> firstSkillObserver = (_, _) =>
         {
             order.Add("skill");
             Assert.Equal(0, skillPanelDisplay.ProcessedJudgementCount);
             Assert.Equal(0, popupManager.ActivePopupCount);
         };
+        skillManager.SkillChanged += firstSkillObserver;
         judgementManager.JudgementMade += (_, judgement) =>
         {
             if (judgement.Type == JudgementType.Great)
@@ -5355,6 +5092,11 @@ public class PerformanceStageDeterministicTests
                 order.Add("visual");
                 Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
                 Assert.Equal(1, popupManager.ActivePopupCount);
+            }
+            if (judgement.Lane == 0)
+            {
+                Assert.Equal(PadState.Pressed, PadStateOf(padRenderer, 0));
+                ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")![0].State = PadState.Idle;
             }
         };
 
@@ -5377,6 +5119,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, skillPanelDisplay.GreatCount);
         Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
         Assert.Equal(1, skillPanelDisplay.MaxCombo);
+        skillManager.SkillChanged -= firstSkillObserver;
 
         judgementManager.EnqueueLaneHit(3, "Test.Manual");
         judgementManager.Update(3160, 1040);
@@ -5384,6 +5127,21 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, skillManager.MissCount);
         Assert.Equal(0, judgementManager.GetJudgementCount(JudgementType.Miss));
         Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
+
+        chart.Notes[2].Value = "07";
+        bool padPressedWhenChipPlayed = false;
+        var chip = new Mock<ISound>();
+        chip.Setup(s => s.Play()).Callback(() => padPressedWhenChipPlayed = PadStateOf(padRenderer, 0) == PadState.Pressed);
+        var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = chip.Object });
+        var session = stage.AudioSession!;
+        session.Dispose();
+        session.Bind(chart, prepared);
+        stage.Update(1.1);
+        stage.Update(3.1);
+        Assert.Equal(PadState.Pressed, PadStateOf(padRenderer, 0));
+        Assert.True(padPressedWhenChipPlayed);
+        chip.Verify(s => s.Play(), Times.Once);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[2].Id)!.Status);
     }
 
     [Fact]
@@ -5816,84 +5574,6 @@ public class PerformanceStageDeterministicTests
         Assert.Same(texture.Object, result);
         // The probe keeps a missing optional asset out of the Warning path.
         resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public void FindNearestNoteForChip_WhenChartManagerIsNull_ShouldReturnNull()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-
-        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 0, 500.0);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void FindNearestNoteForChip_WhenJudgementManagerIsNull_ShouldReturnNull()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        BindChart(stage, CreateSingleNoteChart());
-
-        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 0, 500.0);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void FindNearestNoteForChip_WhenNoteInDifferentLane_ShouldReturnNull()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
-        var chartManager = BindChart(stage, BuildChart(new[] { note }));
-        var judgementManager = CreateActiveJudgement(stage);
-
-        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 7, 1000.0);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void FindNearestNoteForChip_WhenNoteAlreadyHit_ShouldSkipAndReturnNull()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
-        var chartManager = BindChart(stage, BuildChart(new[] { note }));
-        var judgementManager = CreateActiveJudgement(stage);
-        judgementManager.EnqueueLaneHit(3, "Test");
-        judgementManager.Update(1000.0);
-
-        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 3, 1000.0);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void FindNearestNoteForChip_WhenNoteIsWithinWindow_ShouldReturnNearestNote()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
-        var chartManager = BindChart(stage, BuildChart(new[] { note }));
-        var judgementManager = CreateActiveJudgement(stage);
-
-        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 3, 1010.0);
-
-        Assert.NotNull(result);
-        Assert.Equal(1000.0, result!.TimeMs);
-    }
-
-    [Fact]
-    public void FindNearestNoteForChip_WhenNoteIsInMissRange_ShouldReturnNull()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        // Note at 1000ms; querying at 1180ms gives 180ms delta — within the 200ms hit
-        // detection window but classified as Miss (151-200ms). Chip playback should skip it.
-        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
-        var chartManager = BindChart(stage, BuildChart(new[] { note }));
-        var judgementManager = CreateActiveJudgement(stage);
-
-        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 3, 1180.0);
-
-        Assert.Null(result);
     }
 
     [Fact]
@@ -7261,7 +6941,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.0);
         ReflectionHelpers.SetPrivateField(stage, "_stageElapsedTime", 15.0);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.25);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 8);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("deactivate-test.dtx"));
         BindChart(stage, CreateSingleNoteChart());
 
@@ -7276,7 +6955,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_totalTime"));
         Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_stageElapsedTime"));
         Assert.Equal(1.0, ReflectionHelpers.GetPrivateField<double>(stage, "_readyCountdown"));
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
     [Fact]
@@ -8089,6 +7767,14 @@ public class PerformanceStageDeterministicTests
     {
         public HeadlessPerformanceStage(IStageGame game) : base(game) { }
 
+        public Action<BeatMarker>? OnMetronomeClick { get; set; }
+        protected override void PlayMetronomeClick(BeatMarker marker)
+        {
+            if (OnMetronomeClick != null)
+                OnMetronomeClick(marker);
+            else
+                base.PlayMetronomeClick(marker);
+        }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override IChartVideoPlayer CreateChartVideoPlayer() =>
             throw new InvalidOperationException("Headless activation must not create a video player.");

@@ -174,7 +174,6 @@ namespace DTXMania.Game.Lib.Stage
         internal GameplayRules? Rules { get; private set; }
         private IReadOnlySet<int> FrozenAutoPlayLanes =>
             Rules?.AutoPlayLanes ?? FrozenSet<int>.Empty;
-        private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
         private PerformanceVisualGates _visualGates;
 
         private readonly record struct PerformanceVisualGates(
@@ -487,8 +486,6 @@ namespace DTXMania.Game.Lib.Stage
                 RequestedNoteDisplayStyle: noteDisplayStyle);
 
             Rules = new GameplayRules(config);
-            _autoPlayNoteIndex = 0;
-
         }
 
         private void InitializeComponents()
@@ -626,7 +623,7 @@ namespace DTXMania.Game.Lib.Stage
             _stageElapsedTime = 0.0; // Reset elapsed time for miss detection
             _chartEndReachedRealTimeSeconds = null;
             _readyCountdown = 1.0; // Reset ready countdown
-            _autoPlayNoteIndex = 0; // Reset autoplay note index
+            Rules?.ResetAutoPlay();
             // Clear cached last-hit telemetry so a reactivated stage does not inherit the previous
             // song's hit data; PopulateTelemetry only reports fresh values once new hits land.
             _lastLaneHit = null;
@@ -1186,7 +1183,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Dual-clock architecture:
                 // - Raw song clock (currentTimeMs): autoplay, BGM events, note visuals,
                 //   progress, completion — everything that must stay synced with the chart.
-                // - Compensated clock (playerJudgementTimeMs): player input judgement only.
+                // - Compensated clock (playerJudgementTimeMs): player hits and miss scanning.
                 //   Subtracting AudioLatencyOffsetMs aligns hit detection with what the
                 //   player actually hears, compensating for audio buffer/driver output delay.
                 var playerJudgementTimeMs = GetPlayerJudgementTimeMs(currentTimeMs);
@@ -1211,20 +1208,10 @@ namespace DTXMania.Game.Lib.Stage
         /// hit window after a note becomes audible.
         /// </summary>
         private double GetPlayerJudgementTimeMs(double currentAudioClockMs)
-        {
-            var offsetMs = _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0;
-            if (offsetMs <= 0)
-                return currentAudioClockMs;
-
-            // Normal activation always freezes a valid profile. The fallback
-            // preserves the legacy 1.0x behavior for reflection-created tests
-            // and compatibility callers that bypass OnActivate.
-            var speed = _playbackModifiers.PlaySpeedPercent > 0
-                ? _playbackModifiers.Speed
-                : 1.0;
-            var logicalOffsetMs = offsetMs * speed;
-            return Math.Max(0.0, currentAudioClockMs - logicalOffsetMs);
-        }
+            => GameplayRules.GetPlayerJudgementTimeMs(
+                currentAudioClockMs,
+                _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0,
+                _playbackModifiers);
 
         /// <summary>
         /// Starts playing the song
@@ -1772,7 +1759,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Suppress physical pad feedback only on automated lanes; manual
             // lanes keep their immediate key-down animation. Autoplay's own
-            // hit animation is driven from ProcessAutoPlay.
+            // hit animation is driven from PlayAutoNote.
             if (FrozenAutoPlayLanes.Contains(e.Lane)) return;
 
             // Trigger immediate pad press effect on input (regardless of judgement). Visual pad
@@ -1809,7 +1796,7 @@ namespace DTXMania.Game.Lib.Stage
             // window (PoorWindow < AudioLatencyOffsetMs) and fail to play its chip.
             var chipLookupTimeMs =
                 GetPlayerJudgementTimeMs(logicalSongTimeMs);
-            var nearest = FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
+            var nearest = Rules?.FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
             if (nearest != null)
                 _audioSession?.PlayChip(nearest);
         }
@@ -1950,11 +1937,8 @@ namespace DTXMania.Game.Lib.Stage
             double logicalSongTimeMs,
             double pendingHitTimeMs)
         {
-            // Process autoplay when any lane is automated
             if (FrozenAutoPlayLanes.Count > 0)
-            {
-                ProcessAutoPlay(logicalSongTimeMs);
-            }
+                Rules?.ProcessAutoPlay(logicalSongTimeMs, PlayAutoNote);
 
             _audioSession?.UpdateMetronome(logicalSongTimeMs);
 
@@ -1963,7 +1947,7 @@ namespace DTXMania.Game.Lib.Stage
             // note is not marked missed before the player hears it: using raw
             // time would shrink the reaction window by AudioLatencyOffsetMs
             // whenever the user configures a manual latency offset.
-            Rules?.JudgementManager?.Update(pendingHitTimeMs, pendingHitTimeMs);
+            Rules?.UpdateJudgement(pendingHitTimeMs);
         }
         
         /// <summary>
@@ -1978,107 +1962,12 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Processes autoplay functionality by automatically hitting notes at perfect timing
+        /// Applies stage-owned feedback after rules resolve an autoplay note.
         /// </summary>
-        private void ProcessAutoPlay(double currentSongTimeMs)
+        private void PlayAutoNote(Note note)
         {
-            var chartManager = Rules?.ChartManager;
-            var judgementManager = Rules?.JudgementManager;
-            if (chartManager == null || judgementManager == null)
-                return;
-
-            var allNotes = chartManager.AllNotes;
-
-            // Auto-hits notes at their exact time. Unlike player input, autoplay
-            // should NEVER skip a pending note. The window only prevents triggering
-            // notes that are in the future — any past-due note is auto-hit regardless
-            // of how late the frame arrived (GC pause, hitch, low FPS, etc.).
-            // One cursor serves all lanes: due notes on manual lanes are skipped
-            // (left for normal judgement/miss handling) but still advance the
-            // cursor so a manual note can never stall automated ones behind it.
-            while (_autoPlayNoteIndex < allNotes.Count)
-            {
-                var note = allNotes[_autoPlayNoteIndex];
-                
-                // Check timing difference
-                var timeDifference = currentSongTimeMs - note.TimeMs;
-                
-                if (timeDifference < 0)
-                {
-                    // This note is in the future, stop processing (do not increment index)
-                    break;
-                }
-
-                // Note is at or past its time — always advance the cursor, but
-                // only resolve notes on automated lanes.
-                if (FrozenAutoPlayLanes.Contains(note.LaneIndex))
-                {
-                    var noteData = judgementManager.GetNoteRuntimeData(note.Id);
-                    if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
-                    {
-                        // Resolve directly by note ID, bypassing hit detection window.
-                        // This ensures deterministic hits even when currentSongTimeMs is
-                        // far past the note time (e.g., after GC pause or frame hitch).
-                        judgementManager.ResolveAutoHit(note.Id);
-
-                        // Trigger pad press effect for autoplay
-                        _padRenderer?.TriggerPadPress(note.LaneIndex, true);
-
-                        // Play the per-note drum chip sound (silent if no cache or no WAV)
-                        _audioSession?.PlayChip(note);
-                    }
-                }
-
-                _autoPlayNoteIndex++;
-            }
-        }
-
-        /// <summary>
-        /// Finds the nearest unhit note in a lane within the hit detection window.
-        /// Used by player-input chip playback to mirror what JudgementManager would
-        /// resolve. Returns null if no candidate exists.
-        /// </summary>
-        private Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs)
-        {
-            var chartManager = Rules?.ChartManager;
-            var judgementManager = Rules?.JudgementManager;
-            if (chartManager == null || judgementManager == null)
-                return null;
-
-            // Use the Poor window (150ms) so chip sounds only play for non-Miss judgements.
-            // The full HitDetectionWindowMs (200ms) includes Miss-range hits (151-200ms)
-            // where the player hears a chip sound but receives a Miss judgement.
-            double windowMs = TimingConstants.PoorWindowMs;
-
-            var allNotes = chartManager.AllNotes;
-            int startIndex = chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
-
-            Note? nearest = null;
-            double nearestDistance = double.MaxValue;
-
-            for (int i = startIndex; i < allNotes.Count; i++)
-            {
-                var note = allNotes[i];
-                if (note.TimeMs - currentSongTimeMs > windowMs)
-                    break;
-                if (note.LaneIndex != laneIndex)
-                    continue;
-
-                var data = judgementManager.GetNoteRuntimeData(note.Id);
-                if (data == null || data.Status != NoteStatus.Pending)
-                    continue;
-
-                var distance = Math.Abs(currentSongTimeMs - note.TimeMs);
-                if (distance > windowMs)
-                    continue;
-                if (distance < nearestDistance)
-                {
-                    nearestDistance = distance;
-                    nearest = note;
-                }
-            }
-
-            return nearest;
+            _padRenderer?.TriggerPadPress(note.LaneIndex, true);
+            _audioSession?.PlayChip(note);
         }
 
         /// <summary>
