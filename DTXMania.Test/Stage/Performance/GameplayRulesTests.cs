@@ -48,6 +48,9 @@ public class GameplayRulesTests
         Assert.Equal(rules.ComboManager!.CurrentCombo, frame.Combo);
         Assert.Equal(rules.ComboManager.MaxCombo, frame.MaxCombo);
         Assert.Equal(rules.GaugeManager!.CurrentLife / 100f, frame.Life);
+        Assert.Equal(rules.GaugeManager.CurrentLife, frame.Gauge);
+        Assert.False(frame.HasFailed);
+        Assert.Equal(6, frame.TotalNotes);
         Assert.Equal(skill.CurrentSkill, frame.Achievement);
         Assert.Equal(skill.IsMax, frame.IsMaxSkill);
         Assert.Equal(1, frame.PerfectCount);
@@ -61,6 +64,12 @@ public class GameplayRulesTests
         Assert.Equal(judgement.GetJudgementCount(JudgementType.Good), frame.GoodCount);
         Assert.Equal(judgement.GetJudgementCount(JudgementType.Poor), frame.PoorCount);
         Assert.Equal(1, judgement.GetJudgementCount(JudgementType.Miss));
+        Assert.Equal(1, frame.StatusPerfectCount);
+        Assert.Equal(1, frame.StatusGreatCount);
+        Assert.Equal(1, frame.StatusGoodCount);
+        Assert.Equal(1, frame.StatusPoorCount);
+        Assert.Equal(1, frame.StatusMissCount);
+        Assert.Equal(0, beforeTimeout.StatusMissCount);
         var summary = rules.BuildSummary(CompletionReason.SongComplete, new PlaybackModifiers(100, 0), 78, 33);
         Assert.Equal(1, summary.MissCount);
         Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
@@ -81,6 +90,22 @@ public class GameplayRulesTests
         AssertStatusCounts();
         rules.ClearScoreAndCombo();
         rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void FrameState_WithoutManagersKeepsHudAndApiGaugeDefaultsDistinct()
+    {
+        var frame = new GameplayRules(null).BuildFrameState(0);
+
+        Assert.Equal(0.5f, frame.Life);
+        Assert.Equal(0f, frame.Gauge);
+        Assert.False(frame.HasFailed);
+        Assert.Equal(0, frame.TotalNotes);
+        Assert.Equal(0, frame.StatusPerfectCount);
+        Assert.Equal(0, frame.StatusGreatCount);
+        Assert.Equal(0, frame.StatusGoodCount);
+        Assert.Equal(0, frame.StatusPoorCount);
+        Assert.Equal(0, frame.StatusMissCount);
     }
 
     [Fact]
@@ -175,6 +200,8 @@ public class GameplayRulesTests
 
         Assert.False(duringFailure.IsDanger); // Risky can fail with a healthy gauge.
         Assert.Equal(0, duringFailure.PoorCount);
+        Assert.Equal(1, duringFailure.StatusPoorCount);
+        Assert.True(duringFailure.HasFailed);
         Assert.Equal(0, duringFailure.SlowCount);
         Assert.Equal(1, resultPoorCount);
         Assert.Equal(0, rules.BuildFrameState(1120).SlowCount);

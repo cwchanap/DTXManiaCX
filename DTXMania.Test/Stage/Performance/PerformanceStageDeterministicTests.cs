@@ -2401,6 +2401,100 @@ public class PerformanceStageDeterministicTests
         Assert.Null(stage.Rules.SkillManager);
     }
 
+    [Theory]
+    [InlineData(DrumsNoteDisplayStyle.Tab)]
+    [InlineData(DrumsNoteDisplayStyle.Lanes)]
+    public void Frame_BackFadeRetainsProgressWhileClockAndTelemetryReset(DrumsNoteDisplayStyle style)
+    {
+        using var input = new SwitchableBackInputManager();
+        var game = CreateHeadlessGame(new StageTestLogger(),
+            new ConfigData { NoteDisplayStyle = style }, input, CreateNotationResourceManager(true));
+        Mock.Get(game).Setup(g => g.CanPerformStageTransition()).Returns(true);
+        using var stage = new HeadlessPerformanceStage(game);
+        var manager = new Mock<IStageManager>();
+        stage.StageManager = manager.Object;
+        manager.Setup(m => m.ChangeStage(StageType.SongSelect, It.IsAny<IStageTransition>()))
+            .Callback<StageType, IStageTransition>((_, transition) => stage.OnTransitionOut(transition));
+        var chart = CreateFinalizedTabChart();
+        chart.DurationMs = 10000;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Back" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(style.ToString(), telemetry.NoteDisplayStyle);
+        stage.Update(1.1);
+        stage.Update(2.5);
+        var before = stage.CurrentFrame;
+        Assert.Equal(0.25f, before.Progress);
+        Assert.Equal(2500, before.ElapsedMs);
+
+        input.BackTriggered = true;
+        stage.Update(0.1);
+
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(StagePhase.FadeOut, stage.CurrentPhase);
+        Assert.False(stage.AudioSession!.IsPlaying);
+        Assert.Equal(0, telemetry.CurrentSongTimeMs);
+        Assert.Equal(0, stage.CurrentFrame.ElapsedMs);
+        Assert.Equal(10000, stage.CurrentFrame.TotalMs);
+        Assert.Equal(before.Progress, stage.CurrentFrame.Progress);
+
+        input.BackTriggered = false;
+        stage.Update(0.2);
+        Assert.Equal(before.Progress, stage.CurrentFrame.Progress);
+        Assert.Equal(0, stage.CurrentFrame.ElapsedMs);
+        stage.Deactivate();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(0, telemetry.Gauge);
+        Assert.Equal(0.5f, stage.CurrentFrame.Life);
+        Assert.Equal(0f, stage.CurrentFrame.Gauge);
+        Assert.Equal(0f, stage.CurrentFrame.Progress);
+        Assert.Equal(0, stage.CurrentFrame.TotalMs);
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Next" }, 0, chart));
+        Assert.Equal(0f, stage.CurrentFrame.Progress);
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(0, telemetry.Gauge);
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        Assert.Equal(0f, stage.CurrentFrame.Progress);
+        stage.Deactivate();
+    }
+
+    [Fact]
+    public void Frame_AndTelemetrySeeSameCompletedPublicationDuringJudgement()
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var chart = new ParsedChart("frame-publication.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        input.ModularInputManager.KeyBindings.BindButton("Test.Frame", 0);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Frame" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        PerformanceFrameState during = default;
+        var duringTelemetry = new GameTelemetrySnapshot();
+        stage.Rules!.ScoreManager!.ScoreChanged += (_, _) =>
+        {
+            during = stage.CurrentFrame;
+            stage.PopulateTelemetry(duringTelemetry);
+        };
+
+        Assert.True(input.ModularInputManager.InjectButton("Test.Frame", true));
+        input.ModularInputManager.Update();
+        stage.Update(0.1);
+
+        Assert.Equal(0, duringTelemetry.Score);
+        Assert.Equal(duringTelemetry.Score, during.Score);
+        Assert.Equal(duringTelemetry.CurrentCombo, during.Combo);
+        var after = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(after);
+        Assert.Equal(1000000, after.Score);
+        Assert.Equal(after.Score, stage.CurrentFrame.Score);
+        Assert.Equal(after.CurrentCombo, stage.CurrentFrame.Combo);
+        stage.Deactivate();
+    }
+
     [Fact]
     public async Task Telemetry_ConcurrentPollDuringJudgementSeesLastCompletePublication()
     {
@@ -2479,6 +2573,7 @@ public class PerformanceStageDeterministicTests
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         GameTelemetrySnapshot? atTransition = null;
+        PerformanceFrameState frameAtTransition = default;
         PerformanceSummary? summary = null;
         int[]? scanned = null;
         manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(),
@@ -2487,6 +2582,7 @@ public class PerformanceStageDeterministicTests
             {
                 atTransition = new GameTelemetrySnapshot();
                 stage.PopulateTelemetry(atTransition);
+                frameAtTransition = stage.CurrentFrame;
                 summary = Assert.IsType<PerformanceResult>(payload).Summary;
                 scanned = Enum.GetValues<JudgementType>().Select(judgement.GetJudgementCount).ToArray();
                 entered.Set();
@@ -2517,6 +2613,20 @@ public class PerformanceStageDeterministicTests
             Assert.Equal(1, atTransition.PerfectCount);
             Assert.Equal(failureKind == 0 ? 1 : 0, atTransition.PoorCount);
             Assert.Equal(failureKind == 1 ? 1 : 0, atTransition.MissCount);
+            Assert.Equal(preEventSkill, frameAtTransition.Achievement);
+            Assert.Equal(0, frameAtTransition.PoorCount);
+            Assert.Equal(0, frameAtTransition.MissCount);
+            Assert.Equal(atTransition.Score, frameAtTransition.Score);
+            Assert.Equal(atTransition.CurrentCombo, frameAtTransition.Combo);
+            Assert.Equal(atTransition.MaxCombo, frameAtTransition.MaxCombo);
+            Assert.Equal(atTransition.Gauge, frameAtTransition.Gauge);
+            Assert.Equal(atTransition.HasFailed, frameAtTransition.HasFailed);
+            Assert.Equal(atTransition.TotalNotes, frameAtTransition.TotalNotes);
+            Assert.Equal(atTransition.PerfectCount, frameAtTransition.StatusPerfectCount);
+            Assert.Equal(atTransition.GreatCount, frameAtTransition.StatusGreatCount);
+            Assert.Equal(atTransition.GoodCount, frameAtTransition.StatusGoodCount);
+            Assert.Equal(atTransition.PoorCount, frameAtTransition.StatusPoorCount);
+            Assert.Equal(atTransition.MissCount, frameAtTransition.StatusMissCount);
             Assert.Equal(scanned, new[] { summary.PerfectCount, summary.GreatCount,
                 summary.GoodCount, summary.PoorCount, summary.MissCount });
             for (int i = 0; i < 1000; i++)
@@ -2711,6 +2821,15 @@ public class PerformanceStageDeterministicTests
                 telemetry.PoorCount, telemetry.MissCount };
             foreach (var type in Enum.GetValues<JudgementType>())
                 Assert.Equal(judgement.GetJudgementCount(type), counts[(int)type]);
+            var frame = stage.CurrentFrame;
+            Assert.Equal(new[] { frame.StatusPerfectCount, frame.StatusGreatCount, frame.StatusGoodCount,
+                frame.StatusPoorCount, frame.StatusMissCount }, counts.Select(count => count!.Value));
+            Assert.Equal(frame.Score, telemetry.Score);
+            Assert.Equal(frame.Combo, telemetry.CurrentCombo);
+            Assert.Equal(frame.MaxCombo, telemetry.MaxCombo);
+            Assert.Equal(frame.Gauge, telemetry.Gauge);
+            Assert.Equal(frame.HasFailed, telemetry.HasFailed);
+            Assert.Equal(frame.TotalNotes, telemetry.TotalNotes);
         }
         double previousTime = 0;
         double[] hitTimes = { 1000, 2040, 3080, 4120, 5160 };
@@ -2730,6 +2849,8 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, telemetry.PoorCount);
         Assert.Equal(1, telemetry.MissCount);
         Assert.Equal(2, stage.Rules.BuildFrameState(6201).MissCount);
+        Assert.Equal(2, stage.CurrentFrame.MissCount);
+        Assert.Equal(1, stage.CurrentFrame.StatusMissCount);
         Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
         Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[5].Id)!.Status);
         stage.Deactivate();
@@ -3584,6 +3705,8 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(150, telemetry.PlaySpeedPercent);
         Assert.Equal(-4, telemetry.PitchSemitones);
         Assert.True(telemetry.PlaybackProfileFrozen);
+        Assert.Equal(1500, stage.CurrentFrame.ElapsedMs);
+        Assert.Equal(0.15f, stage.CurrentFrame.Progress);
         stage.Deactivate();
     }
 
@@ -4578,7 +4701,7 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawUIElements_WhenAssetsConfigured_ShouldDrawDeterministicUILayoutPaths()
     {
-        var stage = CreateStage();
+        var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var shutterTexture = CreateTextureMock(width: 96, height: 512);
         var skillPanelTexture = CreateTextureMock(width: 180, height: 96);
         var gaugeBaseTexture = CreateTextureMock(width: 120, height: 24);
@@ -4688,7 +4811,7 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void DrawUIElements_WhenDisplaysAndUiManagerExist_ShouldDrawOptionalUiBranchesWithoutThrowing()
     {
-        var stage = CreateStage();
+        var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var scoreDisplay = CreateScoreDisplay();
         var comboDisplay = CreateComboDisplay();
         var uiManager = new UIManager();
@@ -4710,9 +4833,7 @@ public class PerformanceStageDeterministicTests
     public void DrawUIElements_WhenComboGateHidesCombo_ShouldKeepComboStateButSkipDisplayDraw()
     {
         var config = new ConfigData { ShowCombo = false };
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
-        var stage = CreateStage(game);
+        var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config));
         var comboDisplay = CreateComboDisplay();
         var comboTexture = CreateTextureMock();
         var spriteBatch = CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720));
@@ -6774,6 +6895,12 @@ public class PerformanceStageDeterministicTests
         }
     }
 
+    private sealed class SwitchableBackInputManager : MockInputManagerCompat
+    {
+        public bool BackTriggered { get; set; }
+        public override bool IsBackActionTriggered() => BackTriggered;
+    }
+
     [Fact]
     public void OnActivate_WhenConfigManagerNotNull_ShouldSubscribeToScrollSpeedChanged()
     {
@@ -7923,35 +8050,33 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false, 52.0f)]
     [InlineData(true, 54.0f)]
-    public void UpdateGameplayManagers_MixedAutoPlay_ShouldApplyGaugeByFrozenLanePolicy(
+    public void StageUpdate_MixedAutoPlay_ShouldApplyGaugeByFrozenLanePolicy(
         bool autoAddGauge,
         float expectedFinalLife)
     {
         var config = new ConfigData { AutoAddGauge = autoAddGauge };
         config.AutoPlayLanes.Add(1);
-        using var stage = CreateStageWithPolicy(config);
+        using var input = new MockInputManagerCompat();
+        input.ModularInputManager.KeyBindings.BindButton("Test.MixedManual", 0);
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = CreateMixedChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Mixed" }, 0, chart));
         config.AutoAddGauge = !autoAddGauge;
-        var inputManager = new MockInputManagerCompat();
-        var chartManager = BindChart(stage, CreateMixedChart());
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var judgementManager = stage.Rules!.JudgementManager!;
+        var gaugeManager = stage.Rules.GaugeManager!;
+        stage.Update(1.1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.MixedManual", true));
+        input.ModularInputManager.Update();
+        stage.Update(1.0);
+        Assert.Equal(52.0f, gaugeManager.CurrentLife);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
-
-        var judgementManager = stage.Rules!.JudgementManager;
-        var gaugeManager = stage.Rules.GaugeManager;
-        Assert.NotNull(judgementManager);
-        Assert.NotNull(gaugeManager);
-        judgementManager!.IsActive = true;
-
-        inputManager.TriggerLaneHit(0);
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
-        Assert.Equal(52.0f, gaugeManager!.CurrentLife);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 2000.0, 2000.0);
+        stage.Update(1.0);
 
         Assert.Equal(expectedFinalLife, gaugeManager.CurrentLife);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[0].Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
+        stage.Deactivate();
     }
 
     [Fact]

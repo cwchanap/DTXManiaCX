@@ -2197,10 +2197,7 @@ namespace DTXMania.Game.Lib.Stage
             // TryConstructNotationStrip, so an inactive Tab HUD means consistent
             // Lanes — including judgement popups via OnJudgementMade (HPA-509 review).
             bool tabHudActive = IsTabHudActive;
-            var rawMs = (_audioSession != null && _currentGameTime != null)
-                ? _audioSession.GetCurrentMs(_currentGameTime)
-                : 0.0;
-            var frame = Rules?.BuildFrameState(rawMs) ?? default;
+            var frame = CurrentFrame;
 
             // Draw shutters first (overlay elements)
             DrawShutters();
@@ -2240,6 +2237,8 @@ namespace DTXMania.Game.Lib.Stage
             // Draw overlays last (topmost)
             DrawOverlays();
         }
+
+        internal PerformanceFrameState CurrentFrame => Volatile.Read(ref _publishedTelemetry).Frame;
 
         /// <summary>
         /// Draws shutter animation using DTXManiaNX layout
@@ -2433,18 +2432,8 @@ namespace DTXMania.Game.Lib.Stage
             internal long PreparedAudioBytes { get; init; }
             internal bool AutoPlayEnabled { get; init; }
             internal bool StageCompleted { get; init; }
-            internal double CurrentSongTimeMs { get; init; }
-            internal int Score { get; init; }
-            internal int CurrentCombo { get; init; }
-            internal int MaxCombo { get; init; }
-            internal float Gauge { get; init; }
-            internal bool HasFailed { get; init; }
-            internal int TotalNotes { get; init; }
-            internal int PerfectCount { get; init; }
-            internal int GreatCount { get; init; }
-            internal int GoodCount { get; init; }
-            internal int PoorCount { get; init; }
-            internal int MissCount { get; init; }
+            internal bool ClockReadable { get; init; }
+            internal PerformanceFrameState Frame { get; init; }
             internal string NoteDisplayStyle { get; init; } = nameof(DrumsNoteDisplayStyle.Lanes);
             internal LastLaneHit? LastHit { get; init; }
         }
@@ -2455,9 +2444,10 @@ namespace DTXMania.Game.Lib.Stage
             var audioSession = _audioSession;
             var currentGameTime = _currentGameTime;
             var chartManager = Rules?.ChartManager;
-            var judgement = Rules?.JudgementManager;
             var progress = _audioPreparationProgress;
             var readable = audioSession != null && (audioSession.IsPlaying || audioSession.IsPaused);
+            var rawMs = audioSession != null && currentGameTime != null
+                ? audioSession.GetCurrentMs(currentGameTime) : 0.0;
             var snapshot = new PublishedTelemetry
             {
                 SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
@@ -2473,19 +2463,9 @@ namespace DTXMania.Game.Lib.Stage
                     ?? progress?.DecodedByteEstimate ?? 0L,
                 AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount,
                 StageCompleted = Rules?.IsCompleted == true,
-                CurrentSongTimeMs = readable && currentGameTime != null
-                    ? audioSession!.GetCurrentMs(currentGameTime) : 0.0,
-                Score = Rules?.ScoreManager?.CurrentScore ?? 0,
-                CurrentCombo = Rules?.ComboManager?.CurrentCombo ?? 0,
-                MaxCombo = Rules?.ComboManager?.MaxCombo ?? 0,
-                Gauge = Rules?.GaugeManager?.CurrentLife ?? 0.0f,
-                HasFailed = Rules?.GaugeManager?.HasFailed ?? false,
-                TotalNotes = chartManager?.TotalNotes ?? 0,
-                PerfectCount = judgement?.GetStatusCount(JudgementType.Perfect) ?? 0,
-                GreatCount = judgement?.GetStatusCount(JudgementType.Great) ?? 0,
-                GoodCount = judgement?.GetStatusCount(JudgementType.Good) ?? 0,
-                PoorCount = judgement?.GetStatusCount(JudgementType.Poor) ?? 0,
-                MissCount = judgement?.GetStatusCount(JudgementType.Miss) ?? 0,
+                ClockReadable = readable,
+                // Lanes and the pre-refactor Tab HUD retain the last gameplay progress after Stop.
+                Frame = Rules?.BuildFrameState(rawMs, chartManager != null ? _currentProgressValue : 0f) ?? default,
                 NoteDisplayStyle = _notationStrip != null
                     ? nameof(DrumsNoteDisplayStyle.Tab) : nameof(DrumsNoteDisplayStyle.Lanes),
                 LastHit = _lastLaneHit
@@ -2509,18 +2489,18 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.PreparedAudioBytes = snapshot.PreparedAudioBytes;
             telemetry.AutoPlayEnabled = snapshot.AutoPlayEnabled;
             telemetry.StageCompleted = snapshot.StageCompleted;
-            telemetry.CurrentSongTimeMs = snapshot.CurrentSongTimeMs;
-            telemetry.Score = snapshot.Score;
-            telemetry.CurrentCombo = snapshot.CurrentCombo;
-            telemetry.MaxCombo = snapshot.MaxCombo;
-            telemetry.Gauge = snapshot.Gauge;
-            telemetry.HasFailed = snapshot.HasFailed;
-            telemetry.TotalNotes = snapshot.TotalNotes;
-            telemetry.PerfectCount = snapshot.PerfectCount;
-            telemetry.GreatCount = snapshot.GreatCount;
-            telemetry.GoodCount = snapshot.GoodCount;
-            telemetry.PoorCount = snapshot.PoorCount;
-            telemetry.MissCount = snapshot.MissCount;
+            telemetry.CurrentSongTimeMs = snapshot.ClockReadable ? snapshot.Frame.ElapsedMs : 0.0;
+            telemetry.Score = snapshot.Frame.Score;
+            telemetry.CurrentCombo = snapshot.Frame.Combo;
+            telemetry.MaxCombo = snapshot.Frame.MaxCombo;
+            telemetry.Gauge = snapshot.Frame.Gauge;
+            telemetry.HasFailed = snapshot.Frame.HasFailed;
+            telemetry.TotalNotes = snapshot.Frame.TotalNotes;
+            telemetry.PerfectCount = snapshot.Frame.StatusPerfectCount;
+            telemetry.GreatCount = snapshot.Frame.StatusGreatCount;
+            telemetry.GoodCount = snapshot.Frame.StatusGoodCount;
+            telemetry.PoorCount = snapshot.Frame.StatusPoorCount;
+            telemetry.MissCount = snapshot.Frame.StatusMissCount;
             telemetry.NoteDisplayStyle = snapshot.NoteDisplayStyle;
             telemetry.LastLaneHitLane = snapshot.LastHit?.Lane;
             telemetry.LastLaneHitButtonId = snapshot.LastHit?.ButtonId;
