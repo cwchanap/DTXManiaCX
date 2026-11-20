@@ -86,7 +86,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
+        InstallBoundSession(stage);
         SetAutoPlayLanes(stage, Enumerable.Range(0, PerformanceUILayout.LaneCount).ToArray());
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
@@ -118,7 +118,7 @@ public class PerformanceStageDeterministicTests
         var chartManager = new ChartManager(chart);
 
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int> { 0, 1 });
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
@@ -168,7 +168,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
         ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
@@ -233,7 +232,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.0);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
@@ -328,9 +327,8 @@ public class PerformanceStageDeterministicTests
         chart.FinalizeChart();
 
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(
             stage,
             "_playbackModifiers",
@@ -339,7 +337,7 @@ public class PerformanceStageDeterministicTests
         StartGameplayInitialization(stage);
         RunUpdateLoopUntil(stage, () => ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
-        var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
+        var timer = stage.AudioSession?.Timer;
         Assert.NotNull(timer);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
@@ -356,11 +354,12 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void StartGameplayInitialization_WhenAudioBindingThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
     {
-        // Preparation succeeds on the worker; binding then throws (null _audioLoader
-        // makes BindPreparedAudio throw NullReferenceException on the update thread
-        // AFTER _preparedAudioSet ownership transferred to the stage). The catch must
-        // call FailLoading with "Audio binding failed" and the original exception, and
-        // CleanupComponents disposes the stage-owned set once.
+        // Preparation succeeds on the worker; binding then throws (null _resourceManager
+        // makes the session's AudioLoader construction throw ArgumentNullException on
+        // the update thread AFTER the prepared set's ownership transferred to the
+        // session). The catch must call FailLoading with "Audio binding failed" and
+        // the original exception, and CleanupComponents disposes the session-owned set
+        // once.
         var directory = CreateTempDirectory();
         try
         {
@@ -377,9 +376,8 @@ public class PerformanceStageDeterministicTests
                 "binding-fail-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", null);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", null);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
                 ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
@@ -397,13 +395,13 @@ public class PerformanceStageDeterministicTests
                     It.IsAny<EventId>(),
                     It.Is<It.IsAnyType>((state, _) =>
                         state.ToString()!.Contains("Audio binding failed", StringComparison.Ordinal)),
-                    It.Is<Exception>(failure => failure is NullReferenceException),
+                    It.Is<Exception>(failure => failure is ArgumentNullException),
                     It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.Once);
 
             // Ownership was transferred before the throw, so the stage owns the set;
             // it must still be live until CleanupComponents disposes it.
-            var preparedSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            var preparedSet = stage.AudioSession?.PreparedSet;
             Assert.NotNull(preparedSet);
             var mainBackground = preparedSet!.MainBackground;
             Assert.NotNull(mainBackground);
@@ -412,7 +410,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
             Assert.True(mainBackground.IsDisposed);
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
         }
         finally
         {
@@ -442,9 +440,8 @@ public class PerformanceStageDeterministicTests
                 "bad-bpm-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
                 ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
@@ -471,7 +468,7 @@ public class PerformanceStageDeterministicTests
             Assert.Contains(
                 "Chart setup failed",
                 ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
             logger.Verify(
                 l => l.Log(
                     LogLevel.Error,
@@ -503,9 +500,8 @@ public class PerformanceStageDeterministicTests
         chart.FinalizeChart();
 
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         // Non-default profile makes the worker call the overridden
         // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
@@ -517,7 +513,7 @@ public class PerformanceStageDeterministicTests
         Assert.Contains(
             "Audio preparation failed",
             ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+        Assert.Null(stage.AudioSession?.PreparedSet);
         logger.Verify(
             l => l.Log(
                 LogLevel.Error,
@@ -549,9 +545,8 @@ public class PerformanceStageDeterministicTests
             chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory, "late-drop-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             var scope = stage.BackgroundWork!;
@@ -563,7 +558,7 @@ public class PerformanceStageDeterministicTests
             Assert.NotNull(mainBackground);
             Assert.False(mainBackground!.IsDisposed);
             // The result is queued but never applied.
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
 
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
@@ -572,7 +567,7 @@ public class PerformanceStageDeterministicTests
             Assert.True(
                 SpinWait.SpinUntil(() => mainBackground.IsDisposed, TimeSpan.FromSeconds(5)),
                 "the dropped prepared set was not disposed");
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         }
         finally
@@ -624,9 +619,8 @@ public class PerformanceStageDeterministicTests
             });
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             var canceledRun = StartGameplayInitialization(stage);
@@ -645,7 +639,7 @@ public class PerformanceStageDeterministicTests
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
 
             // Awaiting the released worker's task observes the full unwind — the
             // canceled chain's real terminal — before the replacement run starts.
@@ -662,8 +656,7 @@ public class PerformanceStageDeterministicTests
             freshChart.FinalizeChart();
             freshChart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory, "canceled-fresh-main.wav");
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", freshChart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             // Default profile so the fresh run does not touch the gated processor.
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
@@ -674,7 +667,7 @@ public class PerformanceStageDeterministicTests
             // Final unchanged-state assertions, after both terminals: the canceled
             // operation provably unwound before the fresh run started, and the
             // fresh run applied only its own audio.
-            var freshSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            var freshSet = stage.AudioSession?.PreparedSet;
             Assert.NotNull(freshSet);
             Assert.NotNull(freshSet!.MainBackground);
             Assert.False(freshSet.MainBackground!.IsDisposed);
@@ -685,7 +678,7 @@ public class PerformanceStageDeterministicTests
             {
                 stage.Update(0.016);
             }
-            Assert.Same(freshSet, ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Same(freshSet, stage.AudioSession?.PreparedSet);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
         }
@@ -712,9 +705,8 @@ public class PerformanceStageDeterministicTests
             chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "progress-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
 
             StartGameplayInitialization(stage);
@@ -745,9 +737,9 @@ public class PerformanceStageDeterministicTests
             Assert.NotNull(finalProgress);
             Assert.Equal(1, finalProgress!.CompletedCount);
             Assert.Equal(1, finalProgress.TotalCount);
-            var preparedSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            var preparedSet = stage.AudioSession?.PreparedSet;
             Assert.NotNull(preparedSet);
-            var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
+            var timer = stage.AudioSession?.Timer;
             Assert.NotNull(timer);
             Assert.Equal(preparedSet!.RuntimePitch, timer!.Pitch);
         }
@@ -785,9 +777,8 @@ public class PerformanceStageDeterministicTests
             chart.BackgroundAudioPath = Path.Combine(directory, "missing-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
             StartGameplayInitialization(stage);
@@ -859,9 +850,8 @@ public class PerformanceStageDeterministicTests
             });
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", staleChart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", ReflectionHelpers.CreateUninitialized<NoteRenderer>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
@@ -874,7 +864,7 @@ public class PerformanceStageDeterministicTests
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
 
             // The fresh activation retires the stale scope (exactly what Deactivate
             // does) and starts its own run: a real WAV main plus a corrupt
@@ -913,7 +903,7 @@ public class PerformanceStageDeterministicTests
                 staleSet.MainBackground!.IsDisposed,
                 "the retired scope did not dispose the superseded audio set");
 
-            Assert.Null(ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Null(stage.AudioSession?.PreparedSet);
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
 
@@ -926,7 +916,7 @@ public class PerformanceStageDeterministicTests
             // audio and the late success never landed anywhere. Both operations
             // have observed terminals, so nothing can land anymore; a few extra
             // drains plus a re-assert keep that property pinned.
-            var freshSet = ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet");
+            var freshSet = stage.AudioSession?.PreparedSet;
             Assert.NotNull(freshSet);
             Assert.NotNull(freshSet!.MainBackground);
             Assert.False(freshSet.MainBackground!.IsDisposed);
@@ -936,7 +926,7 @@ public class PerformanceStageDeterministicTests
             {
                 stage.BackgroundWork?.Drain();
             }
-            Assert.Same(freshSet, ReflectionHelpers.GetPrivateField<PreparedGameplayAudioSet>(stage, "_preparedAudioSet"));
+            Assert.Same(freshSet, stage.AudioSession?.PreparedSet);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
             Assert.Null(ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
         }
@@ -969,9 +959,8 @@ public class PerformanceStageDeterministicTests
             chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "scroll-change-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", CreateNoteRenderer());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
 
@@ -1028,7 +1017,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", true);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
         inputManager.TriggerLaneHit(3);
@@ -1053,8 +1041,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         // Non-default profile makes the worker call the overridden
         // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
@@ -1097,18 +1084,16 @@ public class PerformanceStageDeterministicTests
     {
         // A metronome sound whose playback throws on every beat must not fill the
         // error log: only the first failure per affected sound is reported.
-        var stage = CreateStage();
         var logger = new Mock<ILogger<PerformanceStage>>();
-        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
         var failure = new InvalidOperationException("Simulated metronome playback failure");
         var beatSound = new Mock<ISound>();
         beatSound.SetupGet(sound => sound.SoundEffect).Throws(failure);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        var session = CreateMetronomeSession(logger.Object, beatSound: beatSound.Object);
 
         var marker = new BeatMarker { TimeMs = 100.0, IsMeasureStart = false };
-        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
-        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
-        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+        session.PlayMetronomeClick(marker);
+        session.PlayMetronomeClick(marker);
+        session.PlayMetronomeClick(marker);
 
         logger.Verify(
             l => l.Log(
@@ -1124,34 +1109,22 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayMetronomeClick_WhenEachSoundFails_ShouldReportOncePerAffectedSound()
     {
-        var stage = CreateStage();
         var logger = new Mock<ILogger<PerformanceStage>>();
-        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
         var beatFailure = new InvalidOperationException("Simulated beat failure");
         var accentFailure = new InvalidOperationException("Simulated accent failure");
         var beatSound = new Mock<ISound>();
         beatSound.SetupGet(sound => sound.SoundEffect).Throws(beatFailure);
         var accentSound = new Mock<ISound>();
         accentSound.SetupGet(sound => sound.SoundEffect).Throws(accentFailure);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
+        var session = CreateMetronomeSession(
+            logger.Object,
+            beatSound: beatSound.Object,
+            accentSound: accentSound.Object);
 
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "PlayMetronomeClick",
-            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false });
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "PlayMetronomeClick",
-            new BeatMarker { TimeMs = 200.0, IsMeasureStart = true });
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "PlayMetronomeClick",
-            new BeatMarker { TimeMs = 300.0, IsMeasureStart = false });
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "PlayMetronomeClick",
-            new BeatMarker { TimeMs = 400.0, IsMeasureStart = true });
+        session.PlayMetronomeClick(new BeatMarker { TimeMs = 100.0, IsMeasureStart = false });
+        session.PlayMetronomeClick(new BeatMarker { TimeMs = 200.0, IsMeasureStart = true });
+        session.PlayMetronomeClick(new BeatMarker { TimeMs = 300.0, IsMeasureStart = false });
+        session.PlayMetronomeClick(new BeatMarker { TimeMs = 400.0, IsMeasureStart = true });
 
         logger.Verify(
             l => l.Log(
@@ -1174,24 +1147,23 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PlayMetronomeClick_WhenSuppressionReset_ShouldReportNextFailureAgain()
+    public void PlayMetronomeClick_WhenNewSessionStarts_ShouldReportNextFailureAgain()
     {
-        var stage = CreateStage();
         var logger = new Mock<ILogger<PerformanceStage>>();
-        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
         var failure = new InvalidOperationException("Simulated metronome playback failure");
         var beatSound = new Mock<ISound>();
         beatSound.SetupGet(sound => sound.SoundEffect).Throws(failure);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
         var marker = new BeatMarker { TimeMs = 100.0, IsMeasureStart = false };
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
-        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+        var firstSession = CreateMetronomeSession(logger.Object, beatSound: beatSound.Object);
+        firstSession.PlayMetronomeClick(marker);
+        firstSession.PlayMetronomeClick(marker);
 
-        // A new activation resets suppression so a persistently broken sound is
-        // reported once per run instead of once per process lifetime.
-        ReflectionHelpers.InvokePrivateMethod(stage, "ResetMetronomeFailureSuppression");
-        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+        // A new activation creates a fresh session: suppression is scoped to the
+        // session, so a persistently broken sound is reported once per run
+        // instead of once per process lifetime.
+        var secondSession = CreateMetronomeSession(logger.Object, beatSound: beatSound.Object);
+        secondSession.PlayMetronomeClick(marker);
 
         logger.Verify(
             l => l.Log(
@@ -1473,9 +1445,8 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStageWithConfig(new ConfigData());
         stage.InstallTestBackgroundScope();
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
         StartGameplayInitialization(stage);
@@ -1493,9 +1464,7 @@ public class PerformanceStageDeterministicTests
         var chart = CreateFinalizedTabChart();
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", CreateNotationResourceManager(completeBravura: true).Object);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
         StartGameplayInitialization(stage);
@@ -1528,9 +1497,7 @@ public class PerformanceStageDeterministicTests
             chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "tab-early-main.wav");
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
             ReflectionHelpers.SetPrivateField(stage, "_resourceManager", CreateNotationResourceManager(completeBravura: true).Object);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
 
             StartGameplayInitialization(stage);
@@ -1577,9 +1544,8 @@ public class PerformanceStageDeterministicTests
             chart.BackgroundAudioPath = CreatePlaceholderSource(directory, "canceled-decoder-main.wav");
 
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-            ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
             ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 0));
 
             StartGameplayInitialization(stage);
@@ -1606,9 +1572,8 @@ public class PerformanceStageDeterministicTests
         chart.MeasureLines.Add(new MeasureLine { Bar = 1, TimeMs = 2000 });
         chart.Notes.Add(new Note { Channel = 0x99, Bar = 0, Tick = 0 });
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
         StartGameplayInitialization(stage);
@@ -2161,9 +2126,8 @@ public class PerformanceStageDeterministicTests
         chart.FinalizeChart();
 
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
         StartGameplayInitialization(stage);
@@ -2460,18 +2424,13 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessBGMEvents_WhenCurrentTimeIsBeforeEventTime_ShouldNotTriggerEarly()
     {
-        var stage = CreateStage();
-        var scheduledEvents = new List<BGMEvent>
-        {
-            new() { WavId = "01", TimeMs = 1000.0 },
-            new() { WavId = "02", TimeMs = 1300.0 }
-        };
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", scheduledEvents);
+        var session = CreateBgmSession(
+            ("01", 1000.0, null),
+            ("02", 1300.0, null));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessBGMEvents", 980.0);
+        session.Advance(980.0);
 
-        var remainingEvents = ReflectionHelpers.GetPrivateField<List<BGMEvent>>(stage, "_scheduledBGMEvents");
+        var remainingEvents = session.ScheduledBgmEvents.ToList();
         Assert.Collection(remainingEvents,
             first => Assert.Equal("01", first.WavId),
             second => Assert.Equal("02", second.WavId));
@@ -2480,18 +2439,13 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessBGMEvents_WhenCurrentTimeReachesEventTime_ShouldTriggerAndRemoveElapsedEvents()
     {
-        var stage = CreateStage();
-        var scheduledEvents = new List<BGMEvent>
-        {
-            new() { WavId = "01", TimeMs = 1000.0 },
-            new() { WavId = "02", TimeMs = 1300.0 }
-        };
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", scheduledEvents);
+        var session = CreateBgmSession(
+            ("01", 1000.0, null),
+            ("02", 1300.0, null));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessBGMEvents", 1000.0);
+        session.Advance(1000.0);
 
-        var remainingEvents = ReflectionHelpers.GetPrivateField<List<BGMEvent>>(stage, "_scheduledBGMEvents");
+        var remainingEvents = session.ScheduledBgmEvents.ToList();
         Assert.Single(remainingEvents);
         Assert.Equal("02", remainingEvents[0].WavId);
     }
@@ -2499,7 +2453,6 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void ProcessBGMEvents_WhenSeveralEventsAreDue_ShouldTriggerChronologically()
     {
-        var stage = CreateStage();
         var played = new List<string>();
         var sounds = new Dictionary<string, ISound>();
         foreach (var wavId in new[] { "01", "02", "03" })
@@ -2515,25 +2468,16 @@ public class PerformanceStageDeterministicTests
             sounds[wavId] = sound.Object;
         }
 
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", sounds);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents",
-            new List<BGMEvent>
-            {
-                new() { WavId = "03", TimeMs = 900.0 },
-                new() { WavId = "01", TimeMs = 100.0 },
-                new() { WavId = "02", TimeMs = 500.0 },
-                new() { WavId = "future", TimeMs = 1200.0 }
-            });
+        var session = CreateBgmSession(
+            ("03", 900.0, sounds["03"]),
+            ("01", 100.0, sounds["01"]),
+            ("02", 500.0, sounds["02"]),
+            ("future", 1200.0, null));
 
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "ProcessBGMEvents",
-            1000.0);
+        session.Advance(1000.0);
 
         Assert.Equal(new[] { "01", "02", "03" }, played);
-        var remaining = ReflectionHelpers.GetPrivateField<List<BGMEvent>>(
-            stage,
-            "_scheduledBGMEvents");
+        var remaining = session.ScheduledBgmEvents.ToList();
         Assert.Single(remaining);
         Assert.Equal("future", remaining[0].WavId);
     }
@@ -2667,22 +2611,18 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void InitializeMetronome_WhenDisabled_ShouldNotLoadClickSoundsOrCreatePlayer()
     {
-        var stage = CreateInspectableStage();
         var resourceManager = new Mock<IResourceManager>();
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart());
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", false);
+        var session = CreateSession(resourceManager: resourceManager.Object, metronomeEnabled: false);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+        session.Bind(CreateMetronomeChart(), CreateEmptyPreparedSet());
 
         resourceManager.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Never);
-        Assert.Null(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
+        Assert.Null(session.Metronome);
     }
 
     [Fact]
     public void InitializeMetronome_WhenEnabled_ShouldLoadBothSoundsAndUseFinalizedMarkers()
     {
-        var stage = CreateInspectableStage();
         var beatSound = new Mock<ISound>();
         var accentSound = new Mock<ISound>();
         var resourceManager = new Mock<IResourceManager>();
@@ -2690,20 +2630,21 @@ public class PerformanceStageDeterministicTests
         var accentResult = accentSound.Object;
         resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeBeat, out beatResult)).Returns(true);
         resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeAccent, out accentResult)).Returns(true);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
-            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true },
-            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false }));
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+        var clicks = new List<BeatMarker>();
+        var session = CreateSession(
+            resourceManager: resourceManager.Object,
+            metronomeEnabled: true,
+            playClick: clicks.Add);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
+        session.Bind(CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true },
+            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false }), CreateEmptyPreparedSet());
+        session.UpdateMetronome(0.0);
 
         resourceManager.Verify(x => x.TryLoadSound(SoundPath.MetronomeBeat, out It.Ref<ISound>.IsAny), Times.Once);
         resourceManager.Verify(x => x.TryLoadSound(SoundPath.MetronomeAccent, out It.Ref<ISound>.IsAny), Times.Once);
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
-        var click = Assert.Single(stage.MetronomeClicks);
+        Assert.NotNull(session.Metronome);
+        var click = Assert.Single(clicks);
         Assert.Equal(0.0, click.TimeMs);
         Assert.True(click.IsMeasureStart);
     }
@@ -2745,41 +2686,26 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void InitializeMetronome_WhenPlaySpeedPercentIsZero_ShouldFallBackToUnitySpeed()
-    {
-        var stage = CreateInitializedMetronomeStage(
-            0,
-            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false });
-
-        // PlaySpeedPercent == 0 takes the `: 1.0` branch of the speed ternary, so the
-        // stale-click tolerance is 100 ms (100.0 * 1.0). A marker at 100 ms played at
-        // raw time 100 ms is within tolerance and should click.
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 100.0, 0.0);
-
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
-        Assert.Single(stage.MetronomeClicks);
-    }
-
-    [Fact]
     public void CleanupComponents_ShouldClearMetronomeAndReleaseClickSoundReferences()
     {
         var stage = CreateStage();
         var beatSound = new Mock<ISound>();
         var accentSound = new Mock<ISound>();
-        ReflectionHelpers.SetPrivateField(stage, "_metronomePlayer", new MetronomePlayer(
-            new[] { new BeatMarker { TimeMs = 0.0 } },
-            100.0,
-            _ => { }));
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+        var resourceManager = new Mock<IResourceManager>();
+        var beatResult = beatSound.Object;
+        var accentResult = accentSound.Object;
+        resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeBeat, out beatResult)).Returns(true);
+        resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeAccent, out accentResult)).Returns(true);
+        var session = InstallBoundSession(
+            stage,
+            chart: CreateMetronomeChart(new BeatMarker { TimeMs = 0.0 }),
+            metronomeEnabled: true,
+            resourceManager: resourceManager.Object);
+        Assert.NotNull(session.Metronome);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
-        Assert.Null(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_metronomeBeatSound"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_metronomeAccentSound"));
+        Assert.Null(stage.AudioSession);
         beatSound.Verify(x => x.RemoveReference(), Times.Once);
         accentSound.Verify(x => x.RemoveReference(), Times.Once);
     }
@@ -2787,60 +2713,61 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void InitializeMetronome_AfterCleanup_ShouldCreateFreshPlayerStartingAtMarkerZero()
     {
-        var stage = CreateInspectableStage();
         var sound = new Mock<ISound>();
         var resourceManager = new Mock<IResourceManager>();
         var soundResult = sound.Object;
         resourceManager.Setup(x => x.TryLoadSound(It.IsAny<string>(), out soundResult)).Returns(true);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
-            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
+        var clicks = new List<BeatMarker>();
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
-        var firstPlayer = ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer");
-        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+        var firstSession = CreateSession(
+            resourceManager: resourceManager.Object,
+            metronomeEnabled: true,
+            playClick: clicks.Add);
+        firstSession.Bind(CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }), CreateEmptyPreparedSet());
+        var firstPlayer = firstSession.Metronome;
+        firstSession.Dispose();
 
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
-            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
-        var secondPlayer = ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer");
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
+        // The new activation binds a fresh session whose player restarts at
+        // marker zero instead of inheriting the previous run's position.
+        var secondSession = CreateSession(
+            resourceManager: resourceManager.Object,
+            metronomeEnabled: true,
+            playClick: clicks.Add);
+        secondSession.Bind(CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }), CreateEmptyPreparedSet());
+        var secondPlayer = secondSession.Metronome;
+        secondSession.UpdateMetronome(0.0);
 
         Assert.NotNull(firstPlayer);
         Assert.NotNull(secondPlayer);
         Assert.NotSame(firstPlayer, secondPlayer);
-        var click = Assert.Single(stage.MetronomeClicks);
+        var click = Assert.Single(clicks);
         Assert.Equal(0.0, click.TimeMs);
     }
 
     [Fact]
     public void InitializeMetronome_WhenClickResourcesAreMissing_ShouldLeaveGameplayUsable()
     {
-        var stage = CreateInspectableStage();
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny))
             .Throws(new FileNotFoundException("click asset missing"));
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
-            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+        var clicks = new List<BeatMarker>();
+        var session = CreateSession(
+            resourceManager: resourceManager.Object,
+            metronomeEnabled: true,
+            playClick: clicks.Add);
 
         var exception = Record.Exception(() =>
         {
-            ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
+            session.Bind(CreateMetronomeChart(
+                new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }), CreateEmptyPreparedSet());
+            session.UpdateMetronome(0.0);
         });
 
         Assert.Null(exception);
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
-        Assert.Single(stage.MetronomeClicks);
+        Assert.NotNull(session.Metronome);
+        Assert.Single(clicks);
     }
 
     [Fact]
@@ -3062,11 +2989,11 @@ public class PerformanceStageDeterministicTests
         var stubWavPath = WriteTempStubWav();
         try
         {
-            var cache = new ChipSoundCache(
+            var chipSet = CreatePreparedSetWithChips(
                 new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
             ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            InstallBoundSession(stage, preparedSet: chipSet);
 
             var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
             judgementManager.IsActive = true;
@@ -3094,7 +3021,7 @@ public class PerformanceStageDeterministicTests
             new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
         });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", null);
+        InstallBoundSession(stage);
 
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         judgementManager.IsActive = true;
@@ -3193,13 +3120,11 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
             // Set timer to playing state at 1010ms (within note's hit window)
             // so without the autoplay guard, PlayChipForNote WOULD be called
-            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            InstallBoundSession(stage, preparedSet: chipSet, start: true);
             ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
                 new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
 
@@ -3240,12 +3165,10 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
             // Drive _songTimer.GetCurrentMs(_currentGameTime) -> 1010ms (10ms past the note)
-            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            InstallBoundSession(stage, preparedSet: chipSet, start: true);
             ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
                 new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
 
@@ -3282,11 +3205,9 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
-            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            InstallBoundSession(stage, preparedSet: chipSet, start: true);
             ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
                 new GameTime(TimeSpan.FromMilliseconds(1000.0), TimeSpan.FromSeconds(0.016)));
 
@@ -3331,13 +3252,11 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
             // Raw clock at 1200ms. Without compensation, distance to note = 200ms > PoorWindow (150ms) → no chip.
             // With compensation, compensated = 1000ms, distance = 0ms → chip plays.
-            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            InstallBoundSession(stage, preparedSet: chipSet, start: true);
             ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
                 new GameTime(TimeSpan.FromMilliseconds(1200.0), TimeSpan.FromSeconds(0.016)));
 
@@ -3374,9 +3293,7 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            var chipSet = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
             // No _songTimer set — defaults to null, so IsPlaying is false.
             // currentTimeMs would be 0.0 which is within 200ms of the note at 10ms,
@@ -3426,8 +3343,6 @@ public class PerformanceStageDeterministicTests
         // CreateStage() uses GetUninitializedObject, so the field-initialized collections that
         // CleanupComponents iterates must be provided explicitly. All other cleanup paths are
         // null-conditional and tolerate the uninitialized state.
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
@@ -3475,7 +3390,7 @@ public class PerformanceStageDeterministicTests
         chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
         var chartManager = new ChartManager(chart);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
             new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
@@ -3503,12 +3418,13 @@ public class PerformanceStageDeterministicTests
             stage,
             "_chartManager",
             new ChartManager(chart));
-        var timer = new SongTimer(150);
-        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
-        timer.Pause(new GameTime(
+        var session = InstallBoundSession(
+            stage,
+            modifiers: new PlaybackModifiers(150, 0),
+            start: true);
+        session.Timer!.Pause(new GameTime(
             TimeSpan.FromMilliseconds(1000),
             TimeSpan.Zero));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_currentGameTime",
@@ -3541,7 +3457,7 @@ public class PerformanceStageDeterministicTests
         chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
         var chartManager = new ChartManager(chart);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", null);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
@@ -3563,7 +3479,7 @@ public class PerformanceStageDeterministicTests
         var chartManager = new ChartManager(chart);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         // Stopped timer: _isPlaying = false
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
             new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
@@ -3585,7 +3501,7 @@ public class PerformanceStageDeterministicTests
         // when the song timer is actively playing.
         var stage = CreateStage();
         SetAutoPlayLanes(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
             new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
@@ -3605,9 +3521,10 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         SetAutoPlayLanes(stage);
-        var timer = new SongTimer(150);
-        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        InstallBoundSession(
+            stage,
+            modifiers: new PlaybackModifiers(150, 0),
+            start: true);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_currentGameTime",
@@ -3858,8 +3775,8 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_pauseOverlayTexture", pauseOverlayTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_skillPanelTexture", skillPanelTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = bgmSound.Object });
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent> { new() { WavId = "01", TimeMs = 1000.0 } });
+        var session = CreateBgmSession(("01", 1000.0, bgmSound.Object));
+        ReflectionHelpers.SetPrivateField(stage, "_audioSession", session);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("cleanup-test.dtx"));
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
 
@@ -3893,9 +3810,9 @@ public class PerformanceStageDeterministicTests
         pauseOverlayTexture.Verify(x => x.RemoveReference(), Times.Once);
         dangerOverlayTexture.Verify(x => x.RemoveReference(), Times.Once);
         skillPanelTexture.Verify(x => x.RemoveReference(), Times.Once);
-        bgmSound.Verify(x => x.Dispose(), Times.Never);
-        Assert.Empty(ReflectionHelpers.GetPrivateField<List<BGMEvent>>(stage, "_scheduledBGMEvents"));
-        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
+        bgmSound.Verify(x => x.Dispose(), Times.Once);
+        Assert.Empty(session.ScheduledBgmEvents);
+        Assert.Null(stage.AudioSession);
     }
 
     [Fact]
@@ -3903,20 +3820,19 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        var songTimer = CreatePlayingSongTimer();
+        var session = InstallBoundSession(stage, start: true);
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote())
         {
             IsActive = true
         };
 
-        Assert.True(songTimer.IsPlaying);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        Assert.True(session.IsPlaying);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         stage.StageManager = stageManager.Object;
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
 
-        Assert.False(songTimer.IsPlaying);
+        Assert.False(session.IsPlaying);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.False(judgementManager.IsActive);
         stageManager.Verify(
@@ -3953,7 +3869,7 @@ public class PerformanceStageDeterministicTests
         };
 
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         stage.StageManager = stageManager.Object;
 
@@ -4095,10 +4011,9 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.1);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.25);
 
@@ -4115,11 +4030,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromMilliseconds(1301.0), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("progress-test.dtx") { DurationMs = 2000.0 });
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.016);
 
@@ -4975,7 +4889,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 3000.0);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", new ChartManager(parsedChart));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
 
@@ -5034,7 +4948,7 @@ public class PerformanceStageDeterministicTests
             stage,
             "_chartManager",
             new ChartManager(parsedChart));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_currentGameTime",
@@ -5061,9 +4975,11 @@ public class PerformanceStageDeterministicTests
         };
         parsedChart.AddNote(new Note(0, 1, 0, 0x11, "01"));
         parsedChart.FinalizeChart();
-        var timer = new SongTimer(150);
-        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
-        timer.Pause(new GameTime(TimeSpan.FromMilliseconds(1000), TimeSpan.Zero));
+        var session = InstallBoundSession(
+            stage,
+            modifiers: new PlaybackModifiers(150, 0),
+            start: true);
+        session.Timer!.Pause(new GameTime(TimeSpan.FromMilliseconds(1000), TimeSpan.Zero));
 
         ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", 5.0);
         ReflectionHelpers.SetPrivateField(
@@ -5075,7 +4991,6 @@ public class PerformanceStageDeterministicTests
             stage,
             "_chartManager",
             new ChartManager(parsedChart));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_currentGameTime",
@@ -5091,7 +5006,7 @@ public class PerformanceStageDeterministicTests
         Assert.Null(exception);
         Assert.Equal(
             1500.0,
-            timer.GetCurrentMs(new GameTime(
+            session.Timer!.GetCurrentMs(new GameTime(
                 TimeSpan.FromMilliseconds(5000),
                 TimeSpan.Zero)));
     }
@@ -5115,7 +5030,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 3000.0);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", new ChartManager(parsedChart));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
 
@@ -5139,9 +5054,11 @@ public class PerformanceStageDeterministicTests
             Value = "01"
         });
         parsedChart.FinalizeChart();
-        var timer = new SongTimer(150);
-        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
-        timer.Pause(new GameTime(
+        var session = InstallBoundSession(
+            stage,
+            modifiers: new PlaybackModifiers(150, 0),
+            start: true);
+        session.Timer!.Pause(new GameTime(
             TimeSpan.FromMilliseconds(1000),
             TimeSpan.Zero));
 
@@ -5154,7 +5071,6 @@ public class PerformanceStageDeterministicTests
             stage,
             "_chartManager",
             new ChartManager(parsedChart));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_currentGameTime",
@@ -5177,7 +5093,7 @@ public class PerformanceStageDeterministicTests
         Assert.Null(overlaysException);
         Assert.Equal(
             1500.0,
-            timer.GetCurrentMs(new GameTime(
+            session.Timer!.GetCurrentMs(new GameTime(
                 TimeSpan.FromMilliseconds(5000),
                 TimeSpan.Zero)));
     }
@@ -5241,137 +5157,33 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task LoadBGMSoundsAsync_WhenChartHasNoEvents_ShouldLeaveSoundMapEmpty()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("no-bgm.dtx"));
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-
-        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
-        await task;
-
-        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
-    }
-
-    [Fact]
-    public async Task LoadBGMSoundsAsync_WhenParsedChartIsNull_ShouldLeaveSoundMapEmpty()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-
-        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
-        await task;
-
-        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
-    }
-
-    [Fact]
-    public async Task LoadBGMSoundsAsync_WhenAudioFileIsMissingOrDuplicate_ShouldSkipEntries()
-    {
-        var stage = CreateStage();
-        var parsedChart = new ParsedChart("missing-bgm.dtx");
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = GetGeneratedTestArtifactPath($"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = GetGeneratedTestArtifactPath($"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-
-        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
-        await task;
-
-        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
-    }
-
-    [Fact]
-    public async Task LoadBGMSoundsAsync_WhenAudioFilePathIsEmpty_ShouldSkipEntry()
-    {
-        var stage = CreateStage();
-        var parsedChart = new ParsedChart("empty-path-bgm.dtx");
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = string.Empty });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-
-        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
-        await task;
-
-        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
-    }
-
-    [Fact]
-    public async Task LoadBGMSoundsAsync_WhenWavIdAlreadyLoaded_ShouldKeepExistingSoundOnly()
-    {
-        var stage = CreateStage();
-        var parsedChart = new ParsedChart("duplicate-bgm.dtx");
-        var existingSound = CreateSoundMock();
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = GetGeneratedTestArtifactPath($"dtxmania-test-duplicate-{Guid.NewGuid()}.wav") });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = existingSound.Object });
-
-        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
-        await task;
-
-        var bgmSounds = ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds");
-        Assert.Single(bgmSounds);
-        Assert.Same(existingSound.Object, bgmSounds["01"]);
-    }
-
-    [Fact]
-    public async Task LoadBGMSoundsAsync_WhenSoundCreationThrows_ShouldSwallowFailureAndContinue()
-    {
-        var stage = CreateStage();
-        var parsedChart = new ParsedChart("invalid-bgm.dtx");
-        var invalidAudioPath = GetGeneratedTestArtifactPath($"dtxmania-test-invalid-{Guid.NewGuid()}.txt");
-        File.WriteAllText(invalidAudioPath, "not audio data");
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = invalidAudioPath });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-
-        try
-        {
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
-            await task;
-
-            Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
-        }
-        finally
-        {
-            if (File.Exists(invalidAudioPath))
-            {
-                File.Delete(invalidAudioPath);
-            }
-        }
-    }
-
-    [Fact]
     public void TriggerBGMEvent_WhenPlayReturnsNull_ShouldAttemptPlaybackWithoutThrowing()
     {
-        var stage = CreateStage();
         var sound = CreateSoundMock();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
             .Returns((Microsoft.Xna.Framework.Audio.SoundEffectInstance)null!);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = sound.Object });
+        var session = CreateBgmSession(("01", 0.0, sound.Object));
 
-        var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" }));
+        var exception = Record.Exception(() => session.Advance(0.0));
 
         Assert.Null(exception);
-        // No chart loaded → defaults to full volume, centered, no pitch shift.
+        // No per-WAV overrides on the chart → defaults to full volume, centered, no pitch shift.
         sound.Verify(x => x.Play(1.0f, 0.0f, 0.0f), Times.Once);
     }
 
     [Fact]
     public void TriggerBGMEvent_ShouldHonorChartVolumeAndPan()
     {
-        var stage = CreateStage();
-        var chart = new ParsedChart();
-        chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 50 });
-        chart.SetWavPans(new Dictionary<string, int> { ["01"] = -100 });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-
         var sound = CreateSoundMock();
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = sound.Object });
+        var session = CreateBgmSession(
+            chart =>
+            {
+                chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 50 });
+                chart.SetWavPans(new Dictionary<string, int> { ["01"] = -100 });
+            },
+            ("01", 0.0, sound.Object));
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" });
+        session.Advance(0.0);
 
         sound.Verify(x => x.Play(0.5f, 0.0f, -1.0f), Times.Once);
     }
@@ -5379,11 +5191,9 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void TriggerBGMEvent_WhenSoundIsMissing_ShouldNotThrow()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        var session = CreateBgmSession(("missing", 0.0, null));
 
-        var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "missing" }));
+        var exception = Record.Exception(() => session.Advance(0.0));
 
         Assert.Null(exception);
     }
@@ -5391,14 +5201,12 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void TriggerBGMEvent_WhenPlayThrows_ShouldSwallowPlaybackFailure()
     {
-        var stage = CreateStage();
         var sound = CreateSoundMock();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
             .Throws(new InvalidOperationException("boom"));
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = sound.Object });
+        var session = CreateBgmSession(("01", 0.0, sound.Object));
 
-        var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" }));
+        var exception = Record.Exception(() => session.Advance(0.0));
 
         Assert.Null(exception);
     }
@@ -5475,11 +5283,10 @@ public class PerformanceStageDeterministicTests
             stage,
             "_currentGameTime",
             new GameTime(TimeSpan.FromMilliseconds(1301.0), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("timing-feedback.dtx") { DurationMs = 2000.0 });
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         using var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
         timingDisplay.Spawn(new JudgementEvent(1, 2, -12.5, JudgementType.Great));
@@ -5918,11 +5725,9 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var songTimer = CreateStoppedSongTimer();
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
@@ -5936,11 +5741,11 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var songTimer = CreateStoppedSongTimer();
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        var bgmChart = new ParsedChart("startsong-bgm.dtx") { Bpm = 120.0 };
+        bgmChart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 250.0 });
+        InstallBoundSession(stage, chart: bgmChart);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent> { new() { WavId = "01", TimeMs = 250.0 } });
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
@@ -5964,18 +5769,19 @@ public class PerformanceStageDeterministicTests
 
         // Real SoundEffectInstance so SongTimer.Volume/Pan setters are exercised.
         var instance = CreateSoundEffectInstance();
-        var songTimer = new SongTimer(instance);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        var session = InstallBoundSession(
+            stage,
+            chart: chart,
+            preparedSet: CreatePreparedSetWithMainBackground(instance));
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
         // #VOLUME01=40 → 0.4f; #PAN01=-80 → -0.8f (clamped to [-1,1]).
-        Assert.Equal(0.4f, songTimer.Volume);
-        Assert.Equal(-0.8f, songTimer.Pan);
+        Assert.Equal(0.4f, session.Timer!.Volume);
+        Assert.Equal(-0.8f, session.Timer!.Pan);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
     }
 
@@ -5988,16 +5794,17 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
 
         var instance = CreateSoundEffectInstance();
-        var songTimer = new SongTimer(instance);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        var session = InstallBoundSession(
+            stage,
+            chart: chart,
+            preparedSet: CreatePreparedSetWithMainBackground(instance));
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
-        Assert.Equal(1.0f, songTimer.Volume);
+        Assert.Equal(1.0f, session.Timer!.Volume);
     }
 
     [Fact]
@@ -6050,13 +5857,10 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayChipForNote_WhenNoteIsNull_ShouldNotThrow()
     {
-        var stage = CreateStage();
         var soundMock = new Mock<ISound>();
-        var cache = new ChipSoundCache();
-        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+        var session = CreateBoundSession();
 
-        var ex = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", (Note)null!));
+        var ex = Record.Exception(() => session.PlayChip(null));
 
         Assert.Null(ex);
         soundMock.Verify(s => s.Play(), Times.Never);
@@ -6065,14 +5869,11 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayChipForNote_WhenNoteValueIsEmpty_ShouldNotPlayChip()
     {
-        var stage = CreateStage();
         var soundMock = new Mock<ISound>();
-        var cache = new ChipSoundCache();
-        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+        var session = CreateBoundSession();
         var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "");
 
-        var ex = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note));
+        var ex = Record.Exception(() => session.PlayChip(note));
 
         Assert.Null(ex);
         soundMock.Verify(s => s.Play(), Times.Never);
@@ -6081,12 +5882,10 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayChipForNote_WhenChipSoundCacheIsNull_ShouldNotThrow()
     {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", null);
+        var session = CreateSession();
         var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "01") { TimeMs = 100.0 };
 
-        var ex = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note));
+        var ex = Record.Exception(() => session.PlayChip(note));
 
         Assert.Null(ex);
     }
@@ -6094,30 +5893,20 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayChipForNote_ShouldHonorChartVolumeAndPan()
     {
-        var stage = CreateStage();
         var chart = new ParsedChart();
         chart.SetWavVolumes(new Dictionary<string, int> { ["07"] = 50 });
         chart.SetWavPans(new Dictionary<string, int> { ["07"] = 100 });
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
 
         var soundMock = new Mock<ISound>();
-        var stubWavPath = WriteTempStubWav();
-        try
-        {
-            var cache = new ChipSoundCache(
-                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
-            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+        var chipSet = CreatePreparedSetWithChips(
+            new Dictionary<string, ISound> { ["07"] = soundMock.Object });
+        var session = CreateBoundSession(chart: chart, preparedSet: chipSet);
 
-            var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 100.0 };
-            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note);
+        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 100.0 };
+        session.PlayChip(note);
 
-            soundMock.Verify(s => s.Play(0.5f, 0.0f, 1.0f), Times.Once);
-            soundMock.Verify(s => s.Play(), Times.Never);
-        }
-        finally
-        {
-            File.Delete(stubWavPath);
-        }
+        soundMock.Verify(s => s.Play(0.5f, 0.0f, 1.0f), Times.Once);
+        soundMock.Verify(s => s.Play(), Times.Never);
     }
 
     [Fact]
@@ -6242,7 +6031,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", null);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
 
         var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
@@ -6257,7 +6046,7 @@ public class PerformanceStageDeterministicTests
         var noteRenderer = CreateNoteRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
 
         var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
@@ -6271,7 +6060,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", null);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
 
         var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNoteOverlays"));
@@ -6286,7 +6075,7 @@ public class PerformanceStageDeterministicTests
         var noteRenderer = CreateNoteRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
 
         var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNoteOverlays"));
@@ -6837,7 +6626,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(chartManager, "_measureLines", null);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", renderer);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_currentGameTime",
@@ -7033,15 +6822,16 @@ public class PerformanceStageDeterministicTests
         var resourceManager = new Mock<IResourceManager>();
         var soundResult = sound.Object;
         resourceManager.Setup(x => x.TryLoadSound(It.IsAny<string>(), out soundResult)).Returns(true);
-        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
-            markers.Length == 0
-                ? new[] { new BeatMarker { TimeMs = 100.0, IsMeasureStart = false } }
-                : markers));
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
-        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(playSpeedPercent, 0));
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+        InstallBoundSession(
+            stage,
+            chart: CreateMetronomeChart(
+                markers.Length == 0
+                    ? new[] { new BeatMarker { TimeMs = 100.0, IsMeasureStart = false } }
+                    : markers),
+            modifiers: new PlaybackModifiers(playSpeedPercent, 0),
+            metronomeEnabled: true,
+            resourceManager: resourceManager.Object,
+            playClick: stage.RecordMetronomeClick);
         return stage;
     }
 
@@ -7092,9 +6882,201 @@ public class PerformanceStageDeterministicTests
         return sound;
     }
 
-    private static SongTimer CreateStoppedSongTimer()
+    private static ParsedChart CreateBoundChart()
     {
-        return new SongTimer();
+        return new ParsedChart("bound-session.dtx") { Bpm = 120.0 };
+    }
+
+    private static PreparedGameplayAudioSet CreateEmptyPreparedSet()
+    {
+        return PreparedGameplayAudioSet.PrepareAsync(
+            mainBackgroundPath: null,
+            scheduledBgmSourcePaths: Array.Empty<string>(),
+            chipSourcePathsByWavId: new Dictionary<string, string>(),
+            modifiers: new PlaybackModifiers(100, 0),
+            processor: null,
+            cache: null,
+            progress: null,
+            cancellationToken: CancellationToken.None,
+            defaultSoundLoader: _ => new Mock<ISound>().Object,
+            preparedSoundFactory: (_, path) => new Mock<ISound>().Object)
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    private static PreparedGameplayAudioSet CreatePreparedSetWithChips(
+        IReadOnlyDictionary<string, ISound> chipsByWavId)
+    {
+        var chipPaths = new Dictionary<string, string>();
+        var soundsByPath = new Dictionary<string, ISound>(StringComparer.Ordinal);
+        foreach (var (wavId, sound) in chipsByWavId)
+        {
+            var path = Path.GetFullPath(WriteTempStubWav());
+            chipPaths[wavId] = path;
+            soundsByPath[path] = sound;
+        }
+        return PreparedGameplayAudioSet.PrepareAsync(
+            mainBackgroundPath: null,
+            scheduledBgmSourcePaths: Array.Empty<string>(),
+            chipSourcePathsByWavId: chipPaths,
+            modifiers: new PlaybackModifiers(100, 0),
+            processor: null,
+            cache: null,
+            progress: null,
+            cancellationToken: CancellationToken.None,
+            defaultSoundLoader: path => soundsByPath[Path.GetFullPath(path)],
+            preparedSoundFactory: (_, path) => soundsByPath[Path.GetFullPath(path)])
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    /// <summary>
+    /// Prepared set whose main background creates the supplied real
+    /// SoundEffectInstance, letting SongTimer's Volume/Pan setters be observed.
+    /// </summary>
+    private static PreparedGameplayAudioSet CreatePreparedSetWithMainBackground(
+        SoundEffectInstance instance)
+    {
+        var mainSound = new Mock<ISound>();
+        mainSound.Setup(x => x.CreateInstance()).Returns(instance);
+        var mainPath = Path.GetFullPath(WriteTempStubWav());
+        return PreparedGameplayAudioSet.PrepareAsync(
+            mainBackgroundPath: mainPath,
+            scheduledBgmSourcePaths: Array.Empty<string>(),
+            chipSourcePathsByWavId: new Dictionary<string, string>(),
+            modifiers: new PlaybackModifiers(100, 0),
+            processor: null,
+            cache: null,
+            progress: null,
+            cancellationToken: CancellationToken.None,
+            defaultSoundLoader: _ => mainSound.Object,
+            preparedSoundFactory: (_, __) => mainSound.Object)
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    private static GameplayAudioSession CreateSession(
+        IResourceManager? resourceManager = null,
+        PlaybackModifiers? modifiers = null,
+        bool metronomeEnabled = false,
+        ILogger? logger = null,
+        Action<BeatMarker>? playClick = null)
+    {
+        return new GameplayAudioSession(
+            resourceManager ?? new Mock<IResourceManager>().Object,
+            null,
+            logger ?? NullLogger<PerformanceStage>.Instance,
+            modifiers ?? new PlaybackModifiers(100, 0),
+            metronomeEnabled,
+            playClick);
+    }
+
+    /// <summary>
+    /// Session bound to a metronome-enabled chart whose beat/accent click
+    /// sounds come from the supplied mocks via the resource manager.
+    /// </summary>
+    private static GameplayAudioSession CreateMetronomeSession(
+        ILogger logger,
+        ISound? beatSound = null,
+        ISound? accentSound = null)
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        var beatResult = beatSound;
+        var accentResult = accentSound;
+        if (beatSound != null)
+            resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeBeat, out beatResult)).Returns(true);
+        if (accentSound != null)
+            resourceManager.Setup(x => x.TryLoadSound(SoundPath.MetronomeAccent, out accentResult)).Returns(true);
+        var session = CreateSession(
+            resourceManager: resourceManager.Object,
+            metronomeEnabled: true,
+            logger: logger);
+        session.Bind(
+            CreateMetronomeChart(new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }),
+            CreateEmptyPreparedSet());
+        return session;
+    }
+
+    private static GameplayAudioSession CreateBoundSession(
+        ParsedChart? chart = null,
+        PreparedGameplayAudioSet? preparedSet = null,
+        PlaybackModifiers? modifiers = null,
+        bool metronomeEnabled = false,
+        IResourceManager? resourceManager = null,
+        ILogger? logger = null,
+        Action<BeatMarker>? playClick = null,
+        bool start = false)
+    {
+        var session = CreateSession(resourceManager, modifiers, metronomeEnabled, logger, playClick);
+        var boundChart = chart ?? CreateBoundChart();
+        session.Bind(boundChart, preparedSet ?? CreateEmptyPreparedSet());
+        if (start)
+        {
+            session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), boundChart);
+        }
+        return session;
+    }
+
+    /// <summary>
+    /// Session bound to a chart carrying the supplied scheduled BGM events.
+    /// Each event resolves its WAV id through the prepared set's scheduled-BGM
+    /// map keyed by real stub-file paths, mirroring the production wiring.
+    /// </summary>
+    private static GameplayAudioSession CreateBgmSession(
+        params (string WavId, double TimeMs, ISound? Sound)[] events)
+        => CreateBgmSession(null, events);
+
+    private static GameplayAudioSession CreateBgmSession(
+        Action<ParsedChart>? configureChart,
+        params (string WavId, double TimeMs, ISound? Sound)[] events)
+    {
+        var chart = new ParsedChart("bgm-session.dtx") { Bpm = 120.0 };
+        var soundsByPath = new Dictionary<string, ISound>(StringComparer.Ordinal);
+        var sourcePaths = new List<string>();
+        foreach (var (wavId, timeMs, sound) in events)
+        {
+            var path = Path.GetFullPath(WriteTempStubWav());
+            chart.AddBGMEvent(new BGMEvent { WavId = wavId, TimeMs = timeMs, AudioFilePath = path });
+            if (sound != null)
+            {
+                sourcePaths.Add(path);
+                soundsByPath[path] = sound;
+            }
+        }
+        configureChart?.Invoke(chart);
+        var preparedSet = PreparedGameplayAudioSet.PrepareAsync(
+            mainBackgroundPath: null,
+            scheduledBgmSourcePaths: sourcePaths,
+            chipSourcePathsByWavId: new Dictionary<string, string>(),
+            modifiers: new PlaybackModifiers(100, 0),
+            processor: null,
+            cache: null,
+            progress: null,
+            cancellationToken: CancellationToken.None,
+            defaultSoundLoader: path => soundsByPath[Path.GetFullPath(path)],
+            preparedSoundFactory: (_, path) => soundsByPath[Path.GetFullPath(path)])
+            .GetAwaiter()
+            .GetResult();
+        var session = CreateSession();
+        session.Bind(chart, preparedSet);
+        return session;
+    }
+
+    private static GameplayAudioSession InstallBoundSession(
+        PerformanceStage stage,
+        ParsedChart? chart = null,
+        PreparedGameplayAudioSet? preparedSet = null,
+        PlaybackModifiers? modifiers = null,
+        bool metronomeEnabled = false,
+        IResourceManager? resourceManager = null,
+        ILogger? logger = null,
+        Action<BeatMarker>? playClick = null,
+        bool start = false)
+    {
+        var session = CreateBoundSession(
+            chart, preparedSet, modifiers, metronomeEnabled, resourceManager, logger, playClick, start);
+        ReflectionHelpers.SetPrivateField(stage, "_audioSession", session);
+        return session;
     }
 
     /// <summary>
@@ -7124,13 +7106,6 @@ public class PerformanceStageDeterministicTests
 #pragma warning disable SYSLIB0050
         return (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
 #pragma warning restore SYSLIB0050
-    }
-
-    private static SongTimer CreatePlayingSongTimer()
-    {
-        var timer = new SongTimer();
-        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
-        return timer;
     }
 
     private static T CreateUninitialized<T>() where T : class
@@ -7207,7 +7182,9 @@ public class PerformanceStageDeterministicTests
         public IReadOnlyList<BeatMarker> MetronomeClicks =>
             _metronomeClicks ??= new List<BeatMarker>();
 
-        protected override void PlayMetronomeClick(BeatMarker marker)
+        protected override void PlayMetronomeClick(BeatMarker marker) => RecordMetronomeClick(marker);
+
+        public void RecordMetronomeClick(BeatMarker marker)
         {
             (_metronomeClicks ??= new List<BeatMarker>()).Add(marker);
         }
@@ -7258,8 +7235,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
         ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", null);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
@@ -7303,8 +7278,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_stageElapsedTime", 15.0);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.25);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 8);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("deactivate-test.dtx"));
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
 
@@ -7329,8 +7302,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_subscribedConfigManager", null);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
-        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate"));
 
@@ -7430,7 +7401,6 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect"));
@@ -7475,10 +7445,9 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.1);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.25);
 
@@ -7495,11 +7464,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromMilliseconds(1301.0), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        InstallBoundSession(stage, start: true);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("progress-coverage.dtx") { DurationMs = 2000.0 });
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.016);
 
@@ -7512,11 +7480,9 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var songTimer = CreateStoppedSongTimer();
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
@@ -7530,11 +7496,11 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var songTimer = CreateStoppedSongTimer();
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        var bgmChart = new ParsedChart("startsong-mute.dtx") { Bpm = 120.0 };
+        bgmChart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0 });
+        InstallBoundSession(stage, chart: bgmChart);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent> { new() { WavId = "01", TimeMs = 100.0 } });
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
@@ -7547,7 +7513,6 @@ public class PerformanceStageDeterministicTests
     public void StartSong_WhenSongTimerIsNull_ShouldNotThrow()
     {
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "StartSong"));
@@ -7571,18 +7536,17 @@ public class PerformanceStageDeterministicTests
         var scoreManager = new ScoreManager(chartManager.TotalNotes);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
-        var songTimer = CreatePlayingSongTimer();
-        Assert.True(songTimer.IsPlaying);
+        var session = InstallBoundSession(stage, start: true);
+        Assert.True(session.IsPlaying);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
 
-        Assert.False(songTimer.IsPlaying);
+        Assert.False(session.IsPlaying);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.False(judgementManager.IsActive);
@@ -7724,16 +7688,15 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayMetronomeClick_WithMeasureStartMarker_ShouldSelectAccentSound()
     {
-        var stage = CreateStage();
         var accentSound = new Mock<ISound>();
         var beatSound = new Mock<ISound>();
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        var session = CreateMetronomeSession(
+            NullLogger<PerformanceStage>.Instance,
+            beatSound: beatSound.Object,
+            accentSound: accentSound.Object);
 
         var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "PlayMetronomeClick",
+            session.PlayMetronomeClick(
                 new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
 
         Assert.Null(exception);
@@ -7744,16 +7707,15 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayMetronomeClick_WithBeatMarker_ShouldSelectBeatSound()
     {
-        var stage = CreateStage();
         var accentSound = new Mock<ISound>();
         var beatSound = new Mock<ISound>();
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        var session = CreateMetronomeSession(
+            NullLogger<PerformanceStage>.Instance,
+            beatSound: beatSound.Object,
+            accentSound: accentSound.Object);
 
         var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "PlayMetronomeClick",
+            session.PlayMetronomeClick(
                 new BeatMarker { TimeMs = 500.0, IsMeasureStart = false }));
 
         Assert.Null(exception);
@@ -7764,16 +7726,15 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void PlayMetronomeClick_WhenSoundEffectAccessThrows_ShouldSwallowException()
     {
-        var stage = CreateStage();
         var beatSound = new Mock<ISound>();
         beatSound.SetupGet(s => s.SoundEffect)
             .Throws(new InvalidOperationException("sound device lost"));
-        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        var session = CreateMetronomeSession(
+            NullLogger<PerformanceStage>.Instance,
+            beatSound: beatSound.Object);
 
         var exception = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "PlayMetronomeClick",
+            session.PlayMetronomeClick(
                 new BeatMarker { TimeMs = 500.0, IsMeasureStart = false }));
 
         Assert.Null(exception);
@@ -8030,7 +7991,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(chartManager.TotalNotes));
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateDisposedSongTimer());
+        InstallBoundSession(stage).Dispose();
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
 
@@ -8302,9 +8263,7 @@ public class PerformanceStageDeterministicTests
     public void StartSong_WhenCurrentGameTimeIsNull_ShouldLeaveReadyStateUnchanged()
     {
         var stage = CreateStage();
-        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
-
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        InstallBoundSession(stage);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", null);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 

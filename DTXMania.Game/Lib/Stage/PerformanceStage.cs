@@ -71,8 +71,6 @@ namespace DTXMania.Game.Lib.Stage
         // Phase 2 components - Chart loading and note scrolling
         private ParsedChart _parsedChart = null!;
         private ChartManager _chartManager = null!;
-        private AudioLoader _audioLoader = null!;
-        private SongTimer _songTimer = null!;
         private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
@@ -97,21 +95,20 @@ namespace DTXMania.Game.Lib.Stage
         private int _nextVideoEventIndex;
         private ChartVideoEvent? _activeVideoEvent;
 
-        // BGM management
-        private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
-        private HashSet<string> _bgmPlayFailureReported = new HashSet<string>();
-        private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
-        private readonly List<SoundEffectInstance> _activeBgmInstances = new();
+        // Gameplay audio session (HPA-800): owns the prepared audio set, audio
+        // loader, song timer, chip-sound cache, scheduled/active BGM playback
+        // and the metronome. Bound on the update thread when background audio
+        // preparation completes; null before that and after cleanup.
+        private GameplayAudioSession? _audioSession;
 
-        // Drum chip-sound cache (per-note WAV playback for autoplay + player input)
-        private ChipSoundCache _chipSoundCache = null!;
-        private PreparedGameplayAudioSet? _preparedAudioSet;
+        /// <summary>
+        /// Bound gameplay audio session for this activation. The owned audio
+        /// state and transport live inside it.
+        /// </summary>
+        internal GameplayAudioSession? AudioSession => _audioSession;
+
         private PlaybackModifiers _playbackModifiers = new(100, 0);
         private bool _metronomeEnabled;
-        private ISound? _metronomeBeatSound;
-        private ISound? _metronomeAccentSound;
-        private MetronomePlayer? _metronomePlayer;
-        private HashSet<ISound>? _metronomeFailureReportedSounds;
         private AudioPreparationProgress? _audioPreparationProgress;
         private DateTime _audioPreparationStartedUtc;
         private string? _loadErrorMessage;
@@ -304,7 +301,6 @@ namespace DTXMania.Game.Lib.Stage
         {
             var config = _game.ConfigManager.Config;
             _metronomeEnabled = config.Metronome;
-            ResetMetronomeFailureSuppression();
             _playbackModifiers = new PlaybackModifiers(
                 PlaySpeedRange.SnapAndClamp(config.PlaySpeedPercent),
                 PitchRange.SnapAndClamp(config.PitchSemitones));
@@ -374,7 +370,7 @@ namespace DTXMania.Game.Lib.Stage
             UpdateGameplay(deltaTime);
 
             // Update song timer
-            _songTimer?.Update(_currentGameTime);
+            _audioSession?.UpdateTimer(_currentGameTime);
         }
 
 
@@ -553,7 +549,6 @@ namespace DTXMania.Game.Lib.Stage
             // its fonts or borrow the shared white pixel (it exists by then).
 
             // Initialize Phase 2 components
-            _audioLoader = new AudioLoader(_resourceManager);
             _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
             _nxAttackEffectManager = new NxAttackEffectManager(_resourceManager);
             _fontJudgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
@@ -681,10 +676,6 @@ namespace DTXMania.Game.Lib.Stage
 
 
             // Cleanup Phase 2 components
-            _songTimer?.Dispose();
-            _songTimer = null;
-            _audioLoader?.Dispose();
-            _audioLoader = null;
             _noteRenderer?.Dispose();
             _noteRenderer = null;
             _nxAttackEffectManager?.Dispose();
@@ -713,27 +704,14 @@ namespace DTXMania.Game.Lib.Stage
             _fallbackWhiteTextureResource = null;
             _fallbackWhiteTexture = null!;
 
-            foreach (var instance in _activeBgmInstances ?? Enumerable.Empty<SoundEffectInstance>())
-            {
-                try { instance.Stop(); instance.Dispose(); }
-                catch { }
-            }
-            _activeBgmInstances?.Clear();
-            _bgmSounds?.Clear();
-            _bgmPlayFailureReported?.Clear();
-            _scheduledBGMEvents?.Clear();
-
             // Cleanup gameplay managers
             CleanupGameplayManagers();
 
-            _metronomePlayer = null;
-            _metronomeBeatSound?.RemoveReference();
-            _metronomeBeatSound = null;
-            _metronomeAccentSound?.RemoveReference();
-            _metronomeAccentSound = null;
-
-            _preparedAudioSet?.Dispose();
-            _preparedAudioSet = null;
+            // Release the gameplay audio session: song timer, audio loader,
+            // live BGM instances, chip cache, metronome sound references and
+            // the owned prepared audio set.
+            _audioSession?.Dispose();
+            _audioSession = null;
 
             // Clear chart data
             _parsedChart = null;
@@ -768,7 +746,7 @@ namespace DTXMania.Game.Lib.Stage
 
 
             // Only process gameplay input when song is actively playing (not during loading or ready countdown)
-            if (_songTimer?.IsPlaying == true && !_inputPaused && !_isLoading && !(_isReady && _readyCountdown > 0))
+            if (_audioSession?.IsPlaying == true && !_inputPaused && !_isLoading && !(_isReady && _readyCountdown > 0))
             {
                 // Input manager is already being updated in OnUpdate(),
                 // so we don't need to do anything special here.
@@ -812,27 +790,25 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ReturnToSongSelect()
         {
-            // 1. Stop the song timer
-            _songTimer?.Stop();
-
-            // 2. Stop audible gameplay audio instances (scheduled BGM tracks and
-            //    chip sounds) immediately. The transition uses a 0.5s fade, so
-            //    without this the backing tracks and chip instances owned by
-            //    ChipSoundCache would keep playing after gameplay has logically
-            //    stopped and bleed into the song-selection stage. Full disposal
-            //    remains in CleanupComponents via OnDeactivate.
+            // 1. Stop audible gameplay audio instances (song timer, scheduled
+            //    BGM tracks and chip sounds) immediately. The transition uses a
+            //    0.5s fade, so without this the backing tracks and chip
+            //    instances owned by the session would keep playing after
+            //    gameplay has logically stopped and bleed into the
+            //    song-selection stage. Full disposal remains in
+            //    CleanupComponents via OnDeactivate.
             StopGameplayAudioInstances();
 
-            // 3. Deactivate judgement manager to stop processing input
+            // 2. Deactivate judgement manager to stop processing input
             if (_judgementManager != null)
             {
                 _judgementManager.IsActive = false;
             }
 
-            // 4. Pause input to block further judgement processing
+            // 3. Pause input to block further judgement processing
             _inputPaused = true;
 
-            // 5. Component cleanup will be handled automatically by OnDeactivate() during stage transition
+            // 4. Component cleanup will be handled automatically by OnDeactivate() during stage transition
             // This prevents premature texture disposal that causes gauge flickering
 
             // Return to song selection stage
@@ -841,7 +817,8 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Stops all active scheduled-BGM and chip-sound instances immediately.
+        /// Stops the song timer and all active scheduled-BGM and chip-sound
+        /// instances immediately via the gameplay audio session.
         /// Used by both gameplay exit paths (ReturnToSongSelect and FinalizePerformance)
         /// to silence audio before the stage transition begins. The instances are
         /// tracked independently from the song timer (scheduled BGM) and by
@@ -851,24 +828,9 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void StopGameplayAudioInstances()
         {
-            // Stop scheduled BGM instances. These are SoundEffectInstances owned
-            // by this stage (added in TriggerBGMEvent); CleanupComponents later
-            // stops and disposes them, but we must stop them now so they do not
-            // remain audible through the transition fade.
-            if (_activeBgmInstances != null)
-            {
-                foreach (var instance in _activeBgmInstances)
-                {
-                    try { instance.Stop(); }
-                    catch { /* Best effort — teardown will dispose. */ }
-                }
-            }
-
-            // Stop chip sound instances owned by ChipSoundCache. StopAll leaves
-            // the borrowed ISound objects and the instances themselves owned by
-            // the cache; Dispose (called from CleanupGameplayManagers via
-            // CleanupComponents) handles final stop-and-dispose.
-            _chipSoundCache?.StopAll();
+            // Stop the song timer plus all scheduled-BGM and chip-sound
+            // instances owned by the session.
+            _audioSession?.StopAll();
 
             // Cancel the chart background video generation so the last decoded
             // frame does not persist through the transition fade. Full disposal
@@ -961,7 +923,7 @@ namespace DTXMania.Game.Lib.Stage
                 scope.Post(() => ApplyParsedChart(chart, notationChart));
 
             return scope.Run(
-                cancellationToken => PrepareGameplayCore(
+                cancellationToken => GameplayAudioSession.Prepare(
                     chartSnapshot,
                     fallbackChartPath,
                     requestedNoteDisplayStyle,
@@ -969,6 +931,8 @@ namespace DTXMania.Game.Lib.Stage
                     workerLogger,
                     progress,
                     publishChart,
+                    CreateAudioVariantProcessor,
+                    CreateAudioVariantCache,
                     cancellationToken),
                 onSuccess: audioSet => ApplyPreparedAudio(audioSet),
                 onError: exception =>
@@ -983,79 +947,6 @@ namespace DTXMania.Game.Lib.Stage
                             $"Audio preparation failed: {exception.Message}", exception);
                 },
                 onDropped: audioSet => audioSet.Dispose());
-        }
-
-        /// <summary>
-        /// The worker-local preparation chain: parses the fallback chart, builds the
-        /// Tab notation chart, hands both to <paramref name="publishChart"/> and then
-        /// prepares the audio set. Every input is a snapshot parameter or a
-        /// method-local; the only stage members touched are the virtual audio-variant
-        /// seams (immutable across the run). Logging uses the worker logger resolved
-        /// before Run — never the lazily assigned <see cref="BaseStage.Logger"/>.
-        /// </summary>
-        private PreparedGameplayAudioSet PrepareGameplayCore(
-            ParsedChart? chartSnapshot,
-            string? fallbackChartPath,
-            DrumsNoteDisplayStyle requestedNoteDisplayStyle,
-            PlaybackModifiers playbackModifiers,
-            ILogger workerLogger,
-            IProgress<AudioPreparationProgress> progress,
-            Action<ParsedChart, NotationChart?> publishChart,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            ParsedChart chart = chartSnapshot ??
-                DTXChartParser.ParseAsync(fallbackChartPath!).GetAwaiter().GetResult();
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // HPA-411: build the pure notation chart on the worker when the requested
-            // style is Tab. Fonts are never touched here: the fallback ParseAsync above
-            // can resume on a thread-pool thread, so resource loads are deferred to the
-            // update-thread publication. A build failure is logged locally and
-            // gameplay continues in Lanes.
-            NotationChart? notationChart = null;
-            if (requestedNoteDisplayStyle == DrumsNoteDisplayStyle.Tab)
-            {
-                try
-                {
-                    notationChart = NotationChartBuilder.Build(chart);
-                }
-                catch (Exception ex)
-                {
-                    LogCapturedError(
-                        workerLogger,
-                        "PerformanceStage: Tab notation build failed; staying in Lanes for this song.",
-                        ex);
-                }
-            }
-
-            // Everything the playfield needs is ready: publish it now so the right
-            // playfield is drawn behind LOADING while the (possibly slow) audio
-            // preparation below runs.
-            publishChart(chart, notationChart);
-
-            var noteWavIds = new HashSet<string>(
-                chart.Notes.Select(n => n.Value)
-                    .Where(v => !string.IsNullOrEmpty(v)));
-            var noteWavDefs = chart.WavDefinitions
-                .Where(kvp => noteWavIds.Contains(kvp.Key))
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-            return PreparedGameplayAudioSet.PrepareAsync(
-                chart.BackgroundAudioPath,
-                chart.BGMEvents.Select(bgm => bgm.AudioFilePath),
-                noteWavDefs,
-                playbackModifiers,
-                playbackModifiers.IsDefault ? null : CreateAudioVariantProcessor(),
-                playbackModifiers.IsDefault ? null : CreateAudioVariantCache(),
-                progress,
-                cancellationToken,
-                reportSoundLoadFailure: (path, ex) =>
-                    LogCapturedError(
-                        workerLogger,
-                        $"PerformanceStage: Gameplay audio load failed ({path})",
-                        ex)).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -1112,11 +1003,19 @@ namespace DTXMania.Game.Lib.Stage
                 if (_loadErrorMessage != null || _parsedChart == null)
                     return;
 
-                // Bind the prepared audio: ownership moves to the stage here, so from
-                // this point CleanupComponents (not the finally below) disposes it.
-                _preparedAudioSet = audioSet;
+                // Bind the prepared audio: ownership moves to the session here,
+                // so from this point session disposal via CleanupComponents (not
+                // the finally below) disposes it.
+                var session = new GameplayAudioSession(
+                    _resourceManager,
+                    _game?.LoggerFactory,
+                    Logger,
+                    _playbackModifiers,
+                    _metronomeEnabled,
+                    PlayMetronomeClick);
+                _audioSession = session;
                 ownershipTransferred = true;
-                BindPreparedAudio(_parsedChart);
+                session.Bind(_parsedChart, audioSet);
 
                 _isLoading = false;
                 _isReady = true;
@@ -1130,43 +1029,6 @@ namespace DTXMania.Game.Lib.Stage
                 if (!ownershipTransferred)
                     audioSet.Dispose();
             }
-        }
-
-        /// <summary>
-        /// Binds the stage-owned prepared audio set: background playback, chip-sound
-        /// cache, scheduled BGM, song timer and metronome. Runs on the update thread.
-        /// </summary>
-        private void BindPreparedAudio(ParsedChart chart)
-        {
-            var preparedAudioSet = _preparedAudioSet!;
-            _audioLoader.BindBorrowedBackground(
-                preparedAudioSet.MainBackground,
-                chart.BackgroundAudioPath);
-            _chipSoundCache = new ChipSoundCache(
-                preparedAudioSet.ChipSoundsByWavId,
-                _game.LoggerFactory?.CreateLogger<ChipSoundCache>());
-            BindPreparedBGMSounds();
-
-            // Schedule BGM events for playback
-            _scheduledBGMEvents = chart.BGMEvents
-                .OrderBy(bgm => bgm.TimeMs)
-                .ToList();
-
-            // Create song timer with logging support
-            var songTimer = _audioLoader.CreateSongTimer(
-                _playbackModifiers.PlaySpeedPercent,
-                preparedAudioSet.RuntimePitch,
-                message => LogPerformanceError(message));
-            if (songTimer == null)
-            {
-                LogPerformanceError("PerformanceStage: No audio timer available; using silent GameTime clock");
-                songTimer = new SongTimer(
-                    _playbackModifiers.PlaySpeedPercent,
-                    message => LogPerformanceError(message));
-            }
-            _songTimer = songTimer;
-
-            InitializeMetronome();
         }
 
         /// <summary>
@@ -1246,69 +1108,15 @@ namespace DTXMania.Game.Lib.Stage
             art.Release();
         }
 
-        private void InitializeMetronome()
-        {
-            if (!_metronomeEnabled || _parsedChart == null || _metronomePlayer != null)
-                return;
-
-            _metronomeBeatSound = TryLoadMetronomeSound(SoundPath.MetronomeBeat);
-            _metronomeAccentSound = TryLoadMetronomeSound(SoundPath.MetronomeAccent);
-
-            var speed = _playbackModifiers.PlaySpeedPercent > 0
-                ? _playbackModifiers.Speed
-                : 1.0;
-            var maxLateChartMs = 100.0 * speed;
-            _metronomePlayer = new MetronomePlayer(
-                _parsedChart.BeatMarkers,
-                maxLateChartMs,
-                PlayMetronomeClick);
-        }
-
-        private ISound? TryLoadMetronomeSound(string path)
-        {
-            try
-            {
-                if (_resourceManager == null)
-                    return null;
-                _resourceManager.TryLoadSound(path, out var sound);
-                return sound;
-            }
-            catch (Exception ex)
-            {
-                LogPerformanceError($"PerformanceStage: Metronome sound unavailable ({path}): {ex.Message}");
-                return null;
-            }
-        }
-
         /// <summary>
-        /// Clears the once-per-run metronome failure suppression so each new
-        /// activation reports a persistently broken sound again instead of
-        /// staying silent for the rest of the process lifetime.
+        /// Metronome click sink passed to the session at bind time. Kept as the
+        /// stage's virtual seam so test subclasses can observe markers; the
+        /// base implementation delegates to the bound session, which owns the
+        /// click sounds and the once-per-run failure suppression.
         /// </summary>
-        private void ResetMetronomeFailureSuppression()
-        {
-            (_metronomeFailureReportedSounds ??= new HashSet<ISound>()).Clear();
-        }
-
         protected virtual void PlayMetronomeClick(BeatMarker marker)
         {
-            var sound = marker.IsMeasureStart
-                ? _metronomeAccentSound
-                : _metronomeBeatSound;
-            try
-            {
-                sound?.SoundEffect?.Play(1.0f, 0.0f, 0.0f);
-            }
-            catch (Exception ex)
-            {
-                // Report once per affected sound per run: a persistently failing
-                // metronome click must not fill the error log on every beat.
-                if (sound != null &&
-                    (_metronomeFailureReportedSounds ??= new HashSet<ISound>()).Add(sound))
-                {
-                    LogPerformanceError($"PerformanceStage: Metronome click playback failed: {ex.Message}", ex);
-                }
-            }
+            _audioSession?.PlayMetronomeClick(marker);
         }
 
         /// <summary>
@@ -1347,13 +1155,13 @@ namespace DTXMania.Game.Lib.Stage
             _hitTimingFeedbackDisplay?.Update(deltaTime);
 
             // Handle BGM event scheduling and gameplay managers
-            if (_songTimer != null && _songTimer.IsPlaying)
+            if (_audioSession != null && _audioSession.IsPlaying)
             {
                 // Only run timing logic when the song is actually playing
-                var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+                var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
                 
                 // Process BGM events during song playback
-                ProcessBGMEvents(currentTimeMs);
+                _audioSession.Advance(currentTimeMs);
 
                 // HPA-11: schedule chart background video events on the same
                 // logical clock (never re-read from GetCurrentMs, never speed-scaled).
@@ -1407,48 +1215,24 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void StartSong()
         {
-            if (_songTimer != null && _currentGameTime != null)
+            if (_audioSession != null && _currentGameTime != null)
             {
                 // Start the song timer - this provides the master clock for notes and BGM events
                 _chartEndReachedRealTimeSeconds = null;
-                _songTimer.SetPosition(0.0, _currentGameTime);
-                bool playbackStarted = _songTimer.Play(_currentGameTime);
-                
+                bool playbackStarted = _audioSession.Start(_currentGameTime, _parsedChart);
+
                 if (!playbackStarted)
                 {
                     LogPerformanceError("PerformanceStage: Failed to start song playback - audio may be unavailable");
                     // Continue anyway - the game can still run without audio
                 }
-                
+
                 _isReady = false;
 
                 // Activate the judgement manager now that the song is playing
                 if (_judgementManager != null)
                 {
                     _judgementManager.IsActive = true;
-                }
-
-                // Choose playback strategy based on BGM events
-                if (_scheduledBGMEvents.Count > 0)
-                {
-                    // New approach: Use BGM events for timed playback, silence the background audio
-                    _songTimer.Volume = 0.0f; // Mute the background audio since we'll use BGM events
-                }
-                else
-                {
-                    // Legacy approach: Play background audio immediately (no BGM events).
-                    // Honor the chart's per-WAV #VOLUME/#PAN for the master background track
-                    // when a background WAV id is defined; otherwise default to full volume.
-                    var backgroundWavId = _parsedChart?.BackgroundWavId;
-                    if (!string.IsNullOrEmpty(backgroundWavId))
-                    {
-                        _songTimer.Volume = _parsedChart.GetVolume(backgroundWavId);
-                        _songTimer.Pan = _parsedChart.GetPan(backgroundWavId);
-                    }
-                    else
-                    {
-                        _songTimer.Volume = 1.0f; // Ensure background audio is audible
-                    }
                 }
             }
         }
@@ -1460,16 +1244,16 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_noteRenderer == null ||
                 _chartManager == null ||
-                _songTimer == null ||
+                _audioSession == null ||
                 _currentGameTime == null)
             {
                 return;
             }
 
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
+            if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
                 return;
 
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0
                 ? _noteRenderer.EffectiveLookAheadMs
                 : PerformanceUILayout.NoteDefaultLookAheadMs;
@@ -1489,14 +1273,14 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void DrawNotes()
         {
-            if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
+            if (_noteRenderer == null || _chartManager == null || _audioSession == null || _currentGameTime == null)
                 return;
 
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
+            if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
                 return;
 
             // Get current song time and active notes
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
             var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
 
@@ -1509,14 +1293,14 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void DrawNoteOverlays()
         {
-            if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
+            if (_noteRenderer == null || _chartManager == null || _audioSession == null || _currentGameTime == null)
                 return;
 
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
+            if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
                 return;
 
             // Get current song time using precise GameTime-based timing
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
 
             // Get active notes using the same look-ahead time as scroll calculation
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
@@ -1535,8 +1319,8 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void DrawNotationStrip()
         {
-            var currentTimeMs = (_songTimer != null && _currentGameTime != null)
-                ? _songTimer.GetCurrentMs(_currentGameTime)
+            var currentTimeMs = (_audioSession != null && _currentGameTime != null)
+                ? _audioSession.GetCurrentMs(_currentGameTime)
                 : 0.0;
             var speedPercent = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
             _notationStrip?.Draw(_spriteBatch, currentTimeMs, speedPercent);
@@ -1841,101 +1625,6 @@ namespace DTXMania.Game.Lib.Stage
         #region BGM Management
 
         /// <summary>
-        /// Loads all BGM sounds referenced by BGM events
-        /// </summary>
-        private async Task LoadBGMSoundsAsync()
-        {
-            if (_parsedChart?.BGMEvents == null)
-                return;
-
-            foreach (var bgmEvent in _parsedChart.BGMEvents)
-            {
-                if (string.IsNullOrEmpty(bgmEvent.AudioFilePath) || _bgmSounds.ContainsKey(bgmEvent.WavId))
-                    continue;
-
-                try
-                {
-                    if (File.Exists(bgmEvent.AudioFilePath))
-                    {
-                        var sound = new ManagedSound(bgmEvent.AudioFilePath);
-                        _bgmSounds[bgmEvent.WavId] = sound;
-                    }
-                }
-                catch (Exception)
-                {
-                }
-            }
-        }
-
-        private void BindPreparedBGMSounds()
-        {
-            _bgmSounds.Clear();
-            _bgmPlayFailureReported?.Clear();
-            if (_preparedAudioSet == null || _parsedChart?.BGMEvents == null)
-                return;
-
-            foreach (var bgmEvent in _parsedChart.BGMEvents)
-            {
-                if (string.IsNullOrWhiteSpace(bgmEvent.AudioFilePath))
-                    continue;
-
-                var sourcePath = Path.GetFullPath(bgmEvent.AudioFilePath);
-                if (_preparedAudioSet.ScheduledBgmBySourcePath.TryGetValue(
-                    sourcePath,
-                    out var sound))
-                {
-                    _bgmSounds[bgmEvent.WavId] = sound;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Processes BGM events that should be triggered at the current time
-        /// </summary>
-        /// <param name="currentTimeMs">Current song time in milliseconds</param>
-        private void ProcessBGMEvents(double currentTimeMs)
-        {
-            var dueEvents = _scheduledBGMEvents
-                .Where(bgm => currentTimeMs >= bgm.TimeMs)
-                .OrderBy(bgm => bgm.TimeMs)
-                .ToArray();
-
-            // Trigger from earliest to latest. Iterating backward here reverses
-            // simultaneous/overdue BGM events after a slow frame.
-            foreach (var bgmEvent in dueEvents)
-            {
-                TriggerBGMEvent(bgmEvent);
-                _scheduledBGMEvents.Remove(bgmEvent);
-            }
-
-            // Reap finished instances so their native audio resources are released
-            // during gameplay rather than lingering until stage teardown. Mirrors
-            // ChipSoundCache.CleanupStoppedInstances.
-            CleanupStoppedBgmInstances();
-        }
-
-        /// <summary>
-        /// Removes and disposes BGM instances that have finished playing, retaining
-        /// active instances for the teardown stop-and-dispose pass.
-        /// </summary>
-        private void CleanupStoppedBgmInstances()
-        {
-            if (_activeBgmInstances == null || _activeBgmInstances.Count == 0)
-                return;
-
-            for (int i = _activeBgmInstances.Count - 1; i >= 0; i--)
-            {
-                var instance = _activeBgmInstances[i];
-                if (instance.State == SoundState.Stopped)
-                {
-                    try { instance.Dispose(); }
-                    catch { }
-                    _activeBgmInstances.RemoveAt(i);
-                }
-            }
-        }
-
-        /// <summary>
         /// Processes chart background video events that should be triggered at the
         /// current time (HPA-11). Consumes all due unhandled events but starts only
         /// the last due one; an unresolved definition (empty path) leaves the video
@@ -1982,41 +1671,6 @@ namespace DTXMania.Game.Lib.Stage
             if (_activeVideoEvent != null)
             {
                 _chartVideoPlayer.Update(Math.Max(0.0, currentTimeMs - _activeVideoEvent.TimeMs));
-            }
-        }
-
-        /// <summary>
-        /// Triggers a BGM event by playing its associated sound
-        /// </summary>
-        /// <param name="bgmEvent">BGM event to trigger</param>
-        private void TriggerBGMEvent(BGMEvent bgmEvent)
-        {
-            if (_bgmSounds.TryGetValue(bgmEvent.WavId, out var sound))
-            {
-                try
-                {
-                    // Honor the chart's per-WAV #VOLUME/#PAN for backing-track audio;
-                    // defaults to full volume, centered when undefined.
-                    // NOTE: ConfigData.MasterVolume is not yet combined here — this is
-                    // the integration point once master-volume routing is wired into Lib/.
-                    float volume = _parsedChart?.GetVolume(bgmEvent.WavId) ?? 1.0f;
-                    float pan = _parsedChart?.GetPan(bgmEvent.WavId) ?? 0.0f;
-                    var instance = sound.Play(
-                        volume,
-                        _preparedAudioSet?.RuntimePitch ?? 0.0f,
-                        pan);
-                    if (instance != null)
-                        _activeBgmInstances.Add(instance);
-                }
-                catch (Exception ex)
-                {
-                    // Per-WAV dedupe: BGM events fire on the hot path, so a persistent
-                    // failure must not flood the log (mirrors ChipSoundCache).
-                    if ((_bgmPlayFailureReported ??= new HashSet<string>()).Add(bgmEvent.WavId))
-                    {
-                        Logger.LogWarning(ex, "BGM playback failed for WAV id '{WavId}'", bgmEvent.WavId);
-                    }
-                }
             }
         }
 
@@ -2122,13 +1776,13 @@ namespace DTXMania.Game.Lib.Stage
             // Only record gameplay telemetry and chip sounds while the chart is actively playing.
             // During loading, the ready countdown, or after stop, the song clock is not advancing,
             // so telemetry must not capture these non-gameplay hits.
-            if (_songTimer?.IsPlaying != true)
+            if (_audioSession?.IsPlaying != true)
                 return;
 
             // v1 intentionally frame-samples the logical clock when the queued input
             // is handled. Do not combine LaneHitEventArgs.Timestamp (DateTime-based)
             // with GameTime; that would create a mixed-clock judgement path.
-            var logicalSongTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var logicalSongTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
 
             // Publish all three values as one immutable reference so the API thread reads
             // a consistent snapshot (lane + button + logical time from the same hit).
@@ -2145,7 +1799,7 @@ namespace DTXMania.Game.Lib.Stage
                 GetPlayerJudgementTimeMs(logicalSongTimeMs);
             var nearest = FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
             if (nearest != null)
-                PlayChipForNote(nearest);
+                _audioSession?.PlayChip(nearest);
         }
 
         /// <summary>
@@ -2298,7 +1952,7 @@ namespace DTXMania.Game.Lib.Stage
                 ProcessAutoPlay(logicalSongTimeMs);
             }
 
-            _metronomePlayer?.Update(logicalSongTimeMs);
+            _audioSession?.UpdateMetronome(logicalSongTimeMs);
 
             // Pending hits and timeout misses both use the latency-compensated
             // logical time. Miss scanning must share the compensated clock so a
@@ -2365,33 +2019,12 @@ namespace DTXMania.Game.Lib.Stage
                         _padRenderer?.TriggerPadPress(note.LaneIndex, true);
 
                         // Play the per-note drum chip sound (silent if no cache or no WAV)
-                        PlayChipForNote(note);
+                        _audioSession?.PlayChip(note);
                     }
                 }
 
                 _autoPlayNoteIndex++;
             }
-        }
-
-        /// <summary>
-        /// Plays the drum chip sound associated with a note's WAV id, if loaded.
-        /// No-op when cache is unavailable or note has no associated WAV.
-        /// </summary>
-        private void PlayChipForNote(Note note)
-        {
-            if (note == null || string.IsNullOrEmpty(note.Value))
-                return;
-
-            // Honor the chart's per-WAV #VOLUME/#PAN; defaults to full volume, centered.
-            // NOTE: ConfigData.MasterVolume is not yet combined here — this is the
-            // integration point once master-volume routing is wired into Lib/.
-            float volume = _parsedChart?.GetVolume(note.Value) ?? 1.0f;
-            float pan = _parsedChart?.GetPan(note.Value) ?? 0.0f;
-            _chipSoundCache?.Play(
-                note.Value,
-                volume,
-                _preparedAudioSet?.RuntimePitch ?? 0.0f,
-                pan);
         }
 
         /// <summary>
@@ -2489,9 +2122,6 @@ namespace DTXMania.Game.Lib.Stage
             _gaugeManager = null;
             _skillManager?.Dispose();
             _skillManager = null;
-
-            _chipSoundCache?.Dispose();
-            _chipSoundCache = null!;
         }
 
         #endregion
@@ -2720,8 +2350,8 @@ namespace DTXMania.Game.Lib.Stage
             Combo = _comboDisplay?.Combo ?? 0,
             Life = _currentGaugeValue,
             Progress = _currentProgressValue,
-            ElapsedMs = (_songTimer != null && _currentGameTime != null)
-                ? _songTimer.GetCurrentMs(_currentGameTime)
+            ElapsedMs = (_audioSession != null && _currentGameTime != null)
+                ? _audioSession.GetCurrentMs(_currentGameTime)
                 : 0.0,
             TotalMs = _parsedChart?.DurationMs ?? 0.0,
             Achievement = _skillPanelDisplay?.Skill ?? 0.0,
@@ -2925,11 +2555,8 @@ namespace DTXMania.Game.Lib.Stage
                 _judgementManager.IsActive = false;
             }
 
-            // Stop the song timer
-            _songTimer?.Stop();
-
-            // Stop audible gameplay audio instances (scheduled BGM tracks and
-            // chip sounds) immediately. The transition to ResultStage is
+            // Stop audible gameplay audio instances (song timer, scheduled BGM
+            // tracks and chip sounds) immediately. The transition to ResultStage is
             // instant, but scheduled BGM tracks are SoundEffectInstances tracked
             // independently from the song timer; without this they would keep
             // playing after gameplay has logically ended and bleed into the
@@ -2993,28 +2620,28 @@ namespace DTXMania.Game.Lib.Stage
 
             telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
             telemetry.SelectedDifficulty = _selectedDifficulty;
-            // Snapshot _songTimer and _currentGameTime into locals before checking/calling.
+            // Snapshot _audioSession and _currentGameTime into locals before checking/calling.
             // PopulateTelemetry runs on the Kestrel API thread while the game thread can null
             // these fields during stage cleanup (line 448). Reading the field multiple times
             // (null check, then IsPlaying, then GetCurrentMs) opens a window where the game
             // thread nulls it between reads and throws NullReferenceException. A single local
             // read collapses that window. Matches the _lastLaneHit snapshot pattern below.
-            var songTimer = _songTimer;
+            var audioSession = _audioSession;
             var currentGameTime = _currentGameTime;
-            var songTimerPlaying = songTimer != null && songTimer.IsPlaying;
-            var songTimerPaused = songTimer != null && songTimer.IsPaused;
+            var songTimerPlaying = audioSession != null && audioSession.IsPlaying;
+            var songTimerPaused = audioSession != null && audioSession.IsPaused;
             var songTimerHasReadablePosition =
                 songTimerPlaying || songTimerPaused;
             telemetry.PerformanceReady = !_isLoading
                 && _chartManager != null
-                && songTimer != null
+                && audioSession != null
                 && !_stageCompleted
                 && (_isReady || songTimerHasReadablePosition);
             telemetry.PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent;
             telemetry.PitchSemitones = _playbackModifiers.PitchSemitones;
             telemetry.PlaybackProfileFrozen = true;
             var audioPreparationProgress = _audioPreparationProgress;
-            var preparedAudioSet = _preparedAudioSet;
+            var preparedAudioSet = audioSession?.PreparedSet;
             telemetry.AudioPreparationCompleted =
                 audioPreparationProgress?.CompletedCount ?? 0;
             telemetry.AudioPreparationTotal =
@@ -3030,7 +2657,7 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.StageCompleted = _stageCompleted;
             telemetry.CurrentSongTimeMs =
                 songTimerHasReadablePosition && currentGameTime != null
-                ? songTimer!.GetCurrentMs(currentGameTime)
+                ? audioSession!.GetCurrentMs(currentGameTime)
                 : 0.0;
             telemetry.Score = _scoreManager?.CurrentScore ?? 0;
             telemetry.CurrentCombo = _comboManager?.CurrentCombo ?? 0;
@@ -3084,24 +2711,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Routed through the stage logger (Console-backed in production) so
             // the error stays visible in all build configurations.
-            LogCapturedError(Logger, message, exception);
-        }
-
-        /// <summary>
-        /// Logs through a logger captured before the background work started
-        /// (HPA-799): worker code must not touch the lazily assigned stage logger,
-        /// so its reporting uses the captured snapshot instead.
-        /// </summary>
-        private static void LogCapturedError(ILogger logger, string message, Exception? exception = null)
-        {
-            if (exception != null)
-            {
-                logger.LogError(exception, "{Message}", message);
-            }
-            else
-            {
-                logger.LogError("{Message}", message);
-            }
+            GameplayAudioSession.LogCapturedError(Logger, message, exception);
         }
 
         #endregion
