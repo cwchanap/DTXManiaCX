@@ -120,7 +120,6 @@ namespace DTXMania.Game.Lib.Stage
         // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
         // _fallbackWhiteTexture above is its borrowed raw texture.
         private ITexture? _fallbackWhiteTextureResource;
-        private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
         // UI state tracking
         private bool _isDanger = false;
@@ -192,8 +191,10 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         protected virtual IChartVideoPlayer CreateChartVideoPlayer()
             => new FfmpegChartVideoPlayer(
-                _spriteBatch.GraphicsDevice,
-                message => LogPerformanceError(message));
+                _spriteBatch.GraphicsDevice, message => LogPerformanceError(message));
+
+        protected virtual IChartVideoPlayer? CreateChartVideoPlayerIfAvailable() =>
+            _spriteBatch == null ? null : CreateChartVideoPlayer();
 
         /// <summary>
         /// Creates the chart video player and resets scheduling state. Extracted so
@@ -202,7 +203,7 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         private void InitializeChartVideoPlayer()
         {
-            _chartVideoPlayer = CreateChartVideoPlayer();
+            _chartVideoPlayer = CreateChartVideoPlayerIfAvailable();
             _nextVideoEventIndex = 0;
             _activeVideoEvent = null;
         }
@@ -353,9 +354,8 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
 
             // Draw background (furthest back - highest depth value)
-            DrawBackground();
-
-            DrawPlayfieldBase(_spriteBatch);
+            var viewport = _spriteBatch.GraphicsDevice.Viewport;
+            DrawBasePass(new Rectangle(0, 0, viewport.Width, viewport.Height));
 
             _spriteBatch.End();
 
@@ -371,9 +371,6 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw UI elements (gauge, score, combo)
             DrawUIElements();
-
-            // Draw ready state or loading indicator
-            DrawGameplayState();
 
             // Draw scroll-speed indicator toast (on top of everything via depth 0.0)
             _scrollSpeedIndicator?.Draw(_spriteBatch);
@@ -393,6 +390,12 @@ namespace DTXMania.Game.Lib.Stage
             _playfield?.DrawBase(batch, Rules?.ChartManager,
                 _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
                 CurrentVisualSongTimeMs);
+        }
+
+        internal void DrawBasePass(Rectangle viewport)
+        {
+            DrawBackground(viewport);
+            DrawPlayfieldBase(_spriteBatch);
         }
 
         internal void DrawPlayfieldOverlay(SpriteBatch batch)
@@ -461,14 +464,13 @@ namespace DTXMania.Game.Lib.Stage
                 _fallbackWhiteTexture = null!;
                 throw;
             }
+            // The default factory guards the GPU-dependent player when headless.
+            InitializeChartVideoPlayer();
             if (_spriteBatch == null)
             {
                 WireUpInputEventHandlers();
                 return;
             }
-
-            // HPA-11: chart background video player; scheduling state resets per activation.
-            InitializeChartVideoPlayer();
 
             // Initialize UX components
             InitializeReadyFont();
@@ -1593,7 +1595,7 @@ namespace DTXMania.Game.Lib.Stage
         internal (Rectangle Bounds, float LayerDepth) ResolveChartVideoDrawLayout()
             => (PerformanceUILayout.Background.Bounds, ChartVideoLayerDepth);
 
-        private void DrawBackground()
+        private void DrawBackground(Rectangle viewport)
         {
             if (_backgroundTexture != null)
             {
@@ -1604,9 +1606,7 @@ namespace DTXMania.Game.Lib.Stage
             else
             {
                 // Fallback to BackgroundRenderer with consistent depth
-                var viewport = _spriteBatch.GraphicsDevice.Viewport;
-                var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
-                _backgroundRenderer?.Draw(_spriteBatch, backgroundRect, 1.0f);
+                DrawFallbackBackground(viewport);
             }
 
             // Chart background video above the static background, below the lanes.
@@ -1615,6 +1615,9 @@ namespace DTXMania.Game.Lib.Stage
             var (videoBounds, videoDepth) = ResolveChartVideoDrawLayout();
             _chartVideoPlayer?.Draw(_spriteBatch, videoBounds, videoDepth);
         }
+
+        internal virtual void DrawFallbackBackground(Rectangle viewport) =>
+            _backgroundRenderer?.Draw(_spriteBatch, viewport, 1.0f);
 
         [ExcludeFromCodeCoverage]
         private void DrawUIElements() => DrawUiPass(_uiManager);
@@ -1630,6 +1633,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw overlays last (topmost)
             DrawOverlays();
+
+            // Draw ready state or loading indicator after the stage UI.
+            DrawGameplayState();
         }
 
         internal void DrawPlayfieldHud(SpriteBatch batch)
@@ -1655,24 +1661,20 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
-        private void DrawFallbackRectangle(Rectangle destinationRectangle, Color color, float layerDepth)
+        internal virtual void DrawFallbackRectangle(Rectangle destinationRectangle, Color color, float layerDepth)
         {
-            if (_fallbackRectangleDrawer != null)
+            if (_fallbackWhiteTextureResource != null)
             {
-                _fallbackRectangleDrawer(destinationRectangle, color, layerDepth);
-                return;
-            }
-
-            if (_fallbackWhiteTexture != null)
-            {
-                DrawFallbackTexture(_fallbackWhiteTexture, destinationRectangle, color, layerDepth);
+                DrawFallbackTexture(_fallbackWhiteTextureResource, destinationRectangle, color, layerDepth);
             }
         }
 
         [ExcludeFromCodeCoverage]
-        internal virtual void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
+        internal virtual void DrawFallbackTexture(ITexture texture, Rectangle destinationRectangle, Color color, float layerDepth)
         {
-            _spriteBatch.Draw(texture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
+            var rawTexture = texture.Texture;
+            if (rawTexture != null)
+                _spriteBatch.Draw(rawTexture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
         }
         
         /// <summary>

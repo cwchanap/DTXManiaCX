@@ -90,7 +90,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => totalJudgements++;
 
             // Act - Simulate input while inactive (should be ignored)
-            mockInputManager.TriggerLaneHit(0); // Hit lane 0
+            InjectLaneHit(mockInputManager, 0);
             judgementManager.Update(1000.0); // Perfect timing
 
             // Assert - Input should be ignored, no hit judgement
@@ -116,7 +116,7 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             // Act - Simulate input while active (should be processed)
-            mockInputManager.TriggerLaneHit(0); // Hit lane 0
+            InjectLaneHit(mockInputManager, 0);
             judgementManager.Update(1000.0); // Perfect timing
 
             // Assert - Input should be processed, creating a hit judgement
@@ -156,7 +156,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.IsActive = true;
 
             // Phase 3: Player hits second note perfectly (note is in lane 1, not 0)
-            mockInputManager.TriggerLaneHit(1);
+            InjectLaneHit(mockInputManager, 1);
             judgementManager.Update(1500.0); // Perfect timing for second note
             Assert.Equal(1, missCount); // Still one miss
             Assert.Equal(1, hitCount); // One successful hit
@@ -165,6 +165,14 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.Update(2300.0); // 300ms after third note at 2000ms
             Assert.Equal(2, missCount); // Now two misses
             Assert.Equal(1, hitCount); // Still one hit
+        }
+
+        private static void InjectLaneHit(MockInputManagerCompat input, int lane)
+        {
+            var button = $"Test.Lane{lane}";
+            input.ModularInputManager.KeyBindings.BindButton(button, lane);
+            Assert.True(input.ModularInputManager.InjectButton(button, true));
+            input.ModularInputManager.Update();
         }
 
         /// <summary>

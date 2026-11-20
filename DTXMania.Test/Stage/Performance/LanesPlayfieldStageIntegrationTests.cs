@@ -345,7 +345,7 @@ public class LanesPlayfieldStageIntegrationTests
         Assert.Null(stage.AudioSession);
         Assert.Null(rules.ChartManager);
         Assert.Null(session.Timer);
-        input.TriggerLaneHit(4);
+        InjectLaneHit(input, 4);
         Assert.Empty(visuals.Pads.Presses);
         stage.Deactivate();
         pixel.Verify(p => p.RemoveReference(), Times.Exactly(2));
@@ -384,7 +384,7 @@ public class LanesPlayfieldStageIntegrationTests
 
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
-        input.TriggerLaneHit(3);
+        InjectLaneHit(input, 3);
         stage.DrawPlayfieldBase(null!);
         stage.DrawPlayfieldHud(null!);
 
@@ -467,7 +467,7 @@ public class LanesPlayfieldStageIntegrationTests
         font.Setup(f => f.RemoveReference()).Callback(() =>
         {
             if (!deactivating || !hud.IsReady) return;
-            input.TriggerLaneHit(8);
+            InjectLaneHit(input, 8);
             Assert.Equal(0, hud.FlashTimersForTesting[8]);
             stripReleaseChecks++;
         });
@@ -494,7 +494,7 @@ public class LanesPlayfieldStageIntegrationTests
         chart.FinalizeChart();
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
         UpdateUntil(stage, () => stage.AudioSession != null);
-        input.TriggerLaneHit(2);
+        InjectLaneHit(input, 2);
         Assert.Equal(1f, hud.FlashTimersForTesting[2]);
 
         deactivating = true;
@@ -731,6 +731,14 @@ public class LanesPlayfieldStageIntegrationTests
         stage.DrawPlayfieldHud(null!);
         stage.DrawPlayfieldAdditive(null!);
         Assert.Equal(1, visuals.Score.DrawCount);
+    }
+
+    private static void InjectLaneHit(MockInputManagerCompat input, int lane)
+    {
+        var button = $"Test.Lane{lane}";
+        input.ModularInputManager.KeyBindings.BindButton(button, lane);
+        Assert.True(input.ModularInputManager.InjectButton(button, true));
+        input.ModularInputManager.Update();
     }
 
     private static Mock<IResourceManager> CreateResources()
