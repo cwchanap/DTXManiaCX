@@ -71,7 +71,6 @@ namespace DTXMania.Game.Lib.Stage
 
         // Phase 2 components - Chart loading and note scrolling
         private ParsedChart _parsedChart = null!;
-        private ChartManager _chartManager = null!;
         private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
@@ -177,9 +176,9 @@ namespace DTXMania.Game.Lib.Stage
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary = null!;
         
-        private GameplayRules? _gameplayRules;
+        internal GameplayRules? Rules { get; private set; }
         private IReadOnlySet<int> FrozenAutoPlayLanes =>
-            _gameplayRules?.AutoPlayLanes ?? FrozenSet<int>.Empty;
+            Rules?.AutoPlayLanes ?? FrozenSet<int>.Empty;
         private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
         private PerformanceVisualGates _visualGates;
 
@@ -492,7 +491,7 @@ namespace DTXMania.Game.Lib.Stage
                 ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false,
                 RequestedNoteDisplayStyle: noteDisplayStyle);
 
-            _gameplayRules = new GameplayRules(config);
+            Rules = new GameplayRules(config);
             _autoPlayNoteIndex = 0;
 
         }
@@ -710,7 +709,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Clear chart data
             _parsedChart = null;
-            _chartManager = null;
+            Rules?.ClearChart();
 
             // Cleanup HPA-11 chart background video player
             _chartVideoPlayer?.Dispose();
@@ -983,7 +982,7 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 _parsedChart = chart;
-                _chartManager = new ChartManager(chart);
+                Rules!.BindChart(chart);
 
                 // Initialize gameplay managers
                 InitializeGameplayManagers();
@@ -1265,8 +1264,9 @@ namespace DTXMania.Game.Lib.Stage
             if (_visualGates.HideMeasureLines)
                 return;
 
+            var chartManager = Rules?.ChartManager;
             if (_noteRenderer == null ||
-                _chartManager == null ||
+                chartManager == null ||
                 _audioSession == null ||
                 _currentGameTime == null)
             {
@@ -1280,7 +1280,7 @@ namespace DTXMania.Game.Lib.Stage
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0
                 ? _noteRenderer.EffectiveLookAheadMs
                 : PerformanceUILayout.NoteDefaultLookAheadMs;
-            var activeLines = _chartManager.GetActiveMeasureLines(
+            var activeLines = chartManager.GetActiveMeasureLines(
                 currentTimeMs,
                 lookAheadMs,
                 _noteRenderer.MeasureLinePastGraceMs);
@@ -1296,7 +1296,8 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void DrawNotes()
         {
-            if (_noteRenderer == null || _chartManager == null || _audioSession == null || _currentGameTime == null)
+            var chartManager = Rules?.ChartManager;
+            if (_noteRenderer == null || chartManager == null || _audioSession == null || _currentGameTime == null)
                 return;
 
             if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
@@ -1305,7 +1306,7 @@ namespace DTXMania.Game.Lib.Stage
             // Get current song time and active notes
             var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
-            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
+            var activeNotes = chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
 
             // Draw the notes
             _noteRenderer.DrawNotes(_spriteBatch, activeNotes, currentTimeMs);
@@ -1316,7 +1317,8 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void DrawNoteOverlays()
         {
-            if (_noteRenderer == null || _chartManager == null || _audioSession == null || _currentGameTime == null)
+            var chartManager = Rules?.ChartManager;
+            if (_noteRenderer == null || chartManager == null || _audioSession == null || _currentGameTime == null)
                 return;
 
             if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
@@ -1327,7 +1329,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Get active notes using the same look-ahead time as scroll calculation
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
-            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
+            var activeNotes = chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
 
             // Draw the note overlays with additive blending
             _noteRenderer.DrawNoteOverlays(_spriteBatch, activeNotes, currentTimeMs);
@@ -1706,11 +1708,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void InitializeGameplayManagers()
         {
-            if (_chartManager == null || _inputManager == null)
+            var chartManager = Rules?.ChartManager;
+            if (chartManager == null || _inputManager == null)
                 return;
 
             // Initialize managers
-            _judgementManager = new JudgementManager(_inputManager, _chartManager);
+            _judgementManager = new JudgementManager(_inputManager, chartManager);
             // Start with judgement manager inactive - it will be activated when song starts
             _judgementManager.IsActive = false;
             // Lane-scoped input filtering: automated lanes ignore physical input
@@ -1719,14 +1722,14 @@ namespace DTXMania.Game.Lib.Stage
             // player and autoplay coexist, automated lanes drop player hits.
             _judgementManager.SetIgnoredPlayerInputLanes(FrozenAutoPlayLanes);
 
-            _scoreManager = new ScoreManager(_chartManager.TotalNotes);
+            _scoreManager = new ScoreManager(chartManager.TotalNotes);
             _comboManager = new ComboManager();
             _gaugeManager = new GaugeManager(
                 GaugeManager.StartingLife,
-                _gameplayRules?.DamageLevel ?? GaugeDamageLevel.Normal,
-                _gameplayRules?.Risky ?? RiskyRange.Default,
-                _gameplayRules?.FailureEnabled ?? true);
-            _skillManager = new SkillManager(_chartManager.TotalNotes, _comboManager);
+                Rules?.DamageLevel ?? GaugeDamageLevel.Normal,
+                Rules?.Risky ?? RiskyRange.Default,
+                Rules?.FailureEnabled ?? true);
+            _skillManager = new SkillManager(chartManager.TotalNotes, _comboManager);
 
             // Initialize UI state values
             _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
@@ -1835,7 +1838,7 @@ namespace DTXMania.Game.Lib.Stage
             // manual-lane judgements always reach the gauge.
             _scoreManager?.ProcessJudgement(e);
             _comboManager?.ProcessJudgement(e);
-            if (!FrozenAutoPlayLanes.Contains(e.Lane) || (_gameplayRules?.AutoAddGauge ?? true))
+            if (!FrozenAutoPlayLanes.Contains(e.Lane) || (Rules?.AutoAddGauge ?? true))
                 _gaugeManager?.ProcessJudgement(e);
             _skillManager?.ProcessJudgement(e);
             _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
@@ -2001,10 +2004,11 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ProcessAutoPlay(double currentSongTimeMs)
         {
-            if (_chartManager == null || _judgementManager == null)
+            var chartManager = Rules?.ChartManager;
+            if (chartManager == null || _judgementManager == null)
                 return;
 
-            var allNotes = _chartManager.AllNotes;
+            var allNotes = chartManager.AllNotes;
 
             // Auto-hits notes at their exact time. Unlike player input, autoplay
             // should NEVER skip a pending note. The window only prevents triggering
@@ -2057,7 +2061,8 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs)
         {
-            if (_chartManager == null || _judgementManager == null)
+            var chartManager = Rules?.ChartManager;
+            if (chartManager == null || _judgementManager == null)
                 return null;
 
             // Use the Poor window (150ms) so chip sounds only play for non-Miss judgements.
@@ -2065,8 +2070,8 @@ namespace DTXMania.Game.Lib.Stage
             // where the player hears a chip sound but receives a Miss judgement.
             double windowMs = TimingConstants.PoorWindowMs;
 
-            var allNotes = _chartManager.AllNotes;
-            int startIndex = _chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
+            var allNotes = chartManager.AllNotes;
+            int startIndex = chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
 
             Note? nearest = null;
             double nearestDistance = double.MaxValue;
@@ -2608,7 +2613,7 @@ namespace DTXMania.Game.Lib.Stage
                 GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
                 PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
                 MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
-                TotalNotes = _chartManager?.TotalNotes ?? 0,
+                TotalNotes = Rules?.ChartManager?.TotalNotes ?? 0,
                 FinalLife = _gaugeManager?.CurrentLife ?? 0.0f,
                 CompletionReason = reason,
                 PlayingSkill = summaryPlayingSkill,
@@ -2651,12 +2656,13 @@ namespace DTXMania.Game.Lib.Stage
             // read collapses that window. Matches the _lastLaneHit snapshot pattern below.
             var audioSession = _audioSession;
             var currentGameTime = _currentGameTime;
+            var chartManager = Rules?.ChartManager;
             var songTimerPlaying = audioSession != null && audioSession.IsPlaying;
             var songTimerPaused = audioSession != null && audioSession.IsPaused;
             var songTimerHasReadablePosition =
                 songTimerPlaying || songTimerPaused;
             telemetry.PerformanceReady = !_isLoading
-                && _chartManager != null
+                && chartManager != null
                 && audioSession != null
                 && !_stageCompleted
                 && (_isReady || songTimerHasReadablePosition);
@@ -2687,7 +2693,7 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.MaxCombo = _comboManager?.MaxCombo ?? 0;
             telemetry.Gauge = _gaugeManager?.CurrentLife ?? 0.0f;
             telemetry.HasFailed = _gaugeManager?.HasFailed ?? false;
-            telemetry.TotalNotes = _chartManager?.TotalNotes ?? 0;
+            telemetry.TotalNotes = chartManager?.TotalNotes ?? 0;
             telemetry.PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
             telemetry.GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
             telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
