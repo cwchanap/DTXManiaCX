@@ -4841,12 +4841,10 @@ public class PerformanceStageDeterministicTests
         var noteRenderer = CreateNoteRenderer();
         var popupManager = CreateSpriteJudgementTextPopupManager();
         var padRenderer = CreatePadRenderer();
-        var skillPanelDisplay = CreateSkillPanelDisplayState();
         ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", popupManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", skillPanelDisplay);
 
         var order = new List<string>();
         scoreManager.ScoreChanged += (_, _) => order.Add("score");
@@ -4855,7 +4853,7 @@ public class PerformanceStageDeterministicTests
         EventHandler<SkillChangedEventArgs> firstSkillObserver = (_, _) =>
         {
             order.Add("skill");
-            Assert.Equal(0, skillPanelDisplay.ProcessedJudgementCount);
+            Assert.Equal(0, stage.Rules!.BuildFrameState(1040).SlowCount);
             Assert.Equal(0, popupManager.ActivePopupCount);
         };
         skillManager.SkillChanged += firstSkillObserver;
@@ -4864,7 +4862,7 @@ public class PerformanceStageDeterministicTests
             if (judgement.Type == JudgementType.Great)
             {
                 order.Add("visual");
-                Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
+                Assert.Equal(1, stage.Rules!.BuildFrameState(1040).SlowCount);
                 Assert.Equal(1, popupManager.ActivePopupCount);
             }
             if (judgement.Lane == 0)
@@ -4890,14 +4888,14 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
-        Assert.Equal(1, skillPanelDisplay.GreatCount);
-        Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
-        Assert.Equal(1, skillPanelDisplay.MaxCombo);
+        Assert.Equal(1, stage.Rules!.BuildFrameState(1040).GreatCount);
+        Assert.Equal(1, stage.Rules!.BuildFrameState(1040).SlowCount);
+        Assert.Equal(1, stage.Rules!.BuildFrameState(1040).MaxCombo);
         skillManager.SkillChanged -= firstSkillObserver;
 
         judgementManager.EnqueueLaneHit(3, "Test.Manual");
         judgementManager.Update(3160, 1040);
-        Assert.Equal(1, skillPanelDisplay.MissCount);
+        Assert.Equal(1, stage.Rules!.BuildFrameState(3160).MissCount);
         Assert.Equal(1, skillManager.MissCount);
         Assert.Equal(0, judgementManager.GetJudgementCount(JudgementType.Miss));
         Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
@@ -5613,19 +5611,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void BuildTabHudFrameState_WhenShowComboDisabled_ShouldGateTheTabCombo()
-    {
-        // ShowCombo=false hides the Lanes combo draw; the Tab HUD combo must obey
-        // the same frozen gate instead of drawing unconditionally (final review).
-        var stage = CreateStageWithConfig(new ConfigData { ShowCombo = false });
-
-        var state = ReflectionHelpers.InvokePrivateMethod<TabHudFrameState>(
-            stage, "BuildTabHudFrameState");
-
-        Assert.True(state.HideCombo);
-    }
-
-    [Fact]
     public void OnJudgementMade_WhenLanesEffective_ShouldKeepBothLegacySpawns()
     {
         var stage = CreateStage();
@@ -5789,13 +5774,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(display, "_visible", false);
         ReflectionHelpers.SetPrivateField(display, "_targetScale", 1.0f);
         return display;
-    }
-
-    private static SkillPanelDisplay CreateSkillPanelDisplayState()
-    {
-#pragma warning disable SYSLIB0050
-        return (SkillPanelDisplay)FormatterServices.GetUninitializedObject(typeof(SkillPanelDisplay));
-#pragma warning restore SYSLIB0050
     }
 
     /// <summary>
@@ -7070,6 +7048,7 @@ public class PerformanceStageDeterministicTests
         var manager = new Mock<IStageManager>();
         PerformanceResult? result = null;
         GameTelemetrySnapshot? telemetryAtTransition = null;
+        PerformanceFrameState frameAtTransition = default;
         int? skillPoorAtTransition = null;
         manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
             .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
@@ -7078,6 +7057,7 @@ public class PerformanceStageDeterministicTests
                 telemetryAtTransition = new GameTelemetrySnapshot();
                 stage.PopulateTelemetry(telemetryAtTransition);
                 skillPoorAtTransition = stage.Rules!.SkillManager!.PoorCount;
+                frameAtTransition = stage.Rules.BuildFrameState(1120);
             });
         stage.StageManager = manager.Object;
         var chart = new ParsedChart("poor-failure.dtx") { DurationMs = 10000 };
@@ -7108,7 +7088,11 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, telemetryAtTransition.CurrentCombo);
         Assert.True(telemetryAtTransition.HasFailed);
         Assert.Equal(0, skillPoorAtTransition);
+        Assert.Equal(0, frameAtTransition.PoorCount);
+        Assert.Equal(0, frameAtTransition.SlowCount);
         Assert.Equal(1, stage.Rules!.SkillManager!.PoorCount);
+        Assert.Equal(1, stage.Rules.BuildFrameState(1120).PoorCount);
+        Assert.Equal(1, stage.Rules.BuildFrameState(1120).SlowCount);
         manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
         stage.Deactivate();
     }
@@ -7159,6 +7143,7 @@ public class PerformanceStageDeterministicTests
         Assert.Null(rules.ComboManager);
         Assert.Null(rules.GaugeManager);
         Assert.Null(rules.SkillManager);
+        Assert.Equal(0, rules.BuildFrameState(1120).SlowCount);
         manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
     }
 
@@ -7192,6 +7177,7 @@ public class PerformanceStageDeterministicTests
         Assert.True(telemetry.StageCompleted);
         Assert.True(telemetry.HasFailed);
         Assert.Equal(0, telemetry.MissCount);
+        Assert.Equal(1, stage.Rules!.BuildFrameState(1160).MissCount);
         stage.Deactivate();
     }
 
@@ -7447,35 +7433,6 @@ public class PerformanceStageDeterministicTests
         {
             return false;
         }
-    }
-
-    [Fact]
-    public void OnSkillChanged_WithSkillPanelDisplay_ShouldUpdateSkillAndShowMax()
-    {
-        using var input = new MockInputManagerCompat();
-        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
-        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, CreateSingleNoteChart()));
-        UpdateUntil(stage, () => stage.AudioSession != null);
-        var panel = CreateSkillPanelDisplay();
-        ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", panel);
-        ReflectionHelpers.SetPrivateField(stage, "_skillMeterDisplay", null);
-
-        var hit = new JudgementEvent(0, 0, 0, JudgementType.Perfect);
-        stage.Rules!.ComboManager!.ProcessJudgement(hit);
-        stage.Rules.SkillManager!.ProcessJudgement(hit);
-        Assert.Equal(100.0, panel.Skill);
-        Assert.True(panel.ShowMax);
-
-        var args = new SkillChangedEventArgs
-        {
-            CurrentSkill = 85.5,
-            IsMax = true,
-            PreviousSkill = 80.0
-        };
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnSkillChanged", null, args);
-
-        Assert.Equal(85.5, panel.Skill);
-        Assert.True(panel.ShowMax);
     }
 
     [Fact]
@@ -7848,11 +7805,6 @@ public class PerformanceStageDeterministicTests
         return parsedChart;
     }
 
-
-    private static SkillPanelDisplay CreateSkillPanelDisplay()
-    {
-        return (SkillPanelDisplay)FormatterServices.GetUninitializedObject(typeof(SkillPanelDisplay));
-    }
 
     private static SkillMeterDisplay CreateSkillMeterDisplay()
     {

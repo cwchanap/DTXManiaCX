@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -17,6 +18,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private int _autoPlayNoteIndex;
         private double? _chartEndReachedRealTimeSeconds;
+        private int _fastCount;
+        private int _slowCount;
 
         internal GameplayRules(ConfigData? config)
         {
@@ -40,6 +43,33 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal GaugeManager? GaugeManager { get; private set; }
         internal SkillManager? SkillManager { get; private set; }
         internal bool IsCompleted { get; private set; }
+
+        internal PerformanceFrameState BuildFrameState(double rawMs)
+        {
+            var life = (GaugeManager?.CurrentLife ?? PerformanceUILayout.GaugeSettings.StartingLife) / 100f;
+            var totalMs = ChartManager?.DurationMs ?? 0.0;
+            return new PerformanceFrameState
+            {
+                Score = ScoreManager?.CurrentScore ?? 0,
+                Combo = ComboManager?.CurrentCombo ?? 0,
+                MaxCombo = ComboManager?.MaxCombo ?? 0,
+                Life = life,
+                IsDanger = life < PerformanceUILayout.GaugeSettings.DangerThreshold / 100f,
+                Achievement = SkillManager?.CurrentSkill ?? 0.0,
+                IsMaxSkill = SkillManager?.IsMax ?? false,
+                PerfectCount = SkillManager?.PerfectCount ?? 0,
+                GreatCount = SkillManager?.GreatCount ?? 0,
+                GoodCount = SkillManager?.GoodCount ?? 0,
+                PoorCount = SkillManager?.PoorCount ?? 0,
+                // HUD counts judgement events; Result counts missed note statuses.
+                MissCount = SkillManager?.MissCount ?? 0,
+                FastCount = _fastCount,
+                SlowCount = _slowCount,
+                Progress = totalMs > 0 ? (float)Math.Clamp(rawMs / totalMs, 0.0, 1.0) : 0f,
+                ElapsedMs = rawMs,
+                TotalMs = totalMs
+            };
+        }
 
         internal void BindChart(ParsedChart chart) => ChartManager = new ChartManager(chart);
 
@@ -214,7 +244,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ComboManager?.ProcessJudgement(e);
             if (!AutoPlayLanes.Contains(e.Lane) || AutoAddGauge)
                 GaugeManager?.ProcessJudgement(e);
+            // Failure can synchronously tear down or replace the managers.
+            if (!ReferenceEquals(sender, JudgementManager))
+                return;
             SkillManager?.ProcessJudgement(e);
+            if (!ReferenceEquals(sender, JudgementManager) || SkillManager == null ||
+                !e.IsHit() || AutoPlayLanes.Contains(e.Lane))
+                return;
+
+            var rounded = PerformanceUILayout.HitTimingFeedback.ProjectDelta(e.DeltaMs).RoundedMilliseconds;
+            if (rounded < 0)
+                _fastCount++;
+            else if (rounded > 0)
+                _slowCount++;
         }
 
         internal void InitializeScoreAndCombo()
@@ -233,6 +275,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal void InitializeGaugeAndSkill()
         {
+            _fastCount = _slowCount = 0;
             GaugeManager = new GaugeManager(GaugeManager.StartingLife, DamageLevel, Risky, FailureEnabled);
             SkillManager = new SkillManager(ChartManager!.TotalNotes, ComboManager!);
         }
@@ -243,6 +286,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             GaugeManager = null;
             SkillManager?.Dispose();
             SkillManager = null;
+            _fastCount = _slowCount = 0;
         }
 
         internal void ClearChart() => ChartManager = null;

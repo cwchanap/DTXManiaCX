@@ -16,6 +16,192 @@ namespace DTXMania.Test.Stage.Performance;
 public class GameplayRulesTests
 {
     [Fact]
+    public void FrameState_UsesManagersAndPreservesBothMissMeanings()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("hud.dtx") { DurationMs = 10000 };
+        for (int i = 0; i < 6; i++)
+            chart.Notes.Add(new Note { LaneIndex = i, TimeMs = 1000 * (i + 1) });
+        var rules = CreatePlayingRules(null, chart, input);
+        var judgement = rules.JudgementManager!;
+        Assert.True(judgement.ResolveAutoHit(chart.Notes[0].Id));
+        foreach (var (lane, time) in new[] { (1, 2040), (2, 3080), (3, 4120), (4, 5160) })
+        {
+            judgement.EnqueueLaneHit(lane);
+            judgement.Update(time, 0);
+        }
+        var beforeTimeout = rules.BuildFrameState(2500);
+        judgement.Update(0, 6201);
+        var frame = rules.BuildFrameState(2500);
+        var skill = rules.SkillManager!;
+
+        Assert.Equal(rules.ScoreManager!.CurrentScore, frame.Score);
+        Assert.Equal(rules.ComboManager!.CurrentCombo, frame.Combo);
+        Assert.Equal(rules.ComboManager.MaxCombo, frame.MaxCombo);
+        Assert.Equal(rules.GaugeManager!.CurrentLife / 100f, frame.Life);
+        Assert.Equal(skill.CurrentSkill, frame.Achievement);
+        Assert.Equal(skill.IsMax, frame.IsMaxSkill);
+        Assert.Equal(1, frame.PerfectCount);
+        Assert.Equal(1, frame.GreatCount);
+        Assert.Equal(1, frame.GoodCount);
+        Assert.Equal(1, frame.PoorCount);
+        Assert.Equal(2, frame.MissCount);
+        Assert.Equal(skill.MissCount, frame.MissCount);
+        Assert.Equal(judgement.GetJudgementCount(JudgementType.Perfect), frame.PerfectCount);
+        Assert.Equal(judgement.GetJudgementCount(JudgementType.Great), frame.GreatCount);
+        Assert.Equal(judgement.GetJudgementCount(JudgementType.Good), frame.GoodCount);
+        Assert.Equal(judgement.GetJudgementCount(JudgementType.Poor), frame.PoorCount);
+        Assert.Equal(1, judgement.GetJudgementCount(JudgementType.Miss));
+        var summary = rules.BuildSummary(CompletionReason.SongComplete, new PlaybackModifiers(100, 0), 78, 33);
+        Assert.Equal(1, summary.MissCount);
+        Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
+        Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[5].Id)!.Status);
+        Assert.Equal(1, beforeTimeout.MissCount);
+        Assert.Equal(0.25f, frame.Progress);
+        Assert.Equal(2500, frame.ElapsedMs);
+        Assert.Equal(10000, frame.TotalMs);
+        Assert.False(frame.IsDanger);
+        Assert.Equal(0, frame.FastCount);
+        Assert.Equal(3, frame.SlowCount);
+        var total = SkillPanelDisplay.GetProcessedJudgementCount(
+            frame.PerfectCount, frame.GreatCount, frame.GoodCount, frame.PoorCount, frame.MissCount);
+        Assert.Equal(6, total);
+        Assert.Equal("   2", SkillPanelDisplay.FormatJudgementCount(frame.MissCount));
+        Assert.Equal(" 33%", SkillPanelDisplay.FormatJudgementPercent(frame.MissCount, total));
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void FrameState_MaxSkillDangerAndEmptyDurationFollowManagers()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("max-hud.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(null, chart, input);
+        var before = rules.BuildFrameState(500);
+        Assert.False(before.IsMaxSkill);
+        Assert.Equal(0f, before.Progress);
+        Assert.Equal(0, before.TotalMs);
+        Assert.True(rules.JudgementManager!.ResolveAutoHit(chart.Notes[0].Id));
+        rules.GaugeManager!.Reset(15f);
+        var after = rules.BuildFrameState(500);
+        Assert.Equal(100.0, after.Achievement);
+        Assert.True(after.IsMaxSkill);
+        Assert.Equal(0.15f, after.Life);
+        Assert.True(after.IsDanger);
+        Assert.False(before.IsMaxSkill);
+        Assert.False(before.IsDanger);
+        Assert.Equal("100.00", SkillPanelDisplay.FormatSkillText(after.Achievement));
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void FrameState_FastSlowUsesRoundedSuccessfulManualHitsAndResets()
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("timings.dtx") { DurationMs = 12000 };
+        double[] deltas = { -160, -120, -40, -0.5, -0.4, 0, 0.4, 0.5, 80, 120, 160 };
+        for (int i = 0; i < deltas.Length; i++)
+            chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 * (i + 1) });
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 12000 });
+        var rules = CreatePlayingRules(config, chart, input);
+        var judgement = rules.JudgementManager!;
+        for (int i = 0; i < deltas.Length; i++)
+        {
+            judgement.EnqueueLaneHit(0);
+            judgement.Update(chart.Notes[i].TimeMs + deltas[i], 0);
+        }
+        Assert.True(judgement.ResolveAutoHit(chart.Notes[deltas.Length].Id));
+        var frame = rules.BuildFrameState(20000);
+        Assert.Equal(3, frame.FastCount);
+        Assert.Equal(3, frame.SlowCount);
+        Assert.Equal(2, frame.PoorCount);
+        Assert.Equal(2, frame.MissCount);
+        Assert.Equal(1f, frame.Progress);
+        Assert.Equal(20000, frame.ElapsedMs);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+
+        rules.InitializeJudgement(input);
+        rules.InitializeScoreAndCombo();
+        rules.InitializeGaugeAndSkill();
+        frame = rules.BuildFrameState(-100);
+        Assert.Equal(0, frame.FastCount);
+        Assert.Equal(0, frame.SlowCount);
+        Assert.Equal(0, frame.Progress);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void FrameState_DuringSynchronousFailureSeesPreSkillCountsAndNoFastSlowAfterCleanup()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("failure-hud.dtx") { DurationMs = 2000 };
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(new ConfigData { Risky = 1 }, chart, input);
+        var judgement = rules.JudgementManager!;
+        PerformanceFrameState duringFailure = default;
+        int resultPoorCount = 0;
+        rules.GaugeManager!.Failed += (_, _) =>
+        {
+            duringFailure = rules.BuildFrameState(1120);
+            resultPoorCount = judgement.GetJudgementCount(JudgementType.Poor);
+            rules.ClearJudgement();
+            rules.ClearScoreAndCombo();
+            rules.ClearGaugeAndSkill();
+        };
+        judgement.EnqueueLaneHit(0);
+        judgement.Update(1120, 0);
+
+        Assert.False(duringFailure.IsDanger); // Risky can fail with a healthy gauge.
+        Assert.Equal(0, duringFailure.PoorCount);
+        Assert.Equal(0, duringFailure.SlowCount);
+        Assert.Equal(1, resultPoorCount);
+        Assert.Equal(0, rules.BuildFrameState(1120).SlowCount);
+    }
+
+    [Fact]
+    public void FrameState_FailureRebindingDoesNotSendOldJudgementToNewManagers()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("old-run.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(new ConfigData { Risky = 1 }, chart, input);
+        var oldJudgement = rules.JudgementManager!;
+        rules.GaugeManager!.Failed += (_, _) =>
+        {
+            rules.ClearJudgement();
+            rules.ClearScoreAndCombo();
+            rules.ClearGaugeAndSkill();
+            var nextChart = new ParsedChart("new-run.dtx");
+            nextChart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+            rules.BindChart(nextChart);
+            rules.InitializeJudgement(input);
+            rules.InitializeScoreAndCombo();
+            rules.InitializeGaugeAndSkill();
+        };
+        oldJudgement.EnqueueLaneHit(0);
+        oldJudgement.Update(1120, 0);
+
+        var frame = rules.BuildFrameState(0);
+        Assert.Equal(0, frame.PoorCount);
+        Assert.Equal(0, frame.SlowCount);
+        Assert.Equal(0, frame.Score);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
     public void Completion_UsesRealTimeFromEndCrossingAndResetsOnSeekOrSongStart()
     {
         var rules = new GameplayRules(null);
