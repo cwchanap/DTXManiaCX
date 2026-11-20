@@ -7836,6 +7836,75 @@ public class PerformanceStageDeterministicTests
         resources.Verify(r => r.TryLoadSound(SoundPath.MetronomeAccent, out It.Ref<ISound>.IsAny), Times.Once);
     }
 
+    [Fact]
+    public void RiskyFailure_SummaryIncludesFailingMissAndEarlierAutoHit()
+    {
+        var config = new ConfigData { Risky = 1 };
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => result = (PerformanceResult)payload);
+        stage.StageManager = manager.Object;
+        var chart = new ParsedChart("failure-summary.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 1, TimeMs = 1000 });
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(0.1);
+        stage.Update(1.2);
+
+        Assert.NotNull(result);
+        Assert.Equal(CompletionReason.PlayerFailed, result.Summary.CompletionReason);
+        Assert.False(result.Summary.ClearFlag);
+        Assert.True(result.Summary.UsedAutoPlay);
+        Assert.Equal(500000, result.Summary.Score);
+        Assert.Equal(1, result.Summary.MaxCombo);
+        Assert.Equal(1, result.Summary.PerfectCount);
+        Assert.Equal(1, result.Summary.MissCount);
+        Assert.Equal(2, result.Summary.TotalNotes);
+        Assert.Equal(SongScore.CalculatePlayingSkill(2, 1, 0, 1), result.Summary.PlayingSkill);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
+        stage.Deactivate();
+    }
+
+    [Fact]
+    public void RiskyFailure_LateManualMissIsAbsentFromResultAndTelemetryMissCounts()
+    {
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData { Risky = 1 }, input));
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => result = (PerformanceResult)payload);
+        stage.StageManager = manager.Object;
+        var chart = new ParsedChart("late-manual-miss.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 1000 });
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Lane0", 0);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Lane0", true));
+        input.ModularInputManager.Update();
+        stage.Update(1.16);
+
+        Assert.NotNull(result);
+        Assert.Equal(CompletionReason.PlayerFailed, result.Summary.CompletionReason);
+        Assert.Equal(0, result.Summary.MissCount);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.StageCompleted);
+        Assert.True(telemetry.HasFailed);
+        Assert.Equal(0, telemetry.MissCount);
+        stage.Deactivate();
+    }
+
     /// <summary>
     /// Test-only <see cref="PerformanceStage"/> that overrides <see cref="PerformanceStage.CreateSpriteBatch"/>
     /// to return null, so the constructor can be exercised without a live GraphicsDevice.

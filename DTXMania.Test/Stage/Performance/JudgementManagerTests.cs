@@ -534,6 +534,31 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(1, manager.GetJudgementCount(JudgementType.Miss));
         }
 
+        [Fact]
+        public void LateManualMiss_CountsInSkillButNotTimedOutMisses()
+        {
+            using var input = CreateMockInput();
+            var chart = CreateTestChart(1000.0);
+            using var manager = new JudgementManager(input, chart);
+            using var combo = new ComboManager();
+            using var skill = new SkillManager(chart.TotalNotes, combo);
+            manager.JudgementMade += (_, judgement) =>
+            {
+                combo.ProcessJudgement(judgement);
+                skill.ProcessJudgement(judgement);
+            };
+            input.ModularInputManager.KeyBindings.BindButton("Test.Lane0", 0);
+            Assert.True(input.ModularInputManager.InjectButton("Test.Lane0", true));
+            input.ModularInputManager.Update();
+
+            manager.Update(1160.0);
+
+            Assert.Equal(JudgementType.Miss, manager.GetNoteRuntimeData(0)!.JudgementEvent!.Type);
+            Assert.Equal(NoteStatus.Hit, manager.GetNoteRuntimeData(0)!.Status);
+            Assert.Equal(1, skill.MissCount);
+            Assert.Equal(0, manager.GetJudgementCount(JudgementType.Miss));
+        }
+
         #endregion
 
         #region GetStatistics Tests with Different Judgements
