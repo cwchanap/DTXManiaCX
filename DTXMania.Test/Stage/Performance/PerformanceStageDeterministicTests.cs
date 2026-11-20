@@ -5311,16 +5311,22 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenJudgementIsHitAndLaneFlushIsEnabled_ShouldTriggerVisualFeedbackAndLaneFlash()
+    public void Judgement_WhenHit_UpdatesManagersBeforeVisualFeedbackAndLaneFlash()
     {
         var config = new ConfigData { EnableLaneFlush = true };
-        using var stage = CreateStageWithPolicy(config);
-        BindChart(stage, BuildChart(Enumerable.Range(0, 10).Select(i => new Note { LaneIndex = 0, TimeMs = i * 100 })));
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var scoreManager = stage.Rules.ScoreManager!;
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = new ParsedChart("visual-hit.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { LaneIndex = 2, TimeMs = 1000 });
+        foreach (var i in Enumerable.Range(0, 9))
+            chart.Notes.Add(new Note { LaneIndex = i == 0 ? 3 : 0, TimeMs = 3000 + i * 100 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var scoreManager = stage.Rules!.ScoreManager!;
         var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = stage.Rules.GaugeManager!;
+        var skillManager = stage.Rules.SkillManager!;
+        var judgementManager = stage.Rules.JudgementManager!;
         var attackManager = CreateNxAttackEffectManager();
         var noteRenderer = CreateNoteRenderer();
         var popupManager = CreateSpriteJudgementTextPopupManager();
@@ -5332,10 +5338,31 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", skillPanelDisplay);
 
-        var judgement = new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great);
+        var order = new List<string>();
+        scoreManager.ScoreChanged += (_, _) => order.Add("score");
+        comboManager.ComboChanged += (_, _) => order.Add("combo");
+        gaugeManager.GaugeChanged += (_, _) => order.Add("gauge");
+        skillManager.SkillChanged += (_, _) =>
+        {
+            order.Add("skill");
+            Assert.Equal(0, skillPanelDisplay.ProcessedJudgementCount);
+            Assert.Equal(0, popupManager.ActivePopupCount);
+        };
+        judgementManager.JudgementMade += (_, judgement) =>
+        {
+            if (judgement.Type == JudgementType.Great)
+            {
+                order.Add("visual");
+                Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
+                Assert.Equal(1, popupManager.ActivePopupCount);
+            }
+        };
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null, judgement);
+        judgementManager.IsActive = true;
+        judgementManager.EnqueueLaneHit(2, "Test.Manual");
+        judgementManager.Update(1040);
 
+        Assert.Equal(new[] { "score", "combo", "gauge", "skill", "visual" }, order);
         Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
         Assert.Equal(1, comboManager.CurrentCombo);
         Assert.Equal(51.5f, gaugeManager.CurrentLife);
@@ -5350,6 +5377,13 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, skillPanelDisplay.GreatCount);
         Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
         Assert.Equal(1, skillPanelDisplay.MaxCombo);
+
+        judgementManager.EnqueueLaneHit(3, "Test.Manual");
+        judgementManager.Update(3160, 1040);
+        Assert.Equal(1, skillPanelDisplay.MissCount);
+        Assert.Equal(1, skillManager.MissCount);
+        Assert.Equal(0, judgementManager.GetJudgementCount(JudgementType.Miss));
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
     }
 
     [Fact]
@@ -5373,16 +5407,19 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenJudgementIsMissAndLaneFlushIsEnabled_ShouldNotTriggerHitVisualFeedback()
+    public void Judgement_WhenMissAndLaneFlushEnabled_ShowsMissWithoutHitFeedback()
     {
         var config = new ConfigData { EnableLaneFlush = true };
-        using var stage = CreateStageWithPolicy(config);
-        BindChart(stage, BuildChart(Enumerable.Range(0, 10).Select(i => new Note { LaneIndex = 0, TimeMs = i * 100 })));
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var scoreManager = stage.Rules.ScoreManager!;
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = new ParsedChart("visual-miss.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { LaneIndex = 4, TimeMs = 1000 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var scoreManager = stage.Rules!.ScoreManager!;
         var comboManager = stage.Rules.ComboManager!;
         var gaugeManager = stage.Rules.GaugeManager!;
+        var judgementManager = stage.Rules.JudgementManager!;
         var attackManager = CreateNxAttackEffectManager();
         var noteRenderer = CreateNoteRenderer();
         var popupManager = CreateSpriteJudgementTextPopupManager();
@@ -5392,9 +5429,9 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", popupManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var judgement = new JudgementEvent(noteRef: 1, lane: 4, deltaMs: 75.0, type: JudgementType.Miss);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null, judgement);
+        judgementManager.IsActive = true;
+        judgementManager.EnqueueLaneHit(4, "Test.Manual");
+        judgementManager.Update(1160);
 
         Assert.Equal(0, scoreManager.CurrentScore);
         Assert.Equal(0, comboManager.CurrentCombo);
@@ -5407,49 +5444,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[4]);
         Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[4].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
-    }
-
-    [Fact]
-    public void OnJudgementMade_WhenAutoPlayAndAutoAddGaugeAreDisabled_ShouldSkipOnlyGaugeForwarding()
-    {
-        var config = new ConfigData { AutoAddGauge = false };
-        config.AutoPlayLanes.Add(2);
-        using var stage = CreateStageWithPolicy(config);
-        BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var scoreManager = stage.Rules.ScoreManager!;
-        var comboManager = stage.Rules.ComboManager!;
-        var gaugeManager = stage.Rules.GaugeManager!;
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "OnJudgementMade",
-            null,
-            new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great));
-
-        Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
-        Assert.Equal(1, comboManager.CurrentCombo);
-        Assert.Equal(GaugeManager.StartingLife, gaugeManager.CurrentLife);
-        Assert.Equal(1, stage.Rules.SkillManager!.GreatCount);
-    }
-
-    [Fact]
-    public void OnJudgementMade_WhenManualPlayAndAutoAddGaugeAreDisabled_ShouldStillUpdateGauge()
-    {
-        using var stage = CreateStageWithPolicy(new ConfigData { AutoAddGauge = false });
-        BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
-        var gaugeManager = stage.Rules.GaugeManager!;
-
-        ReflectionHelpers.InvokePrivateMethod(
-            stage,
-            "OnJudgementMade",
-            null,
-            new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great));
-
-        Assert.Equal(51.5f, gaugeManager.CurrentLife);
     }
 
     [Fact]
@@ -8006,6 +8000,55 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void RiskyFailure_SynchronousDeactivationStopsFanoutAfterGauge()
+    {
+        var config = new ConfigData { Risky = 1 };
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
+            {
+                result = (PerformanceResult)payload;
+                stage.Deactivate();
+            });
+        stage.StageManager = manager.Object;
+        var chart = new ParsedChart("failure-teardown.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 100 });
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 1000 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var rules = stage.Rules!;
+        var judgement = rules.JudgementManager!;
+        var skill = rules.SkillManager!;
+        var gauge = rules.GaugeManager!;
+        judgement.IsActive = true;
+        Assert.True(judgement.ResolveAutoHit(chart.Notes[0].Id));
+        int gaugeNotifications = 0;
+        gauge.GaugeChanged += (_, _) => gaugeNotifications++;
+
+        judgement.EnqueueLaneHit(1, "Test.Manual");
+        judgement.Update(1120, 0);
+
+        Assert.NotNull(result);
+        Assert.Equal(CompletionReason.PlayerFailed, result.Summary.CompletionReason);
+        Assert.Equal(500000, result.Summary.Score);
+        Assert.Equal(1, result.Summary.MaxCombo);
+        Assert.Equal(1, result.Summary.PoorCount);
+        Assert.Equal(SongScore.CalculatePlayingSkill(2, 1, 0, 1), result.Summary.PlayingSkill);
+        Assert.Equal(0, skill.PoorCount);
+        Assert.Equal(1, gaugeNotifications);
+        Assert.Null(rules.JudgementManager);
+        Assert.Null(rules.ScoreManager);
+        Assert.Null(rules.ComboManager);
+        Assert.Null(rules.GaugeManager);
+        Assert.Null(rules.SkillManager);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
+    }
+
+    [Fact]
     public void RiskyFailure_LateManualMissIsAbsentFromResultAndTelemetryMissCounts()
     {
         using var input = new MockInputManagerCompat();
@@ -8190,15 +8233,16 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WithHit_ShouldSpawnNxAttackAndSpriteJudgementText()
+    public void Judgement_WithHit_ShouldSpawnNxAttackAndSpriteJudgementTextWithoutSkillPanel()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var chart = CreateSingleNoteChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
         var attackManager = CreateNxAttackEffectManager();
         var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256));
-        var gaugeManager = stage.Rules.GaugeManager!;
+        var gaugeManager = stage.Rules!.GaugeManager!;
         var skillManager = stage.Rules.SkillManager!;
         var callbacks = new List<string>();
         stage.Rules.ScoreManager!.ScoreChanged += (_, _) => callbacks.Add("score");
@@ -8211,8 +8255,8 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", spriteTextManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null,
-            new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+        stage.Rules.JudgementManager!.IsActive = true;
+        Assert.True(stage.Rules.JudgementManager.ResolveAutoHit(chart.Notes[0].Id));
 
 #if DEBUG
         Assert.Equal(1, attackManager.SpawnCallCountForTesting);
@@ -8223,12 +8267,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WithMiss_ShouldSkipNxAttackAndShowSpriteJudgementText()
+    public void Judgement_WithMiss_ShouldSkipNxAttackAndShowSpriteJudgementTextWithoutSkillPanel()
     {
-        using var stage = CreateStageWithPolicy(new ConfigData());
-        BindChart(stage, CreateSingleNoteChart());
-        stage.Rules!.InitializeScoreAndCombo();
-        stage.Rules.InitializeGaugeAndSkill();
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var chart = CreateSingleNoteChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
         var attackManager = CreateNxAttackEffectManager();
         var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256));
 
@@ -8237,8 +8282,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", spriteTextManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null,
-            new JudgementEvent(0, 0, 200.0, JudgementType.Miss));
+        stage.Rules!.JudgementManager!.Update(chart.Notes[0].TimeMs + 201);
 
 #if DEBUG
         Assert.Equal(0, attackManager.SpawnCallCountForTesting);
@@ -8434,16 +8478,22 @@ public class PerformanceStageDeterministicTests
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, CreateSingleNoteChart()));
         UpdateUntil(stage, () => stage.AudioSession != null);
         var rules = stage.Rules!;
+        var judgement = Assert.IsType<JudgementManager>(rules.JudgementManager);
         var score = Assert.IsType<ScoreManager>(rules.ScoreManager);
         var gauge = Assert.IsType<GaugeManager>(rules.GaugeManager);
         var skill = Assert.IsType<SkillManager>(rules.SkillManager);
         EventHandler<ScoreChangedEventArgs> observer = (_, _) => { };
         EventHandler<GaugeChangedEventArgs> gaugeObserver = (_, _) => { };
         EventHandler<FailureEventArgs> failureObserver = (_, _) => { };
+        EventHandler<JudgementEvent> judgementObserver = (_, _) => { };
+        judgement.JudgementMade += judgementObserver;
         score.ScoreChanged += observer;
         gauge.GaugeChanged += gaugeObserver;
         gauge.Failed += failureObserver;
         var subscribers = ReflectionHelpers.GetPrivateField<EventHandler<ScoreChangedEventArgs>>(score, "ScoreChanged");
+        var judgementSubscribers = ReflectionHelpers.GetPrivateField<EventHandler<JudgementEvent>>(judgement, "JudgementMade");
+        Assert.Contains(judgementSubscribers!.GetInvocationList(), callback => callback.Target == rules);
+        Assert.Contains(judgementSubscribers.GetInvocationList(), callback => callback.Target == stage);
         Assert.Contains(subscribers!.GetInvocationList(), callback => callback.Target == stage);
         Assert.Contains(ReflectionHelpers.GetPrivateField<EventHandler<GaugeChangedEventArgs>>(gauge, "GaugeChanged")!.GetInvocationList(), callback => callback.Target == stage);
         Assert.Contains(ReflectionHelpers.GetPrivateField<EventHandler<FailureEventArgs>>(gauge, "Failed")!.GetInvocationList(), callback => callback.Target == stage);
@@ -8451,6 +8501,7 @@ public class PerformanceStageDeterministicTests
 
         stage.Deactivate();
 
+        Assert.Equal(judgementObserver, ReflectionHelpers.GetPrivateField<EventHandler<JudgementEvent>>(judgement, "JudgementMade"));
         Assert.Equal(observer, ReflectionHelpers.GetPrivateField<EventHandler<ScoreChangedEventArgs>>(score, "ScoreChanged"));
         Assert.Equal(gaugeObserver, ReflectionHelpers.GetPrivateField<EventHandler<GaugeChangedEventArgs>>(gauge, "GaugeChanged"));
         Assert.Equal(failureObserver, ReflectionHelpers.GetPrivateField<EventHandler<FailureEventArgs>>(gauge, "Failed"));

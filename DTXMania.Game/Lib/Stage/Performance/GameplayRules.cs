@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -43,13 +44,27 @@ namespace DTXMania.Game.Lib.Stage.Performance
             manager.IsActive = false;
             // Automated lanes ignore physical input but remain available to autoplay.
             manager.SetIgnoredPlayerInputLanes(AutoPlayLanes);
+            manager.JudgementMade += OnJudgementMade;
             JudgementManager = manager;
         }
 
         internal void ClearJudgement()
         {
-            JudgementManager?.Dispose();
+            if (JudgementManager is { } manager)
+            {
+                manager.JudgementMade -= OnJudgementMade;
+                manager.Dispose();
+            }
             JudgementManager = null;
+        }
+
+        private void OnJudgementMade(object? sender, JudgementEvent e)
+        {
+            ScoreManager?.ProcessJudgement(e);
+            ComboManager?.ProcessJudgement(e);
+            if (!AutoPlayLanes.Contains(e.Lane) || AutoAddGauge)
+                GaugeManager?.ProcessJudgement(e);
+            SkillManager?.ProcessJudgement(e);
         }
 
         internal void InitializeScoreAndCombo()
