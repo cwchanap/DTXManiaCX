@@ -30,6 +30,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal ChartManager? ChartManager { get; private set; }
         internal JudgementManager? JudgementManager { get; private set; }
+        internal ScoreManager? ScoreManager { get; private set; }
+        internal ComboManager? ComboManager { get; private set; }
 
         internal void BindChart(ParsedChart chart) => ChartManager = new ChartManager(chart);
 
@@ -46,6 +48,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             JudgementManager?.Dispose();
             JudgementManager = null;
+        }
+
+        internal void InitializeScoreAndCombo()
+        {
+            ScoreManager = new ScoreManager(ChartManager!.TotalNotes);
+            ComboManager = new ComboManager();
+        }
+
+        internal void ClearScoreAndCombo()
+        {
+            ScoreManager?.Dispose();
+            ScoreManager = null;
+            ComboManager?.Dispose();
+            ComboManager = null;
         }
 
         internal void ClearChart() => ChartManager = null;

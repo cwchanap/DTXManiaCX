@@ -4,6 +4,7 @@ using System.Linq;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.Helpers;
 using Xunit;
@@ -13,6 +14,70 @@ namespace DTXMania.Test.Stage.Performance;
 [Trait("Category", "Unit")]
 public class GameplayRulesTests
 {
+    [Fact]
+    public void InitializeScoreAndCombo_UsesBoundChartAndStartsEmpty()
+    {
+        var rules = new GameplayRules(null);
+        var chart = new ParsedChart("score.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 2000 });
+        rules.BindChart(chart);
+
+        Assert.Null(rules.ScoreManager);
+        Assert.Null(rules.ComboManager);
+        rules.InitializeScoreAndCombo();
+        var score = Assert.IsType<ScoreManager>(rules.ScoreManager);
+        var combo = Assert.IsType<ComboManager>(rules.ComboManager);
+        Assert.Equal(500000, score.BaseScore);
+        Assert.Equal(0, score.CurrentScore);
+        Assert.Equal(0, combo.CurrentCombo);
+        Assert.Equal(0, combo.MaxCombo);
+
+        var hit = new JudgementEvent(0, 0, 0, JudgementType.Perfect);
+        score.ProcessJudgement(hit);
+        combo.ProcessJudgement(hit);
+        Assert.Equal(500000, score.CurrentScore);
+        Assert.Equal(1, combo.MaxCombo);
+        rules.ClearScoreAndCombo();
+    }
+
+    [Fact]
+    public void ClearScoreAndCombo_DisposesAndAllowsFreshManagersForNextChart()
+    {
+        var rules = new GameplayRules(null);
+        var first = new ParsedChart("first-score.dtx");
+        first.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        rules.BindChart(first);
+        rules.InitializeScoreAndCombo();
+        var oldScore = Assert.IsType<ScoreManager>(rules.ScoreManager);
+        var oldCombo = Assert.IsType<ComboManager>(rules.ComboManager);
+        var hit = new JudgementEvent(0, 0, 0, JudgementType.Perfect);
+
+        rules.ClearScoreAndCombo();
+        Assert.Null(rules.ScoreManager);
+        Assert.Null(rules.ComboManager);
+        oldScore.ProcessJudgement(hit);
+        oldCombo.ProcessJudgement(hit);
+        Assert.Equal(0, oldScore.CurrentScore);
+        Assert.Equal(0, oldCombo.CurrentCombo);
+        rules.ClearScoreAndCombo();
+
+        var second = new ParsedChart("second-score.dtx");
+        second.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        second.Notes.Add(new Note { LaneIndex = 1, TimeMs = 2000 });
+        rules.BindChart(second);
+        rules.InitializeScoreAndCombo();
+        var newScore = Assert.IsType<ScoreManager>(rules.ScoreManager);
+        var newCombo = Assert.IsType<ComboManager>(rules.ComboManager);
+        Assert.NotSame(oldScore, newScore);
+        Assert.NotSame(oldCombo, newCombo);
+        newScore.ProcessJudgement(hit);
+        newCombo.ProcessJudgement(hit);
+        Assert.Equal(500000, newScore.CurrentScore);
+        Assert.Equal(1, newCombo.CurrentCombo);
+        rules.ClearScoreAndCombo();
+    }
+
     [Fact]
     public void InitializeJudgement_UsesBoundChartAndFrozenLanesAndStartsInactive()
     {
