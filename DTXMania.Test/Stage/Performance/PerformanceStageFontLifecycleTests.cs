@@ -23,8 +23,8 @@ namespace DTXMania.Test.Stage.Performance
             var mockScrollSpeedFont = new Mock<IFont>();
             ReflectionHelpers.SetPrivateField(stage, "_readyFont", mockReadyFont.Object);
             ReflectionHelpers.SetPrivateField(stage, "_scrollSpeedFont", mockScrollSpeedFont.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-            ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+            // _audioSession stays null on the uninitialized stage; CleanupComponents
+            // tolerates it and the session owns the moved audio collections.
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
 
