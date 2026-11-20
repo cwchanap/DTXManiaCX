@@ -15,6 +15,226 @@ namespace DTXMania.Test.Stage.Performance;
 [Trait("Category", "Unit")]
 public class GameplayRulesTests
 {
+    [Fact]
+    public void AutoPlay_StallsTiesAndManualLanesResolveOnlyDuePendingAutomatedNotes()
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("autoplay.dtx");
+        var manual = new Note { LaneIndex = 0, TimeMs = 900 };
+        var first = new Note { LaneIndex = 1, TimeMs = 1000 };
+        var manualTie = new Note { LaneIndex = 0, TimeMs = 1000 };
+        var simultaneous = new Note { LaneIndex = 1, TimeMs = 1000 };
+        var later = new Note { LaneIndex = 1, TimeMs = 1100 };
+        chart.Notes.AddRange(new[] { manual, first, manualTie, simultaneous, later });
+        var rules = CreatePlayingRules(config, chart, input);
+        config.AutoPlayLanes.Clear();
+        config.AutoPlayLanes.Add(0);
+        var order = new List<string>();
+        rules.JudgementManager!.JudgementMade += (_, e) =>
+            order.Add($"judgement:{e.NoteRef}:{e.Type}:{e.DeltaMs}");
+
+        rules.ProcessAutoPlay(999, note => order.Add($"feedback:{note.Id}"));
+        Assert.Empty(order);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(first.Id)!.Status);
+        rules.ProcessAutoPlay(1051, note => order.Add($"feedback:{note.Id}"));
+        Assert.Equal(4, order.Count);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(later.Id)!.Status);
+        rules.ProcessAutoPlay(1600, note => order.Add($"feedback:{note.Id}"));
+        input.TriggerLaneHit(0);
+        rules.UpdateJudgement(1000);
+        rules.ProcessAutoPlay(1600, note => order.Add($"feedback:{note.Id}"));
+
+        Assert.Equal(new[]
+        {
+            $"judgement:{first.Id}:Perfect:0", $"feedback:{first.Id}",
+            $"judgement:{simultaneous.Id}:Perfect:0", $"feedback:{simultaneous.Id}",
+            $"judgement:{later.Id}:Perfect:0", $"feedback:{later.Id}",
+            $"judgement:{manualTie.Id}:Perfect:0"
+        }, order);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(manual.Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, rules.JudgementManager.GetNoteRuntimeData(manualTie.Id)!.Status);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void AutoPlay_AlreadyHitMissedAndInactiveNotesKeepExistingFeedbackBehavior()
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("processed.dtx");
+        var hit = new Note { LaneIndex = 1, TimeMs = 100 };
+        var missed = new Note { LaneIndex = 1, TimeMs = 200 };
+        var inactive = new Note { LaneIndex = 1, TimeMs = 1000 };
+        chart.Notes.AddRange(new[] { hit, missed, inactive });
+        var rules = CreatePlayingRules(config, chart, input);
+        Assert.True(rules.JudgementManager!.ResolveAutoHit(hit.Id));
+        rules.UpdateJudgement(500);
+        Assert.Equal(NoteStatus.Missed, rules.JudgementManager.GetNoteRuntimeData(missed.Id)!.Status);
+        rules.JudgementManager.IsActive = false;
+        var feedback = new List<Note>();
+
+        rules.ProcessAutoPlay(1000, feedback.Add);
+        rules.JudgementManager.IsActive = true;
+        rules.ProcessAutoPlay(1000, feedback.Add);
+
+        Assert.Equal(new[] { inactive }, feedback);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(inactive.Id)!.Status);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void AutoPlay_WithoutAutomatedLanesOrManagersLeavesNotesPending()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("manual.dtx");
+        var note = new Note { LaneIndex = 0, TimeMs = 100 };
+        chart.Notes.Add(note);
+        var rules = new GameplayRules(null);
+        var feedback = new List<Note>();
+        rules.ProcessAutoPlay(100, feedback.Add);
+        rules.BindChart(chart);
+        rules.ProcessAutoPlay(100, feedback.Add);
+        rules.InitializeJudgement(input);
+        rules.JudgementManager!.IsActive = true;
+        rules.ProcessAutoPlay(100, feedback.Add);
+        Assert.Empty(feedback);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(note.Id)!.Status);
+        rules.ClearJudgement();
+    }
+
+    [Fact]
+    public void AutoPlay_ReentrantCleanupStillCallsFeedbackAndDoesNotResolveFurtherNotes()
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("cleanup.dtx");
+        var first = new Note { LaneIndex = 1, TimeMs = 100 };
+        var second = new Note { LaneIndex = 1, TimeMs = 200 };
+        chart.Notes.AddRange(new[] { first, second });
+        var rules = CreatePlayingRules(config, chart, input);
+        var order = new List<string>();
+        rules.JudgementManager!.JudgementMade += (_, _) =>
+        {
+            order.Add("judgement");
+            rules.ClearJudgement();
+            rules.ClearScoreAndCombo();
+            rules.ClearGaugeAndSkill();
+            rules.ClearChart();
+        };
+
+        rules.ProcessAutoPlay(1000, note => order.Add($"feedback:{note.Id}"));
+
+        Assert.Equal(new[] { "judgement", $"feedback:{first.Id}" }, order);
+        Assert.Null(rules.JudgementManager);
+        Assert.Null(rules.ChartManager);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AutoPlay_ThrowingObserverOrFeedbackLeavesCursorToSkipResolvedNoteOnRetry(bool throwInFeedback)
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("callback-failure.dtx");
+        var first = new Note { LaneIndex = 1, TimeMs = 100 };
+        var second = new Note { LaneIndex = 1, TimeMs = 200 };
+        chart.Notes.AddRange(new[] { first, second });
+        var rules = CreatePlayingRules(config, chart, input);
+        EventHandler<JudgementEvent> observer = (_, _) => throw new InvalidOperationException("observer");
+        if (!throwInFeedback)
+            rules.JudgementManager!.JudgementMade += observer;
+
+        Assert.Throws<InvalidOperationException>(() => rules.ProcessAutoPlay(1000, _ =>
+        {
+            if (throwInFeedback)
+                throw new InvalidOperationException("feedback");
+        }));
+        Assert.Equal(NoteStatus.Hit, rules.JudgementManager!.GetNoteRuntimeData(first.Id)!.Status);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(second.Id)!.Status);
+        rules.JudgementManager.JudgementMade -= observer;
+        var feedback = new List<Note>();
+        rules.ProcessAutoPlay(1000, feedback.Add);
+        Assert.Equal(new[] { second }, feedback);
+        Assert.Equal(NoteStatus.Hit, rules.JudgementManager.GetNoteRuntimeData(second.Id)!.Status);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void Judgement_UsesCompensatedTimeForPendingHitsAndMissScanning()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("latency.dtx");
+        var hit = new Note { LaneIndex = 0, TimeMs = 1000 };
+        var missed = new Note { LaneIndex = 1, TimeMs = 1000 };
+        chart.Notes.AddRange(new[] { hit, missed });
+        var rules = CreatePlayingRules(null, chart, input);
+        input.TriggerLaneHit(0);
+        rules.UpdateJudgement(1000);
+        Assert.Equal(JudgementType.Perfect, rules.JudgementManager!.GetNoteRuntimeData(hit.Id)!.JudgementEvent!.Type);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(missed.Id)!.Status);
+        rules.UpdateJudgement(1200);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(missed.Id)!.Status);
+        rules.UpdateJudgement(1201);
+        Assert.Equal(NoteStatus.Missed, rules.JudgementManager.GetNoteRuntimeData(missed.Id)!.Status);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Theory]
+    [InlineData(50, 250, 1000, 875)]
+    [InlineData(100, 250, 1000, 750)]
+    [InlineData(150, 250, 1000, 625)]
+    [InlineData(150, 250, 100, 0)]
+    [InlineData(100, 0, 1000, 1000)]
+    [InlineData(100, -1, -10, -10)]
+    [InlineData(0, 250, 1000, 750)]
+    public void PlayerJudgementTime_ScalesLiveLatencyByPlaybackProfile(
+        int speed, int latency, double raw, double expected)
+    {
+        Assert.Equal(expected, GameplayRules.GetPlayerJudgementTimeMs(raw, latency, new PlaybackModifiers(speed, 0)));
+    }
+
+    [Fact]
+    public void ChipLookup_UsesNearestPendingNoteInLaneWithinInclusivePoorWindow()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("chips.dtx");
+        var early = new Note { LaneIndex = 3, TimeMs = 850 };
+        var otherLane = new Note { LaneIndex = 4, TimeMs = 1000 };
+        var hit = new Note { LaneIndex = 3, TimeMs = 1000 };
+        var late = new Note { LaneIndex = 3, TimeMs = 1150 };
+        chart.Notes.AddRange(new[] { early, otherLane, hit, late });
+        var rules = CreatePlayingRules(null, chart, input);
+        Assert.True(rules.JudgementManager!.ResolveAutoHit(hit.Id));
+        Assert.Same(early, rules.FindNearestNoteForChip(3, 1000));
+        Assert.Same(late, rules.FindNearestNoteForChip(3, 1150));
+        Assert.Same(otherLane, rules.FindNearestNoteForChip(4, 1000));
+        Assert.Null(rules.FindNearestNoteForChip(5, 1000));
+        Assert.Null(rules.FindNearestNoteForChip(3, 1301));
+        rules.UpdateJudgement(1051);
+        Assert.Equal(NoteStatus.Missed, rules.JudgementManager.GetNoteRuntimeData(early.Id)!.Status);
+        Assert.Same(late, rules.FindNearestNoteForChip(3, 1000));
+        rules.ClearJudgement();
+        Assert.Null(rules.FindNearestNoteForChip(3, 1000));
+        rules.ClearChart();
+        Assert.Null(rules.FindNearestNoteForChip(3, 1000));
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
     [Theory]
     [InlineData(false, false, 52f)]
     [InlineData(true, false, 52f)]
