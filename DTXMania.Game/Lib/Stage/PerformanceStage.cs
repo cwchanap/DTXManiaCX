@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -57,6 +58,7 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager;
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
+        private IPerformancePlayfield? _lanesPlayfield;
 
         // Stage data - initialized via ExtractSharedData
         private SongListNode _selectedSong = null!;
@@ -64,24 +66,12 @@ namespace DTXMania.Game.Lib.Stage
 
         // Performance components - initialized in InitializeComponents
         private BackgroundRenderer _backgroundRenderer = null!;
-        private LaneBackgroundRenderer _laneBackgroundRenderer = null!;
-        private JudgementLineRenderer _judgementLineRenderer = null!;
-        private ScoreDisplay _scoreDisplay = null!;
-        private ComboDisplay _comboDisplay = null!;
 
         // Phase 2 components - Chart loading and note scrolling
         private ParsedChart _parsedChart = null!;
-        private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
-        private SkillPanelDisplay? _skillPanelDisplay;
-        private SkillMeterDisplay? _skillMeterDisplay;
         private TabHudDisplay? _tabHudDisplay;
-        private NxAttackEffectManager _nxAttackEffectManager = null!;
-        private JudgementTextPopupManager _fontJudgementTextPopupManager = null!;
-        private SpriteJudgementTextPopupManager _spriteJudgementTextPopupManager = null!;
-        private HitTimingFeedbackDisplay _hitTimingFeedbackDisplay = null!;
-        private PadRenderer _padRenderer = null!;
 
         // HPA-11 chart background video. The player is game-owned and non-blocking;
         // scheduling keeps one cursor into the chart's sorted VideoEvents plus the
@@ -102,6 +92,8 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         internal GameplayAudioSession? AudioSession => _audioSession;
 
+        internal Task<PreparedGameplayAudioSet?>? AudioPreparationTask { get; private set; }
+
         private PlaybackModifiers _playbackModifiers = new(100, 0);
         private bool _metronomeEnabled;
         private AudioPreparationProgress? _audioPreparationProgress;
@@ -117,22 +109,7 @@ namespace DTXMania.Game.Lib.Stage
         // Performance UI Assets - initialized in InitializeComponents
         private ITexture _backgroundTexture = null!;
         private ITexture _shutterTexture = null!; // Single shutter texture
-        private ITexture _laneBgTexture = null!;
-        private ITexture _laneDividerTexture = null!;
-        private ITexture _laneFlashTexture = null!;
-        private ITexture _judgementLineTexture = null!;
-        private ITexture _gaugeBaseTexture = null!;
-        private ITexture _gaugeFillTexture = null!;
-        private ITexture _progressBaseTexture = null!;
-        private ITexture _progressFillTexture = null!;
-        private ITexture _comboDigitsTexture = null!;
-        private ITexture _scoreDigitsTexture = null!;
-        private ITexture _pauseOverlayTexture = null!;
         private ITexture _dangerOverlayTexture = null!;
-        private ITexture _skillPanelTexture = null!;
-        
-        // Judgement text textures (using sprite sheets)
-        private ITexture _judgeStringsTexture = null!;
         
         // Gameplay state
         private bool _isLoading = true;
@@ -153,7 +130,6 @@ namespace DTXMania.Game.Lib.Stage
         private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
         // UI state tracking
-        private bool _isPaused = false;
         private bool _isDanger = false;
         private float _currentGaugeValue = 0.5f; // 0.0 to 1.0
         private float _currentProgressValue = 0.0f; // 0.0 to 1.0
@@ -271,6 +247,19 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice)
             => graphicsDevice != null ? new SpriteBatch(graphicsDevice) : null;
 
+        protected virtual IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel)
+        {
+            if (device == null) return null;
+            var labels = _selectedSong?.DifficultyLabels;
+            var label = labels != null && _selectedDifficulty >= 0 && _selectedDifficulty < labels.Length
+                ? labels[_selectedDifficulty] : null;
+            return new LanesPlayfield(device, _resourceManager, whitePixel,
+                _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty), label, _game.ConfigManager.Config);
+        }
+
+        protected virtual ITexture? CreateFallbackWhiteTexture() =>
+            _spriteBatch != null ? _resourceManager.CreateTextureFromColor(Color.White) : null;
+
         #endregion
 
         #region BaseStage Implementation
@@ -297,7 +286,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Start chart/audio preparation on the activation's background-work scope;
             // every activation input is snapshotted on this (update) thread before Run.
-            StartGameplayInitialization();
+            AudioPreparationTask = StartGameplayInitialization();
 
             var configManager = _game?.ConfigManager;
             if (configManager != null)
@@ -385,48 +374,14 @@ namespace DTXMania.Game.Lib.Stage
             // Draw background (furthest back - highest depth value)
             DrawBackground();
 
-            // HPA-411 Tab: the notation strip replaces the whole lane playfield — lane
-            // backgrounds, measure lines, pads, falling notes and the judgement line
-            // draw only in Lanes (same song clock and live scroll speed either way).
-            if (_notationStrip != null)
-            {
-                DrawNotationStrip();
-
-                // HPA-509: key flashes belong in the base BackToFront batch, directly
-                // after the strip, at DepthKeyFlash (0.35) so they render behind the
-                // strip labels (0.30) but above the key mask (0.40).
-                _tabHudDisplay?.DrawKeyFlashes(_spriteBatch);
-            }
-            else
-            {
-                // Draw lane backgrounds
-                DrawLaneBackgrounds();
-
-                // Draw scrolling measure boundaries above lanes and behind gameplay objects
-                DrawMeasureLines();
-
-                // Draw pad indicators (above lane backgrounds, below notes)
-                DrawPads();
-
-                // Draw scrolling notes
-                DrawNotes();
-
-                // Draw judgement line
-                DrawJudgementLine();
-            }
-
-            // Draw judgement text popups
-            DrawJudgementTexts();
+            DrawPlayfieldBase(_spriteBatch);
 
             _spriteBatch.End();
 
             // Overlay pass: Note overlays with alpha blending (above notes, below UI)
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
 
-            // Draw note overlay animations with alpha blending (on top of base animations)
-            // HPA-411 Tab: falling-note overlays do not apply to the notation strip.
-            if (_notationStrip == null)
-                DrawNoteOverlays();
+            DrawPlayfieldOverlay(_spriteBatch);
 
             _spriteBatch.End();
 
@@ -447,17 +402,47 @@ namespace DTXMania.Game.Lib.Stage
             // Effects pass: Hit effects with additive blending (drawn on top of everything)
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
 
-            // Draw hit effects with additive blending — sparks land at lane positions,
-            // so they apply only in Lanes mode and never over the notation strip.
-            if (_notationStrip == null)
-                DrawHitEffects();
+            DrawPlayfieldAdditive(_spriteBatch);
 
             _spriteBatch.End();
+        }
+
+        internal void DrawPlayfieldBase(SpriteBatch batch)
+        {
+            if (_notationStrip != null)
+            {
+                DrawNotationStrip();
+                _tabHudDisplay?.DrawKeyFlashes(batch);
+            }
+            else
+            {
+                _lanesPlayfield?.DrawBase(batch, Rules?.ChartManager,
+                    _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
+                    CurrentVisualSongTimeMs);
+            }
+        }
+
+        internal void DrawPlayfieldOverlay(SpriteBatch batch)
+        {
+            if (_notationStrip == null)
+                _lanesPlayfield?.DrawOverlay(batch, Rules?.ChartManager,
+                    _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
+                    CurrentVisualSongTimeMs);
+        }
+
+        internal void DrawPlayfieldAdditive(SpriteBatch batch)
+        {
+            if (_notationStrip == null)
+                _lanesPlayfield?.DrawAdditive(batch);
         }
 
         #endregion
 
         #region Initialization and Cleanup
+
+        private double CurrentVisualSongTimeMs =>
+            _audioSession != null && _currentGameTime != null
+                ? _audioSession.GetCurrentMs(_currentGameTime) : 0.0;
 
         private void ExtractSharedData()
         {
@@ -488,58 +473,33 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InitializeComponents()
         {
+            _fallbackWhiteTextureResource = CreateFallbackWhiteTexture();
+            try
+            {
+                _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture!;
+                if (_spriteBatch != null)
+                {
+                    _backgroundRenderer = new BackgroundRenderer(_resourceManager);
+                    _ = _backgroundRenderer.LoadBackgroundAsync();
+                }
+                _lanesPlayfield = CreateLanesPlayfield(_spriteBatch?.GraphicsDevice, _fallbackWhiteTexture);
+            }
+            catch
+            {
+                try { _backgroundRenderer?.Dispose(); }
+                catch { }
+                _backgroundRenderer = null;
+                try { _fallbackWhiteTextureResource?.RemoveReference(); }
+                catch { }
+                _fallbackWhiteTextureResource = null;
+                _fallbackWhiteTexture = null!;
+                throw;
+            }
             if (_spriteBatch == null)
             {
                 WireUpInputEventHandlers();
                 return;
             }
-
-            // HPA-796: acquire the cached white pixel BEFORE constructing renderers —
-            // JudgementLineRenderer (and later the Tab HUD) borrow its raw texture.
-            _fallbackWhiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
-            _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture!;
-
-            // Initialize background renderer
-            _backgroundRenderer = new BackgroundRenderer(_resourceManager);
-
-            // Start async background loading
-            _ = _backgroundRenderer.LoadBackgroundAsync();
-
-            // Initialize lane background and judgement line renderers
-            var graphicsDevice = _spriteBatch.GraphicsDevice;
-            _laneBackgroundRenderer = new LaneBackgroundRenderer(_resourceManager);
-            _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice, _fallbackWhiteTexture!);
-
-            // Initialize score and combo displays
-            _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);
-            _comboDisplay = new ComboDisplay(_resourceManager, graphicsDevice);
-
-            // GameplayRules initializes SkillManager once the chart and combo exist.
-            var skillChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
-            // The difficulty badge name comes from the selected song-select slot (the chart entity has
-            // none once loaded from the DB). This is the same label the song-select panel shows.
-            string? difficultyLabel = null;
-            var labels = _selectedSong?.DifficultyLabels;
-            if (labels != null && _selectedDifficulty >= 0 && _selectedDifficulty < labels.Length)
-            {
-                difficultyLabel = labels[_selectedDifficulty];
-            }
-            _skillPanelDisplay = new SkillPanelDisplay(_resourceManager, graphicsDevice, skillChart, difficultyLabel);
-            _skillMeterDisplay = new SkillMeterDisplay(_resourceManager, graphicsDevice);
-
-            // HPA-509: the Tab-mode HUD is built later, inside TryConstructNotationStrip —
-            // only once the strip has actually published, so Lanes songs never pay for
-            // its fonts or borrow the shared white pixel (it exists by then).
-
-            // Initialize Phase 2 components
-            _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
-            _nxAttackEffectManager = new NxAttackEffectManager(_resourceManager);
-            _fontJudgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
-            _spriteJudgementTextPopupManager = new SpriteJudgementTextPopupManager(
-                _resourceManager,
-                judgementEvent => _fontJudgementTextPopupManager?.SpawnPopup(judgementEvent));
-            _hitTimingFeedbackDisplay = new HitTimingFeedbackDisplay(_resourceManager);
-            _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
 
             // HPA-11: chart background video player; scheduling state resets per activation.
             InitializeChartVideoPlayer();
@@ -560,12 +520,24 @@ namespace DTXMania.Game.Lib.Stage
             WireUpInputEventHandlers();
         }
 
-        // HPA-509: the three outcomes of a Tab HUD build. NotAttempted means no
-        // GraphicsDevice existed to try with (headless coverage) and the strip
-        // keeps its publish; Ready keeps the publish; Failed — the HUD threw or
-        // acquired no resources — rolls the strip back so the song plays as a
-        // consistent full-Lanes fallback instead of a strip under Lanes widgets.
-        private enum TabHudBuildResult { NotAttempted, Ready, Failed }
+        // A strip is published only when its HUD is ready as well.
+        private enum TabHudBuildResult { Ready, Failed }
+
+        internal virtual TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art)
+        {
+            var graphicsDevice = _spriteBatch?.GraphicsDevice;
+            if (graphicsDevice == null) return null;
+            return new TabHudDisplay(
+                graphicsDevice,
+                _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
+                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
+                _selectedSong?.DatabaseSong?.DisplayArtist,
+                _fallbackWhiteTexture,
+                palette,
+                art,
+                logger: _game.LoggerFactory?.CreateLogger<TabHudDisplay>()
+                    ?? NullLogger<TabHudDisplay>.Instance);
+        }
 
         // HPA-509: build the Tab HUD once the strip has published. Deliberately
         // outside the strip's own try/catch so a HUD failure reports cleanly; the
@@ -575,27 +547,10 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         private TabHudBuildResult ConstructTabHud(SkinPalette palette, TabModeArt art)
         {
-            var graphicsDevice = _spriteBatch?.GraphicsDevice;
-            if (graphicsDevice == null)
-            {
-                LogPerformanceError(
-                    "PerformanceStage: no GraphicsDevice for the Tab HUD; the strip stays published for this song.");
-                return TabHudBuildResult.NotAttempted;
-            }
-
             try
             {
-                _tabHudDisplay = new TabHudDisplay(
-                    graphicsDevice,
-                    _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
-                    _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
-                    _selectedSong?.DatabaseSong?.DisplayArtist,
-                    _fallbackWhiteTexture,
-                    palette,
-                    art,
-                    logger: _game.LoggerFactory?.CreateLogger<TabHudDisplay>()
-                        ?? NullLogger<TabHudDisplay>.Instance);
-                return _tabHudDisplay.IsReady
+                _tabHudDisplay = CreateTabHud(palette, art);
+                return _tabHudDisplay?.IsReady == true
                     ? TabHudBuildResult.Ready
                     : TabHudBuildResult.Failed;
             }
@@ -611,6 +566,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void CleanupComponents()
         {
+            Exception? firstFailure = null;
+            void Release(Action action)
+            {
+                try { action(); }
+                catch (Exception ex) { firstFailure ??= ex; }
+            }
 
             // Reset state variables to initial values for proper reactivation
             _isLoading = true; // Initial state is loading
@@ -626,85 +587,60 @@ namespace DTXMania.Game.Lib.Stage
             _lastLaneHit = null;
 
             // Cleanup background renderer
-            _backgroundRenderer?.Dispose();
+            Release(() => _backgroundRenderer?.Dispose());
             _backgroundRenderer = null;
 
-            // Cleanup lane background and judgement line renderers
-            _laneBackgroundRenderer?.Dispose();
-            _laneBackgroundRenderer = null;
-            _judgementLineRenderer?.Dispose();
-            _judgementLineRenderer = null;
+            Release(() => _lanesPlayfield?.Dispose());
+            _lanesPlayfield = null;
 
             // HPA-411: clear the strip reference BEFORE disposing the renderer — the
             // reference is the effective-mode flag, so it must read null before Dispose
             // runs.
             NotationStripRenderer? notationStrip = _notationStrip;
             _notationStrip = null;
-            notationStrip?.Dispose();
-            _tabModeArt?.Release();
+            Release(() => notationStrip?.Dispose());
+            Release(() => _tabModeArt?.Release());
             _tabModeArt = null;
 
-            // Cleanup score and combo displays
-            _scoreDisplay?.Dispose();
-            _scoreDisplay = null;
-            _comboDisplay?.Dispose();
-            _comboDisplay = null;
-            _skillPanelDisplay?.Dispose();
-            _skillPanelDisplay = null;
-            _skillMeterDisplay?.Dispose();
-            _skillMeterDisplay = null;
-            _tabHudDisplay?.Dispose();
+            Release(() => _tabHudDisplay?.Dispose());
             _tabHudDisplay = null;
 
-
-            // Cleanup Phase 2 components
-            _noteRenderer?.Dispose();
-            _noteRenderer = null;
-            _nxAttackEffectManager?.Dispose();
-            _nxAttackEffectManager = null;
-            _spriteJudgementTextPopupManager?.Dispose();
-            _spriteJudgementTextPopupManager = null;
-            _fontJudgementTextPopupManager?.Dispose();
-            _fontJudgementTextPopupManager = null;
-            _hitTimingFeedbackDisplay?.Dispose();
-            _hitTimingFeedbackDisplay = null;
-            _padRenderer?.Dispose();
-            _padRenderer = null;
-
             // Cleanup UX components
-            _readyFont?.RemoveReference();
+            Release(() => _readyFont?.RemoveReference());
             _readyFont = null;
-            _scrollSpeedFont?.RemoveReference();
+            Release(() => _scrollSpeedFont?.RemoveReference());
             _scrollSpeedFont = null;
 
             // Cleanup performance UI assets
-            CleanupPerformanceUIAssets();
+            CleanupPerformanceUIAssets(Release);
 
             // Cleanup fallback texture — released only after every borrowing child
             // renderer above was disposed.
-            _fallbackWhiteTextureResource?.RemoveReference();
+            Release(() => _fallbackWhiteTextureResource?.RemoveReference());
             _fallbackWhiteTextureResource = null;
             _fallbackWhiteTexture = null!;
 
             // Cleanup gameplay managers
-            CleanupGameplayManagers();
+            Release(CleanupGameplayManagers);
 
             // Release the gameplay audio session: song timer, audio loader,
             // live BGM instances, chip cache, metronome sound references and
             // the owned prepared audio set.
-            _audioSession?.Dispose();
+            Release(() => _audioSession?.Dispose());
             _audioSession = null;
 
             // Clear chart data
+            AudioPreparationTask = null;
             _parsedChart = null;
             Rules?.ClearChart();
 
             // Cleanup HPA-11 chart background video player
-            _chartVideoPlayer?.Dispose();
+            Release(() => _chartVideoPlayer?.Dispose());
             _chartVideoPlayer = null;
             _activeVideoEvent = null;
             _nextVideoEventIndex = 0;
 
+            if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
         #endregion
@@ -832,7 +768,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
         {
-            _noteRenderer?.SetScrollSpeed(e.NewPercent);
+            _lanesPlayfield?.OnScrollSpeedChanged(e.NewPercent);
             _scrollSpeedIndicator?.Show(e.NewPercent);
         }
 
@@ -981,8 +917,7 @@ namespace DTXMania.Game.Lib.Stage
                 // at apply time, not snapshotted before Run: PageUp/PageDown stay
                 // active during loading, and the stale snapshot would overwrite the
                 // user's change and diverge from the live config and the toast.
-                _noteRenderer?.SetBpm(chart.Bpm);
-                _noteRenderer?.SetScrollSpeed(
+                _lanesPlayfield?.OnChartPublished(chart.Bpm,
                     _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default);
 
                 // HPA-411: one-shot Tab renderer construction on the update thread
@@ -1159,17 +1094,6 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            // Update note renderer
-            _noteRenderer?.Update(deltaTime);
-
-            // Update NX attack effects
-            _nxAttackEffectManager?.Update(deltaTime);
-
-            // Update judgement text popup managers
-            _spriteJudgementTextPopupManager?.Update(deltaTime);
-            _fontJudgementTextPopupManager?.Update(deltaTime);
-            _hitTimingFeedbackDisplay?.Update(deltaTime);
-
             // Handle BGM event scheduling and gameplay managers
             if (_audioSession != null && _audioSession.IsPlaying)
             {
@@ -1247,82 +1171,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void DrawMeasureLines()
-        {
-            if (_visualGates.HideMeasureLines)
-                return;
-
-            var chartManager = Rules?.ChartManager;
-            if (_noteRenderer == null ||
-                chartManager == null ||
-                _audioSession == null ||
-                _currentGameTime == null)
-            {
-                return;
-            }
-
-            if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
-                return;
-
-            var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
-            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0
-                ? _noteRenderer.EffectiveLookAheadMs
-                : PerformanceUILayout.NoteDefaultLookAheadMs;
-            var activeLines = chartManager.GetActiveMeasureLines(
-                currentTimeMs,
-                lookAheadMs,
-                _noteRenderer.MeasureLinePastGraceMs);
-
-            _noteRenderer.DrawMeasureLines(
-                _spriteBatch,
-                activeLines,
-                currentTimeMs);
-        }
-
-        /// <summary>
-        /// Draws scrolling notes.
-        /// </summary>
-        private void DrawNotes()
-        {
-            var chartManager = Rules?.ChartManager;
-            if (_noteRenderer == null || chartManager == null || _audioSession == null || _currentGameTime == null)
-                return;
-
-            if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
-                return;
-
-            // Get current song time and active notes
-            var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
-            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
-            var activeNotes = chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
-
-            // Draw the notes
-            _noteRenderer.DrawNotes(_spriteBatch, activeNotes, currentTimeMs);
-        }
-
-        /// <summary>
-        /// Draws note overlay animations in effects pass.
-        /// </summary>
-        private void DrawNoteOverlays()
-        {
-            var chartManager = Rules?.ChartManager;
-            if (_noteRenderer == null || chartManager == null || _audioSession == null || _currentGameTime == null)
-                return;
-
-            if (!_audioSession.IsPlaying && !_audioSession.IsPaused)
-                return;
-
-            // Get current song time using precise GameTime-based timing
-            var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
-
-            // Get active notes using the same look-ahead time as scroll calculation
-            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
-            var activeNotes = chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
-
-            // Draw the note overlays with additive blending
-            _noteRenderer.DrawNoteOverlays(_spriteBatch, activeNotes, currentTimeMs);
-        }
-
         /// <summary>
         /// Draws the HPA-411 notation strip in the base BackToFront batch with the same
         /// logical song clock as the falling notes and the live scroll-speed percentage.
@@ -1377,7 +1225,7 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Initializes the font for ready state display
         /// </summary>
-        private void InitializeReadyFont()
+        protected ScrollSpeedIndicator InitializeReadyFont()
         {
             try
             {
@@ -1402,6 +1250,7 @@ namespace DTXMania.Game.Lib.Stage
                 _scrollSpeedFont = null;
                 _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
             }
+            return _scrollSpeedIndicator;
         }
         
         /// <summary>
@@ -1409,7 +1258,7 @@ namespace DTXMania.Game.Lib.Stage
         /// TryLoadTexture swallows per-asset failures and returns null, so a missing
         /// skin asset degrades gracefully without aborting the whole load.
         /// </summary>
-        private void LoadPerformanceUIAssets()
+        internal void LoadPerformanceUIAssets()
         {
             // Load background texture using TexturePath constant
             _backgroundTexture = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
@@ -1417,97 +1266,7 @@ namespace DTXMania.Game.Lib.Stage
             // Load shutter texture using TexturePath constant
             _shutterTexture = TryLoadTexture(TexturePath.Shutter);
 
-            // Load lane strip textures (7_Paret.png) using TexturePath constant
-            _laneBgTexture = TryLoadTexture(TexturePath.LaneStrips);
-
-            // Load lane covers (7_lanes_Cover_cls.png) using TexturePath constant
-            _laneDividerTexture = TryLoadTexture(TexturePath.LaneCovers);
-
-            // Load lane flush texture (will be used for effects) using TexturePath constant
-            _laneFlashTexture = TryLoadTexture(TexturePath.LaneFlushPrefix + "default.png");
-
-            // Load hit-bar (judgement line) using TexturePath constant
-            _judgementLineTexture = TryLoadTexture(TexturePath.HitBar);
-
-            // Load gauge textures using TexturePath constants
-            _gaugeBaseTexture = TryLoadTexture(TexturePath.GaugeFrame);
-            _gaugeFillTexture = TryLoadTexture(TexturePath.GaugeFill);
-
-            // Load progress bar textures using TexturePath constants
-            _progressBaseTexture = TryLoadTexture(TexturePath.ProgressFrame);
-            _progressFillTexture = TryLoadTexture(TexturePath.ProgressFill);
-
-            // Load digit textures using TexturePath constants
-            _comboDigitsTexture = TryLoadTexture(TexturePath.ComboDisplay);
-            _scoreDigitsTexture = TryLoadTexture(TexturePath.ScoreNumbers);
-
-            // Load judgement text sprite sheet using TexturePath constant
-            _judgeStringsTexture = TryLoadTexture(TexturePath.JudgeStrings);
-
-            // Load overlay textures using TexturePath constants
-            _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
             _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
-
-            // Load skill panel texture. Themed skins may point this at a
-            // performance-specific sheet (the shared NX art bakes labels laid
-            // out for the result screen). A themed override that is empty or
-            // points at a missing file would otherwise leave the panel drawn
-            // as a single pixel (LoadTexture's 1x1 fallback) or null, so the
-            // loader retries with the NX default asset on either failure mode.
-            _skillPanelTexture = LoadSkillPanelTexture(
-                _resourceManager?.CurrentTheme ?? SkinTheme.Empty);
-        }
-
-        /// <summary>
-        /// Loads the performance skill-panel texture, retrying with the NX
-        /// default asset when the themed override is empty, missing, or
-        /// resolves to LoadTexture's 1x1 fallback. Returns null only when the
-        /// default asset also fails to load.
-        /// </summary>
-        private ITexture LoadSkillPanelTexture(ISkinTheme theme)
-        {
-            var overridePath = ResolveSkillPanelTexturePath(theme);
-            var texture = TryLoadTexture(overridePath);
-            if (texture != null && texture.Width > 1 && texture.Height > 1)
-                return texture;
-
-            // Override was empty, missing, or the 1x1 fallback. Dispose the
-            // fallback and retry with the NX default asset path. The fallback
-            // is uncached (CreateFallbackTexture does not add it to the
-            // ResourceManager cache) and RemoveReference() deliberately does
-            // not auto-dispose, so disposing here is the only way to release
-            // the underlying GPU Texture2D — otherwise every Performance-stage
-            // activation with a missing/invalid themed override leaks a 1x1
-            // texture.
-            texture?.Dispose();
-            var defaultPath = TexturePath.SkillPanel;
-            if (string.Equals(overridePath, defaultPath, StringComparison.Ordinal))
-                return null; // already tried the default; nothing left to retry
-
-            // The second attempt may also fail (missing default asset in a
-            // broken installation). Validate it the same way: a 1x1 result is
-            // CreateFallbackTexture's uncached fallback, which would leak
-            // because CleanupPerformanceUIAssets only calls RemoveReference
-            // (which does not dispose). Dispose and return null so the panel
-            // is simply not drawn rather than leaking a GPU texture on every
-            // activation.
-            var defaultTexture = TryLoadTexture(defaultPath);
-            if (defaultTexture != null && defaultTexture.Width > 1 && defaultTexture.Height > 1)
-                return defaultTexture;
-            defaultTexture?.Dispose();
-            return null;
-        }
-
-        /// <summary>
-        /// Skill-panel art for the performance stage: "Performance.SkillPanelTexture"
-        /// → NX 7_SkillPanel.png (shared with the result screen). An empty or
-        /// whitespace themed value is coerced to the NX default so a malformed
-        /// `Performance.SkillPanelTexture=` line cannot blank the panel.
-        /// </summary>
-        internal static string ResolveSkillPanelTexturePath(ISkinTheme theme)
-        {
-            var path = theme.GetString("Performance.SkillPanelTexture", TexturePath.SkillPanel);
-            return string.IsNullOrWhiteSpace(path) ? TexturePath.SkillPanel : path;
         }
 
         /// <summary>
@@ -1544,56 +1303,17 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Cleans up all performance UI assets
         /// </summary>
-        private void CleanupPerformanceUIAssets()
+        private void CleanupPerformanceUIAssets(Action<Action> release)
         {
             // Clean up textures using reference counting
-            _backgroundTexture?.RemoveReference();
+            release(() => _backgroundTexture?.RemoveReference());
             _backgroundTexture = null;
             
-            _shutterTexture?.RemoveReference();
+            release(() => _shutterTexture?.RemoveReference());
             _shutterTexture = null;
-            
-            _laneBgTexture?.RemoveReference();
-            _laneBgTexture = null;
-            
-            _laneDividerTexture?.RemoveReference();
-            _laneDividerTexture = null;
-            
-            _laneFlashTexture?.RemoveReference();
-            _laneFlashTexture = null;
-            
-            _judgementLineTexture?.RemoveReference();
-            _judgementLineTexture = null;
-            
-            _gaugeBaseTexture?.RemoveReference();
-            _gaugeBaseTexture = null;
-            
-            _gaugeFillTexture?.RemoveReference();
-            _gaugeFillTexture = null;
-            
-            _progressBaseTexture?.RemoveReference();
-            _progressBaseTexture = null;
-            
-            _progressFillTexture?.RemoveReference();
-            _progressFillTexture = null;
-            
-            _comboDigitsTexture?.RemoveReference();
-            _comboDigitsTexture = null;
-            
-            _scoreDigitsTexture?.RemoveReference();
-            _scoreDigitsTexture = null;
-            
-            _judgeStringsTexture?.RemoveReference();
-            _judgeStringsTexture = null;
-            
-            _pauseOverlayTexture?.RemoveReference();
-            _pauseOverlayTexture = null;
-            
-            _dangerOverlayTexture?.RemoveReference();
+
+            release(() => _dangerOverlayTexture?.RemoveReference());
             _dangerOverlayTexture = null;
-            
-            _skillPanelTexture?.RemoveReference();
-            _skillPanelTexture = null;
         }
 
         /// <summary>
@@ -1708,7 +1428,6 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize UI state values
             _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
             _currentProgressValue = 0.0f;
-            _isPaused = false;
             _isDanger = false;
 
             // Wire up event handlers for UI binding
@@ -1735,12 +1454,8 @@ namespace DTXMania.Game.Lib.Stage
             // Rules subscribe first; the stage handles visual feedback afterwards.
             judgementManager.JudgementMade += OnJudgementMade;
 
-            // Subscribe to manager events for UI updates
-            scoreManager.ScoreChanged += OnScoreChanged;
-            comboManager.ComboChanged += OnComboChanged;
             gaugeManager.GaugeChanged += OnGaugeChanged;
             gaugeManager.Failed += OnPlayerFailed;
-            skillManager.SkillChanged += OnSkillChanged;
         }
 
         /// <summary>
@@ -1772,7 +1487,8 @@ namespace DTXMania.Game.Lib.Stage
             // Trigger immediate pad press effect on input (regardless of judgement). Visual pad
             // feedback is intentionally allowed during loading/countdown so the player sees their
             // input registered, even before the song clock starts.
-            _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
+            if (_notationStrip == null)
+                _lanesPlayfield?.OnLaneInput(e.Lane);
 
             // HPA-509 Tab: manual input refreshes the lane's key flash immediately,
             // even without a judged note (judgement later overwrites the same slot).
@@ -1817,20 +1533,6 @@ namespace DTXMania.Game.Lib.Stage
             if (sender is JudgementManager && !ReferenceEquals(sender, Rules?.JudgementManager))
                 return;
 
-            // Spawn hit effect for successful hits (non-Miss)
-            if (e.IsHit())
-            {
-                _nxAttackEffectManager?.Spawn(e.Lane, e.Type);
-
-                // Trigger pad press effect
-                _padRenderer?.TriggerPadPress(e.Lane, true);
-
-                // Lane flush flashes the lane rectangles, which the notation strip
-                // replaces entirely — triggering it in Tab mode is dead state churn.
-                if (_visualGates.EnableLaneFlush && _notationStrip == null)
-                    _noteRenderer?.TriggerLaneFlash(e.Lane);
-            }
-
             // HPA-509: per-hit fast/slow visibility, computed once and shared by the
             // Lanes timing spawn and the Tab popup's fast/slow line. The cumulative
             // Fast/Slow stat tiles stay always-visible and independent of this gate.
@@ -1843,13 +1545,8 @@ namespace DTXMania.Game.Lib.Stage
             // legacy popup path stays consistent with what is on screen (HPA-509 review).
             if (!IsTabHudActive)
             {
-                // Lanes: spawn judgement text popup for all judgements (unchanged).
-                _spriteJudgementTextPopupManager?.SpawnPopup(e);
-
-                if (showPerHitTiming)
-                {
-                    _hitTimingFeedbackDisplay?.Spawn(e);
-                }
+                var frame = Rules?.BuildFrameState(CurrentVisualSongTimeMs, _currentProgressValue) ?? default;
+                _lanesPlayfield?.OnJudgement(e, frame, showPerHitTiming);
             }
             else
             {
@@ -1874,30 +1571,6 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Handles score changes and updates UI
-        /// </summary>
-        private void OnScoreChanged(object? sender, ScoreChangedEventArgs e)
-        {
-            // Update score display
-            if (_scoreDisplay != null)
-            {
-                _scoreDisplay.Score = e.CurrentScore;
-            }
-        }
-
-        /// <summary>
-        /// Handles combo changes and updates UI
-        /// </summary>
-        private void OnComboChanged(object? sender, ComboChangedEventArgs e)
-        {
-            // Update combo display
-            if (_comboDisplay != null)
-            {
-                _comboDisplay.Combo = e.CurrentCombo;
-            }
-        }
-
-        /// <summary>
         /// Handles gauge changes and updates UI
         /// </summary>
         private void OnGaugeChanged(object? sender, GaugeChangedEventArgs e)
@@ -1910,17 +1583,6 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update danger state based on gauge level
             _isDanger = _currentGaugeValue < PerformanceUILayout.GaugeSettings.DangerThreshold / 100.0f;
-        }
-
-        /// <summary>
-        /// Handles skill changes for the animated skill meter.
-        /// </summary>
-        private void OnSkillChanged(object? sender, SkillChangedEventArgs e)
-        {
-            if (_skillMeterDisplay != null)
-            {
-                _skillMeterDisplay.Skill = e.CurrentSkill;
-            }
         }
 
         /// <summary>
@@ -1977,7 +1639,8 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void PlayAutoNote(Note note)
         {
-            _padRenderer?.TriggerPadPress(note.LaneIndex, true);
+            if (_notationStrip == null)
+                _lanesPlayfield?.OnAutoHit(note.LaneIndex);
             _audioSession?.PlayChip(note);
         }
 
@@ -1992,25 +1655,10 @@ namespace DTXMania.Game.Lib.Stage
                 judgementManager.JudgementMade -= OnJudgementMade;
             }
 
-            if (Rules?.ScoreManager is { } scoreManager)
-            {
-                scoreManager.ScoreChanged -= OnScoreChanged;
-            }
-
-            if (Rules?.ComboManager is { } comboManager)
-            {
-                comboManager.ComboChanged -= OnComboChanged;
-            }
-
             if (Rules?.GaugeManager is { } gaugeManager)
             {
                 gaugeManager.GaugeChanged -= OnGaugeChanged;
                 gaugeManager.Failed -= OnPlayerFailed;
-            }
-
-            if (Rules?.SkillManager is { } skillManager)
-            {
-                skillManager.SkillChanged -= OnSkillChanged;
             }
 
             // Unsubscribe from input events
@@ -2034,27 +1682,13 @@ namespace DTXMania.Game.Lib.Stage
             // Update background renderer
             _backgroundRenderer?.Update(deltaTime);
 
-            // Update lane background and judgement line renderers
-            _laneBackgroundRenderer?.Update(deltaTime);
-            _judgementLineRenderer?.Update(deltaTime);
-
-            // Update score and combo displays
-            _scoreDisplay?.Update(deltaTime);
-            _comboDisplay?.Update(deltaTime);
-            _skillPanelDisplay?.Update(deltaTime);
-            _skillMeterDisplay?.Update(deltaTime);
+            _lanesPlayfield?.Update(deltaTime, !_isLoading && !(_isReady && _readyCountdown > 0));
 
             // HPA-509 Tab: advance the popup slot and key flash decay on every
             // frame — UpdateGameplay returns early during loading and the READY
             // countdown, which would leave a triggered flash lit at full alpha.
             _tabHudDisplay?.Update(deltaTime);
 
-            // Same gating: pad presses fire during loading/countdown (see
-            // OnLaneHitForPadFeedback), so the 90 ms decay must tick here or a
-            // press would stay lit until gameplay starts.
-            _padRenderer?.Update(deltaTime);
-
-            // Update gauge display
         }
 
         #endregion
@@ -2093,97 +1727,10 @@ namespace DTXMania.Game.Lib.Stage
             _chartVideoPlayer?.Draw(_spriteBatch, videoBounds, videoDepth);
         }
 
-        private void DrawLaneBackgrounds()
-        {
-            if (_visualGates.HideLaneBackground)
-                return;
-
-            // Use actual 7_paret.png texture with maximum visibility
-            if (_laneBgTexture != null)
-            {
-                int actualLaneCount = Math.Min(PerformanceUILayout.LaneCount, PerformanceUILayout.LaneStrips.SourceRects.Length);
-                
-                for (int i = 0; i < actualLaneCount; i++)
-                {
-                    var sourceRect = PerformanceUILayout.LaneStrips.SourceRects[i];
-                    var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
-                    
-                    // Normal lane rendering
-                    Color laneColor = Color.White;
-                    
-                    // Draw at background depth
-                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.8f);
-                }
-            }
-            
-            // Use LaneBackgroundRenderer as fallback only when lane background texture is not available
-            if (_laneBgTexture == null)
-            {
-                _laneBackgroundRenderer?.Draw(_spriteBatch);
-            }
-            
-            // Draw lane covers if available (7_lanes_Cover_cls.png)
-            if (_laneDividerTexture != null)
-            {
-                // Draw lane covers for unused/hidden lanes at same depth as lanes
-                // This would be controlled by game settings to hide specific lanes
-                // For now, we'll skip drawing covers to show all lanes
-            }
-            
-            // Draw lane flash overlay if available (effects layer)
-            if (_laneFlashTexture != null)
-            {
-                // Lane flash effects would be drawn per-lane based on hit state
-                // This would be implemented in the effects manager
-            }
-        }
-
-        private void DrawJudgementLine()
-        {
-            if (_visualGates.HideJudgementLine)
-                return;
-
-            if (_judgementLineTexture != null)
-            {
-                // NX stretches the 8px hit-bar strip across the full drum lane panel.
-                var hitBarRect = PerformanceUILayout.HitBar.Bounds;
-                var sourceRect = PerformanceUILayout.HitBar.GetSourceRect(_judgementLineTexture.Width, _judgementLineTexture.Height);
-                _judgementLineTexture.Draw(_spriteBatch, hitBarRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
-            }
-            else
-            {
-                // Fallback to JudgementLineRenderer
-                _judgementLineRenderer?.Draw(_spriteBatch);
-            }
-        }
-
         [ExcludeFromCodeCoverage]
-        private void DrawPads()
-        {
-            if (_padRenderer == null)
-                return;
+        private void DrawUIElements() => DrawUiPass(_uiManager);
 
-            _padRenderer.Draw(_spriteBatch);
-        }
-
-        [ExcludeFromCodeCoverage]
-        private void DrawHitEffects()
-        {
-            // Draw hit effects using NxAttackEffectManager
-            _nxAttackEffectManager?.Draw(_spriteBatch);
-        }
-
-        [ExcludeFromCodeCoverage]
-        private void DrawJudgementTexts()
-        {
-            // Draw judgement text popups using sprite sheets with font fallback
-            _spriteJudgementTextPopupManager?.Draw(_spriteBatch);
-            _fontJudgementTextPopupManager?.Draw(_spriteBatch);
-            _hitTimingFeedbackDisplay?.Draw(_spriteBatch);
-        }
-
-        [ExcludeFromCodeCoverage]
-        private void DrawUIElements()
+        internal void DrawUiPass(UIManager? uiManager)
         {
             // HPA-411 Tab: the skill panel covers the strip's hit marker and key labels,
             // and the progress bar/skill meter obscure the notation look-ahead, so all
@@ -2196,46 +1743,29 @@ namespace DTXMania.Game.Lib.Stage
             // a HUD that failed to load rolls the strip back in
             // TryConstructNotationStrip, so an inactive Tab HUD means consistent
             // Lanes — including judgement popups via OnJudgementMade (HPA-509 review).
-            bool tabHudActive = IsTabHudActive;
-            var frame = CurrentFrame;
-
             // Draw shutters first (overlay elements)
             DrawShutters();
 
-            if (!tabHudActive)
-            {
-                // Draw skill panel
-                DrawSkillPanel();
+            DrawPlayfieldHud(_spriteBatch);
 
-                // Draw progress bar
-                DrawProgressBar();
-
-                _skillPanelDisplay?.Draw(_spriteBatch, frame);
-                _skillMeterDisplay?.Draw(_spriteBatch);
-            }
-
-            if (tabHudActive)
-            {
-                // HPA-509: compact Tab HUD (header/combo/LIFE/progress/stats).
-                _tabHudDisplay?.Draw(_spriteBatch, frame, _visualGates.HideCombo);
-            }
-            else
-            {
-                // Draw gauge elements
-                DrawGaugeElements();
-
-                // Draw existing UI components as fallback
-                // Legacy gauge display removed - using asset-based gauge only
-
-                _scoreDisplay?.Draw(_spriteBatch);
-                if (!_visualGates.HideCombo)
-                    _comboDisplay?.Draw(_spriteBatch);
-            }
-
-            _uiManager?.Draw(_spriteBatch, 0);
+            uiManager?.Draw(_spriteBatch, 0);
 
             // Draw overlays last (topmost)
             DrawOverlays();
+        }
+
+        internal void DrawPlayfieldHud(SpriteBatch batch)
+        {
+            var frame = CurrentFrame;
+            if (!IsTabHudActive)
+            {
+                _lanesPlayfield?.DrawHud(batch, frame);
+            }
+            else
+            {
+                // HPA-509: compact Tab HUD (header/combo/LIFE/progress/stats).
+                _tabHudDisplay?.Draw(batch, frame, _visualGates.HideCombo);
+            }
         }
 
         internal PerformanceFrameState CurrentFrame => Volatile.Read(ref _publishedTelemetry).Frame;
@@ -2256,63 +1786,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
-        /// <summary>
-        /// Draws life gauge with base and fill using DTXManiaNX layout
-        /// </summary>
-        private void DrawGaugeElements()
-        {
-            if (_gaugeBaseTexture != null)
-            {
-                // Draw gauge frame at DTXManiaNX position (294, 626) at UI depth
-                var framePos = PerformanceUILayout.Gauge.FramePosition;
-                var frameRect = new Rectangle((int)framePos.X, (int)framePos.Y, _gaugeBaseTexture.Width, _gaugeBaseTexture.Height);
-                _gaugeBaseTexture.Draw(_spriteBatch, frameRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.19f);
-            }
-            
-            if (_gaugeFillTexture != null && _currentGaugeValue > 0)
-            {
-                // Draw gauge fill at origin position with life percentage width at UI depth
-                var fillOrigin = PerformanceUILayout.Gauge.FillOrigin;
-                var fillHeight = PerformanceUILayout.Gauge.FillHeight;
-                var maxWidth = _gaugeFillTexture.Width; // Use actual texture width instead of hardcoded value
-                var fillWidth = (int)(maxWidth * _currentGaugeValue);
-                
-                var sourceRect = new Rectangle(0, 0, fillWidth, fillHeight);
-                var destRect = new Rectangle((int)fillOrigin.X, (int)fillOrigin.Y, fillWidth, fillHeight);
-                
-                _gaugeFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.18f);
-            }
-        }
-        
-        /// <summary>
-        /// Draws song progress bar using DTXManiaNX layout (right side)
-        /// </summary>
-        private void DrawProgressBar()
-        {
-            if (_progressBaseTexture != null)
-            {
-                // Draw progress frame (853, 0, 60, 540) at UI depth
-                var frameRect = PerformanceUILayout.Progress.FrameBounds;
-                // Draw progress frame (853, 0, 60, 540) at UI depth
-                var progressRect = new Rectangle(frameRect.X, frameRect.Y, _progressBaseTexture.Width, _progressBaseTexture.Height);
-                _progressBaseTexture.Draw(_spriteBatch, progressRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
-            }
-            
-            // Draw progress fill using generated colored segments
-            if (_currentProgressValue > 0)
-            {
-                var barRect = PerformanceUILayout.Progress.BarBounds;
-                var fillHeight = (int)(barRect.Height * _currentProgressValue);
-                
-                // Use fallback white texture to draw colored progress fill at UI depth
-                if (_fallbackRectangleDrawer != null || _fallbackWhiteTexture != null)
-                {
-                    var fillRect = new Rectangle(barRect.X, barRect.Bottom - fillHeight, barRect.Width, fillHeight);
-                    DrawFallbackRectangle(fillRect, Color.LightBlue, 0.2f);
-                }
-            }
-        }
-
         private void DrawFallbackRectangle(Rectangle destinationRectangle, Color color, float layerDepth)
         {
             if (_fallbackRectangleDrawer != null)
@@ -2334,32 +1807,10 @@ namespace DTXMania.Game.Lib.Stage
         }
         
         /// <summary>
-        /// Draws skill panel using DTXManiaNX layout
-        /// </summary>
-        private void DrawSkillPanel()
-        {
-            if (_skillPanelTexture != null)
-            {
-                // Draw skill panel at DTXManiaNX position (22, 250) at UI depth
-                var panelPos = PerformanceUILayout.SkillPanel.PanelPosition;
-                var panelRect = new Rectangle((int)panelPos.X, (int)panelPos.Y, _skillPanelTexture.Width, _skillPanelTexture.Height);
-                _skillPanelTexture.Draw(_spriteBatch, panelRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
-            }
-        }
-        
-        /// <summary>
-        /// Draws pause and danger overlays when appropriate
+        /// Draws the danger overlay when appropriate.
         /// </summary>
         private void DrawOverlays()
         {
-            if (_isPaused && _pauseOverlayTexture != null)
-            {
-                // Draw pause overlay fullscreen at topmost depth
-                // Draw pause overlay fullscreen at topmost depth
-                var pauseRect = new Rectangle(0, 0, _pauseOverlayTexture.Width, _pauseOverlayTexture.Height);
-                _pauseOverlayTexture.Draw(_spriteBatch, pauseRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
-            }
-            
             if (_isDanger && _dangerOverlayTexture != null)
             {
                 // Draw danger tint overlay with pulsing effect at topmost depth

@@ -305,6 +305,16 @@ public class NoteRendererLogicTests
     }
 
     [Fact]
+    public void NoteAndOverlayCulling_ShouldKeepEdgesAndRejectOffscreenPositions()
+    {
+        var bottom = PerformanceUILayout.JudgelineY + 20.0;
+        Assert.False(NoteRenderer.IsNoteOutsideVisibleRange(-32));
+        Assert.True(NoteRenderer.IsNoteOutsideVisibleRange(-32.001));
+        Assert.False(NoteRenderer.IsNoteOutsideVisibleRange(bottom));
+        Assert.True(NoteRenderer.IsNoteOutsideVisibleRange(bottom + 0.001));
+    }
+
+    [Fact]
     public void DrawNote_WhenTextureUnavailableAndFallbackTextureMissing_ShouldReturnWithoutThrowing()
     {
         var renderer = CreateReadyRenderer();

@@ -17,7 +17,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Renders the left-side performance status panel: difficulty level,
     /// current skill percentage, and (optionally) the MAX badge sprite.
     /// </summary>
-    public class SkillPanelDisplay : IDisposable
+    public class SkillPanelDisplay : IDisposable, ILanesSkillPanel
     {
         #region Private Fields
 

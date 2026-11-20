@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Performance;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -18,7 +19,7 @@ namespace DTXMania.Test.Stage.Performance
         public void ResolveSkillPanelTexturePath_WithEmptyTheme_ShouldKeepNxPath()
         {
             Assert.Equal(TexturePath.SkillPanel,
-                PerformanceStage.ResolveSkillPanelTexturePath(SkinTheme.Empty));
+            LanesPlayfield.ResolveSkillPanelTexturePath(SkinTheme.Empty));
         }
 
         [Fact]
@@ -28,7 +29,7 @@ namespace DTXMania.Test.Stage.Performance
                 new[] { "Performance.SkillPanelTexture=Graphics/7_SkillPanel_perf.png" });
 
             Assert.Equal("Graphics/7_SkillPanel_perf.png",
-                PerformanceStage.ResolveSkillPanelTexturePath(theme));
+            LanesPlayfield.ResolveSkillPanelTexturePath(theme));
         }
 
         [Fact]
@@ -42,7 +43,7 @@ namespace DTXMania.Test.Stage.Performance
                 new[] { "Performance.SkillPanelTexture=" });
 
             Assert.Equal(TexturePath.SkillPanel,
-                PerformanceStage.ResolveSkillPanelTexturePath(theme));
+            LanesPlayfield.ResolveSkillPanelTexturePath(theme));
         }
 
         [Fact]
