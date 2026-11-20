@@ -29,8 +29,6 @@ using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Utilities;
-// The UI layout namespace also declares a MeasureLine class; notation inputs use the chart-component one.
-using MeasureLine = DTXMania.Game.Lib.Song.Components.MeasureLine;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -232,13 +230,11 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) =>
             _spriteBatch != null ? create() : null;
 
-        internal virtual TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art)
+        internal virtual TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
+            string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art)
         {
-            var device = _spriteBatch?.GraphicsDevice;
             if (device == null) return null;
-            return new TabHudDisplay(device, _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
-                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
-                _selectedSong?.DatabaseSong?.DisplayArtist, _fallbackWhiteTexture, palette, art,
+            return new TabHudDisplay(device, chart, title, artist, whitePixel, palette, art,
                 _game.LoggerFactory?.CreateLogger<TabHudDisplay>() ?? NullLogger<TabHudDisplay>.Instance);
         }
 
@@ -673,11 +669,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void FailLoading(string message, Exception? exception = null)
         {
+            var scope = BackgroundWork;
             _isLoading = false;
             _isReady = false;
             _loadErrorMessage = message;
             PublishTelemetry();
-            LogPerformanceError(message, exception);
+            if (ReferenceEquals(scope, BackgroundWork))
+                LogPerformanceError(message, exception);
         }
 
         private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
@@ -819,32 +817,80 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ApplyParsedChart(ParsedChart chart, NotationChart? notationChart)
         {
+            var scope = BackgroundWork;
+            if (scope == null) return;
+            var pixelResource = _fallbackWhiteTextureResource;
+            var leased = false;
             try
             {
+                var lanes = _playfield;
+                Func<IPerformancePlayfield?>? createTab = null;
+                if (notationChart != null)
+                {
+                    var whitePixel = _fallbackWhiteTexture;
+                    var automatedLanes = FrozenAutoPlayLanes;
+                    var hideCombo = _visualGates.HideCombo;
+                    var device = _spriteBatch?.GraphicsDevice;
+                    var song = _selectedSong;
+                    var difficulty = _selectedDifficulty;
+                    var title = song?.DisplayTitle ?? song?.Title;
+                    var artist = song?.DatabaseSong?.DisplayArtist;
+                    var resources = _resourceManager;
+                    var measureLines = chart.MeasureLines;
+                    createTab = () => ReferenceEquals(scope, BackgroundWork)
+                        ? TabPlayfield.Create(resources, notationChart, measureLines, whitePixel, automatedLanes, hideCombo,
+                            (palette, art) => ReferenceEquals(scope, BackgroundWork)
+                                ? CreateTabHud(device, song?.GetCurrentDifficultyChart(difficulty),
+                                    title, artist, whitePixel, palette, art)
+                                : null)
+                        : null;
+                }
+
+                // Teardown can run inside any visual callback while its borrowers are still on the stack.
+                pixelResource?.AddReference();
+                leased = pixelResource != null;
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
                 _parsedChart = chart;
                 Rules!.BindChart(chart);
 
                 // Initialize gameplay managers
                 InitializeGameplayManagers();
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
 
                 // Set BPM and scroll speed in note renderer. The scroll speed is read
                 // at apply time, not snapshotted before Run: PageUp/PageDown stay
                 // active during loading, and the stale snapshot would overwrite the
                 // user's change and diverge from the live config and the toast.
                 var scrollSpeed = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
-                _playfield?.OnChartPublished(chart.Bpm, scrollSpeed);
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
+                lanes?.OnChartPublished(chart.Bpm, scrollSpeed);
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
 
                 // HPA-411: one-shot Tab renderer construction on the update thread
                 // because it owns the Bravura and label font loads. A failure means
                 // Lanes for the rest of the song.
-                if (notationChart != null)
-                    TrySelectTabPlayfield(notationChart, chart.MeasureLines, chart.Bpm, scrollSpeed);
+                if (createTab != null)
+                    TrySelectTabPlayfield(scope, lanes, createTab, chart.Bpm, scrollSpeed);
             }
             catch (Exception ex)
             {
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
                 FailLoading($"Chart setup failed: {ex.Message}", ex);
             }
-            PublishTelemetry();
+            finally
+            {
+                if (leased)
+                {
+                    try { pixelResource!.RemoveReference(); }
+                    catch (Exception ex)
+                    {
+                        if (ReferenceEquals(scope, BackgroundWork))
+                            LogPerformanceError("PerformanceStage: Chart publication pixel release failed.", ex);
+                    }
+                }
+            }
+            if (ReferenceEquals(scope, BackgroundWork))
+                PublishTelemetry();
         }
 
         /// <summary>
@@ -909,15 +955,13 @@ namespace DTXMania.Game.Lib.Stage
         /// Select Tab only after its complete visual candidate has been prepared.
         /// </summary>
         private void TrySelectTabPlayfield(
-            NotationChart notationChart, IReadOnlyList<MeasureLine> measureLines, double bpm, int scrollSpeed)
+            StageBackgroundWorkScope scope, IPerformancePlayfield? lanes,
+            Func<IPerformancePlayfield?> create, double bpm, int scrollSpeed)
         {
-            var scope = BackgroundWork;
             IPerformancePlayfield? candidate = null;
             try
             {
-                candidate = CreateTabPlayfield(() => TabPlayfield.Create(
-                    _resourceManager, notationChart, measureLines, _fallbackWhiteTexture,
-                    FrozenAutoPlayLanes, _visualGates.HideCombo, CreateTabHud));
+                candidate = CreateTabPlayfield(create);
                 if (!ReferenceEquals(scope, BackgroundWork))
                 {
                     var stale = candidate;
@@ -943,14 +987,18 @@ namespace DTXMania.Game.Lib.Stage
             {
                 try { candidate?.Dispose(); }
                 catch { }
-                LogPerformanceError("PerformanceStage: Tab construction failed; staying in Lanes for this song.", ex);
+                if (ReferenceEquals(scope, BackgroundWork))
+                    LogPerformanceError("PerformanceStage: Tab construction failed; staying in Lanes for this song.", ex);
                 return;
             }
 
-            var lanes = _playfield;
             _playfield = candidate;
             try { lanes?.Dispose(); }
-            catch (Exception ex) { LogPerformanceError("PerformanceStage: Lanes cleanup failed after Tab selection.", ex); }
+            catch (Exception ex)
+            {
+                if (ReferenceEquals(scope, BackgroundWork))
+                    LogPerformanceError("PerformanceStage: Lanes cleanup failed after Tab selection.", ex);
+            }
         }
 
         /// <summary>
@@ -1713,6 +1761,7 @@ namespace DTXMania.Game.Lib.Stage
         // Called only by the update/lifecycle thread; the API thread never touches live objects.
         private void PublishTelemetry()
         {
+            var scope = BackgroundWork;
             var audioSession = _audioSession;
             var currentGameTime = _currentGameTime;
             var chartManager = Rules?.ChartManager;
@@ -1741,7 +1790,8 @@ namespace DTXMania.Game.Lib.Stage
                 NoteDisplayStyle = (_playfield?.Mode ?? DrumsNoteDisplayStyle.Lanes).ToString(),
                 LastHit = _lastLaneHit
             };
-            Volatile.Write(ref _publishedTelemetry, snapshot);
+            if (ReferenceEquals(scope, BackgroundWork))
+                Volatile.Write(ref _publishedTelemetry, snapshot);
         }
 
         public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
