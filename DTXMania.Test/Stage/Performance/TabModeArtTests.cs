@@ -80,6 +80,26 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Load_WhenLaterTextureValidationThrows_ShouldReleaseEveryAcquiredTexture()
+        {
+            var strip = Texture(1280, 290);
+            var panel = new Mock<ITexture>();
+            var failure = new InvalidOperationException("panel dimensions");
+            panel.SetupGet(t => t.Width).Throws(failure);
+            var resourceManager = new Mock<IResourceManager>();
+            var stripResult = strip.Object;
+            var panelResult = panel.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_strip.png", out stripResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_panel.png", out panelResult)).Returns(true);
+
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+                TabModeArt.Load(resourceManager.Object, ThemeWithAllArt())));
+
+            strip.Verify(t => t.RemoveReference(), Times.Once);
+            panel.Verify(t => t.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
         public void Load_WhenTextureIsOnePixelFallback_ShouldDisposeItAndLeaveSlotEmpty()
         {
             var fallback = Texture(1, 1);
@@ -157,6 +177,47 @@ namespace DTXMania.Test.Stage.Performance
             strip.Verify(t => t.RemoveReference(), Times.Once);
             panel.Verify(t => t.RemoveReference(), Times.Once);
             hitLine.Verify(t => t.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
+        public void Release_WhenFirstTextureThrows_ShouldStillReleaseOtherTextures()
+        {
+            var strip = Texture(1280, 290);
+            var panel = Texture(128, 128);
+            var hitLine = Texture(64, 290);
+            var failure = new InvalidOperationException("strip release");
+            strip.Setup(t => t.RemoveReference()).Throws(failure);
+            var resourceManager = new Mock<IResourceManager>();
+            var stripResult = strip.Object;
+            var panelResult = panel.Object;
+            var hitLineResult = hitLine.Object;
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_strip.png", out stripResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_panel.png", out panelResult)).Returns(true);
+            resourceManager.Setup(r => r.TryLoadTexture("Graphics/7_Tab_hitline.png", out hitLineResult)).Returns(true);
+            var art = TabModeArt.Load(resourceManager.Object, ThemeWithAllArt());
+
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(art.Release));
+
+            strip.Verify(t => t.RemoveReference(), Times.Once);
+            panel.Verify(t => t.RemoveReference(), Times.Once);
+            hitLine.Verify(t => t.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
+        public void Load_WhenUncachedTextureValidationThrows_ShouldDisposeItAndPreserveOriginalFailure()
+        {
+            var fallback = new Mock<ITexture>();
+            var failure = new InvalidOperationException("dimensions");
+            fallback.SetupGet(t => t.Width).Throws(failure);
+            fallback.Setup(t => t.Dispose()).Throws(new InvalidOperationException("cleanup"));
+            var resources = new Mock<IResourceManager>();
+            var value = fallback.Object;
+            resources.Setup(r => r.TryLoadTexture("Graphics/7_Tab_strip.png", out value)).Returns(false);
+
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+                TabModeArt.Load(resources.Object, ThemeWithAllArt())));
+            fallback.Verify(t => t.Dispose(), Times.Once);
+            fallback.Verify(t => t.RemoveReference(), Times.Never);
         }
 
         [Fact]

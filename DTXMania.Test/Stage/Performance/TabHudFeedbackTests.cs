@@ -7,45 +7,18 @@ using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Xunit;
-using static DTXMania.Test.TestData.ReflectionHelpers;
 using TabHud = DTXMania.Game.Lib.UI.Layout.PerformanceUILayout.TabHud;
 
 namespace DTXMania.Test.Stage.Performance
 {
     /// <summary>
-    /// GPU-free state tests for the Tab HUD feedback slots (HPA-509 Task 2): the
-    /// newest-wins judgement popup, its per-hit fast/slow line, and the per-lane
-    /// key flash slots. The display is built with an uninitialized GraphicsDevice —
-    /// font/primitive acquisition fails exactly as on a headless runner, the draw
-    /// paths skip, and the plain-state slots remain fully exercisable.
+    /// GPU-free state tests for the Tab HUD feedback slots.
     /// </summary>
     [Trait("Category", "Unit")]
-    [Collection("ManagedFont")]
     public class TabHudFeedbackTests
     {
-        private static TabHudDisplay CreateDisplay(SkinPalette? palette = null)
-        {
-            // The ctor touches ManagedFont's process-global factory; pin it to the
-            // pristine state (same seam the sibling ManagedFont-collection tests
-            // use) so the uninitialized-GraphicsDevice path is deterministic
-            // regardless of which tests ran first.
-            var state = ManagedFont.CaptureFontFactoryStateForTesting();
-            try
-            {
-                ManagedFont.ResetFontFactoryForTesting();
-                return new TabHudDisplay(
-                    CreateUninitialized<GraphicsDevice>(),
-                    chart: null,
-                    title: "Test Song",
-                    artist: "CI",
-                    palette: palette);
-            }
-            finally
-            {
-                ManagedFont.RestoreFontFactoryStateForTesting(
-                    state.ContentManager, state.DefaultFont, state.LoadedFonts);
-            }
-        }
+        private static TabHudDisplay CreateDisplay(SkinPalette? palette = null) =>
+            new(null, "Test Song", "CI", null, palette, null, null, null, null, null);
 
         #region Key flash slots
 
@@ -285,20 +258,16 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void MarkResourcesReadyForTesting_ShouldFlipIsReady()
+        public void SuccessfulFontAndPrimitiveAcquisition_ShouldSetIsReady()
         {
-            using var display = CreateDisplay();
-
-            display.MarkResourcesReadyForTesting();
-
+            using var display = TabPlayfieldTests.CreateHud();
             Assert.True(display.IsReady);
         }
 
         [Fact]
         public void Dispose_ShouldClearIsReady()
         {
-            var display = CreateDisplay();
-            display.MarkResourcesReadyForTesting();
+            var display = TabPlayfieldTests.CreateHud();
 
             display.Dispose();
 

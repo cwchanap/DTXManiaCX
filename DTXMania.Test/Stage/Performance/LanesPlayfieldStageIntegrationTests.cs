@@ -335,7 +335,7 @@ public class LanesPlayfieldStageIntegrationTests
         var timingTexture = new Mock<ITexture>();
         var spriteTexture = new Mock<ITexture>();
         var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object, timingTexture.Object, spriteTexture.Object);
-        var hud = createUnreadyHud ? TabHudDisplay.CreateHeadlessForTesting() : null;
+        var hud = createUnreadyHud ? TabPlayfieldTests.CreateUnreadyHud() : null;
         using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals)
         {
             TabHud = hud
@@ -379,8 +379,7 @@ public class LanesPlayfieldStageIntegrationTests
         font.SetupGet(f => f.LineSpacing).Returns(74f);
         resources.Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>())).Returns(font.Object);
         var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object);
-        var hud = TabHudDisplay.CreateHeadlessForTesting();
-        hud.MarkResourcesReadyForTesting();
+        var hud = TabPlayfieldTests.CreateHud();
         using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals)
         {
             TabHud = hud
@@ -394,7 +393,7 @@ public class LanesPlayfieldStageIntegrationTests
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
         Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
-        Assert.Empty(visuals.Disposals);
+        Assert.Equal(new[] { "line", "score", "combo", "panel", "meter", "notes", "pads" }, visuals.Disposals);
 
         var judgement = stage.Rules!.JudgementManager!;
         judgement.IsActive = true;
@@ -426,8 +425,7 @@ public class LanesPlayfieldStageIntegrationTests
         var font = new Mock<IFont>();
         font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
         font.SetupGet(f => f.LineSpacing).Returns(74f);
-        var hud = TabHudDisplay.CreateHeadlessForTesting();
-        hud.MarkResourcesReadyForTesting();
+        var hud = TabPlayfieldTests.CreateHud();
         bool deactivating = false;
         int stripReleaseChecks = 0;
         font.Setup(f => f.RemoveReference()).Callback(() =>
@@ -520,6 +518,52 @@ public class LanesPlayfieldStageIntegrationTests
         stage.DrawUiPass(null);
         VerifyDraw(danger, 0.05f);
         Assert.Equal(2, visuals.Score.DrawCount);
+    }
+
+    [Fact]
+    public void UiPass_Tab_ShouldDrawShutterHudUiAndDangerInOrder()
+    {
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, NoFail = true };
+        using var input = new MockInputManagerCompat();
+        var resources = CreateResources();
+        var shutter = Texture(resources, TexturePath.Shutter, 96, 512);
+        var danger = Texture(resources, TexturePath.Danger, 1280, 720);
+        var notationFont = new Mock<IFont>();
+        notationFont.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
+        resources.Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>())).Returns(notationFont.Object);
+        var events = new List<string>();
+        shutter.Setup(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
+            .Callback(() => events.Add("shutter"));
+        danger.Setup(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
+            .Callback(() => events.Add("danger"));
+        var hudFont = new Mock<IFont>();
+        hudFont.Setup(f => f.DrawString(It.IsAny<SpriteBatch>(), "SCORE", It.IsAny<Vector2>(), It.IsAny<Color>(),
+                It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
+            .Callback(() => events.Add("hud"));
+        var hud = TabPlayfieldTests.CreateHud(hudFont);
+        var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object);
+        using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals)
+        {
+            TabHud = hud
+        };
+        using var ui = new UIManager();
+        ui.AddRootContainer(new RecordingContainer(() => events.Add("ui")));
+        var chart = new ParsedChart("tab-overlays.dtx");
+        chart.AddNote(new Note(0, 2, 96, 0x1A, "01"));
+        chart.FinalizeChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Overlays" }, 0, chart));
+        stage.LoadPerformanceUIAssets();
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Rules!.GaugeManager!.Reset(10);
+
+        stage.DrawUiPass(ui);
+
+        Assert.Equal(new[] { "shutter", "hud", "ui", "danger" }, events);
+        Assert.Equal(0, visuals.Score.DrawCount);
+        VerifyDraw(shutter, 0.2f);
+        VerifyDraw(danger, 0.05f);
     }
 
     [Fact]
@@ -669,6 +713,7 @@ public class LanesPlayfieldStageIntegrationTests
         public TabHudDisplay? TabHud { get; init; }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override ITexture? CreateFallbackWhiteTexture() => Pixel;
+        protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) => create();
         internal override TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art) => TabHud;
         protected override IPerformancePlayfield CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) =>
             new LanesPlayfield(_resources, _config, _visuals);

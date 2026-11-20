@@ -58,7 +58,7 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager;
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
-        private IPerformancePlayfield? _lanesPlayfield;
+        private IPerformancePlayfield? _playfield;
 
         // Stage data - initialized via ExtractSharedData
         private SongListNode _selectedSong = null!;
@@ -69,9 +69,6 @@ namespace DTXMania.Game.Lib.Stage
 
         // Phase 2 components - Chart loading and note scrolling
         private ParsedChart _parsedChart = null!;
-
-        // Phase 3 components - Gameplay managers
-        private TabHudDisplay? _tabHudDisplay;
 
         // HPA-11 chart background video. The player is game-owned and non-blocking;
         // scheduling keeps one cursor into the chart's sorted VideoEvents plus the
@@ -144,25 +141,6 @@ namespace DTXMania.Game.Lib.Stage
             bool ShowHitTimingFeedback,
             DrumsNoteDisplayStyle RequestedNoteDisplayStyle);
 
-        // HPA-411 Tab mode. The pure notation chart is built once on the activation
-        // worker (when the requested style is Tab) and published together with the
-        // parsed chart BEFORE audio preparation starts (ApplyParsedChart), so the
-        // right playfield is on screen for the whole LOADING phase; the renderer
-        // (which owns the font loads) is constructed exactly once on the update
-        // thread there. The effective style is derived from the _notationStrip
-        // reference alone — non-null means Tab, null means Lanes; a failed attempt
-        // means Lanes for the rest of the song.
-        private NotationStripRenderer? _notationStrip;
-
-        // Skin art borrowed by the strip and the Tab HUD; released on cleanup.
-        private TabModeArt? _tabModeArt;
-
-        // HPA-509: the Tab HUD draws only while both the strip and its own resources
-        // are live. A HUD whose fonts/primitive failed to load rolls the strip back
-        // to Lanes in TryConstructNotationStrip, so a false read here already means
-        // the consistent Lanes stack — never a strip under Lanes widgets.
-        private bool IsTabHudActive => _notationStrip != null && _tabHudDisplay?.IsReady == true;
-        
         // Note: Using global stage transition debouncing from BaseGame
 
         #endregion
@@ -249,6 +227,19 @@ namespace DTXMania.Game.Lib.Stage
                 ? labels[_selectedDifficulty] : null;
             return new LanesPlayfield(device, _resourceManager, whitePixel,
                 _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty), label, _game.ConfigManager.Config);
+        }
+
+        protected virtual IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) =>
+            _spriteBatch != null ? create() : null;
+
+        internal virtual TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art)
+        {
+            var device = _spriteBatch?.GraphicsDevice;
+            if (device == null) return null;
+            return new TabHudDisplay(device, _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
+                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
+                _selectedSong?.DatabaseSong?.DisplayArtist, _fallbackWhiteTexture, palette, art,
+                _game.LoggerFactory?.CreateLogger<TabHudDisplay>() ?? NullLogger<TabHudDisplay>.Instance);
         }
 
         protected virtual ITexture? CreateFallbackWhiteTexture() =>
@@ -403,31 +394,21 @@ namespace DTXMania.Game.Lib.Stage
 
         internal void DrawPlayfieldBase(SpriteBatch batch)
         {
-            if (_notationStrip != null)
-            {
-                DrawNotationStrip();
-                _tabHudDisplay?.DrawKeyFlashes(batch);
-            }
-            else
-            {
-                _lanesPlayfield?.DrawBase(batch, Rules?.ChartManager,
-                    _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
-                    CurrentVisualSongTimeMs);
-            }
+            _playfield?.DrawBase(batch, Rules?.ChartManager,
+                _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
+                CurrentVisualSongTimeMs);
         }
 
         internal void DrawPlayfieldOverlay(SpriteBatch batch)
         {
-            if (_notationStrip == null)
-                _lanesPlayfield?.DrawOverlay(batch, Rules?.ChartManager,
-                    _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
-                    CurrentVisualSongTimeMs);
+            _playfield?.DrawOverlay(batch, Rules?.ChartManager,
+                _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
+                CurrentVisualSongTimeMs);
         }
 
         internal void DrawPlayfieldAdditive(SpriteBatch batch)
         {
-            if (_notationStrip == null)
-                _lanesPlayfield?.DrawAdditive(batch);
+            _playfield?.DrawAdditive(batch);
         }
 
         #endregion
@@ -471,7 +452,7 @@ namespace DTXMania.Game.Lib.Stage
                     _backgroundRenderer = new BackgroundRenderer(_resourceManager);
                     _ = _backgroundRenderer.LoadBackgroundAsync();
                 }
-                _lanesPlayfield = CreateLanesPlayfield(_spriteBatch?.GraphicsDevice, _fallbackWhiteTexture);
+                _playfield = CreateLanesPlayfield(_spriteBatch?.GraphicsDevice, _fallbackWhiteTexture);
             }
             catch
             {
@@ -509,50 +490,6 @@ namespace DTXMania.Game.Lib.Stage
             WireUpInputEventHandlers();
         }
 
-        // A strip is published only when its HUD is ready as well.
-        private enum TabHudBuildResult { Ready, Failed }
-
-        internal virtual TabHudDisplay? CreateTabHud(SkinPalette palette, TabModeArt art)
-        {
-            var graphicsDevice = _spriteBatch?.GraphicsDevice;
-            if (graphicsDevice == null) return null;
-            return new TabHudDisplay(
-                graphicsDevice,
-                _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
-                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
-                _selectedSong?.DatabaseSong?.DisplayArtist,
-                _fallbackWhiteTexture,
-                palette,
-                art,
-                logger: _game.LoggerFactory?.CreateLogger<TabHudDisplay>()
-                    ?? NullLogger<TabHudDisplay>.Instance);
-        }
-
-        // HPA-509: build the Tab HUD once the strip has published. Deliberately
-        // outside the strip's own try/catch so a HUD failure reports cleanly; the
-        // caller decides the strip's fate from the result. Needs a live
-        // GraphicsDevice — the attempt itself is unreachable under headless
-        // coverage like the other renderer constructions in InitializeComponents.
-        [ExcludeFromCodeCoverage]
-        private TabHudBuildResult ConstructTabHud(SkinPalette palette, TabModeArt art)
-        {
-            try
-            {
-                _tabHudDisplay = CreateTabHud(palette, art);
-                return _tabHudDisplay?.IsReady == true
-                    ? TabHudBuildResult.Ready
-                    : TabHudBuildResult.Failed;
-            }
-            catch (Exception ex)
-            {
-                LogPerformanceError(
-                    "PerformanceStage: Tab HUD construction failed.",
-                    ex);
-                _tabHudDisplay = null;
-                return TabHudBuildResult.Failed;
-            }
-        }
-
         private void CleanupComponents()
         {
             Exception? firstFailure = null;
@@ -579,20 +516,9 @@ namespace DTXMania.Game.Lib.Stage
             Release(() => _backgroundRenderer?.Dispose());
             _backgroundRenderer = null;
 
-            Release(() => _lanesPlayfield?.Dispose());
-            _lanesPlayfield = null;
-
-            // HPA-411: clear the strip reference BEFORE disposing the renderer — the
-            // reference is the effective-mode flag, so it must read null before Dispose
-            // runs.
-            NotationStripRenderer? notationStrip = _notationStrip;
-            _notationStrip = null;
-            Release(() => notationStrip?.Dispose());
-            Release(() => _tabModeArt?.Release());
-            _tabModeArt = null;
-
-            Release(() => _tabHudDisplay?.Dispose());
-            _tabHudDisplay = null;
+            var playfield = _playfield;
+            _playfield = null;
+            Release(() => playfield?.Dispose());
 
             // Cleanup UX components
             Release(() => _readyFont?.RemoveReference());
@@ -756,7 +682,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
         {
-            _lanesPlayfield?.OnScrollSpeedChanged(e.NewPercent);
+            _playfield?.OnScrollSpeedChanged(e.NewPercent);
             _scrollSpeedIndicator?.Show(e.NewPercent);
         }
 
@@ -905,14 +831,14 @@ namespace DTXMania.Game.Lib.Stage
                 // at apply time, not snapshotted before Run: PageUp/PageDown stay
                 // active during loading, and the stale snapshot would overwrite the
                 // user's change and diverge from the live config and the toast.
-                _lanesPlayfield?.OnChartPublished(chart.Bpm,
-                    _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default);
+                var scrollSpeed = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
+                _playfield?.OnChartPublished(chart.Bpm, scrollSpeed);
 
                 // HPA-411: one-shot Tab renderer construction on the update thread
                 // because it owns the Bravura and label font loads. A failure means
                 // Lanes for the rest of the song.
                 if (notationChart != null)
-                    TryConstructNotationStrip(notationChart, chart.MeasureLines);
+                    TrySelectTabPlayfield(notationChart, chart.MeasureLines, chart.Bpm, scrollSpeed);
             }
             catch (Exception ex)
             {
@@ -980,70 +906,51 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// One-shot HPA-411 Tab renderer construction on the update thread (from the
-        /// initialization success callback) because the renderer owns the Bravura and
-        /// label font loads. Exactly one attempt happens per activation — a failure
-        /// keeps Lanes for this song. A strip that is already published is never
-        /// replaced.
+        /// Select Tab only after its complete visual candidate has been prepared.
         /// </summary>
-        private void TryConstructNotationStrip(
-            NotationChart notationChart,
-            IReadOnlyList<MeasureLine> measureLines)
+        private void TrySelectTabPlayfield(
+            NotationChart notationChart, IReadOnlyList<MeasureLine> measureLines, double bpm, int scrollSpeed)
         {
-            if (_notationStrip != null)
-                return;
-
-            // The skin art is published with the strip; every path that does not
-            // publish falls through to the release below.
-            var art = TabModeArt.None;
+            var scope = BackgroundWork;
+            IPerformancePlayfield? candidate = null;
             try
             {
-                // One theme read styles both halves of Tab mode (strip + HUD).
-                var theme = _resourceManager?.CurrentTheme;
-                var palette = SkinPalette.Resolve(theme);
-                art = TabModeArt.Load(_resourceManager, theme);
-                var renderer = new NotationStripRenderer(
-                    _resourceManager,
-                    notationChart,
-                    measureLines,
-                    palette,
-                    art);
-                if (renderer.IsReady)
+                candidate = CreateTabPlayfield(() => TabPlayfield.Create(
+                    _resourceManager, notationChart, measureLines, _fallbackWhiteTexture,
+                    FrozenAutoPlayLanes, _visualGates.HideCombo, CreateTabHud));
+                if (!ReferenceEquals(scope, BackgroundWork))
                 {
-                    _notationStrip = renderer;
-                    if (ConstructTabHud(palette, art) != TabHudBuildResult.Failed)
-                    {
-                        _tabModeArt = art;
-                        return;
-                    }
-
-                    // HPA-509 review: a strip without its HUD draws the
-                    // Lanes widgets back over the strip's hit marker and
-                    // key labels — an unreadable mixed mode. Roll the whole
-                    // decision back to a consistent Lanes fallback (null
-                    // the reference BEFORE disposing, like CleanupComponents).
-                    _notationStrip = null;
-                    renderer.Dispose();
-                    _tabHudDisplay?.Dispose();
-                    _tabHudDisplay = null;
-                    LogPerformanceError(
-                        "PerformanceStage: Tab HUD unavailable; Tab display falls back to Lanes for this song.");
+                    var stale = candidate;
+                    candidate = null;
+                    stale?.Dispose();
+                    return;
                 }
-                else
+                if (candidate == null)
                 {
-                    LogPerformanceError(
-                        "PerformanceStage: Bravura notation fonts unavailable; Tab display falls back to Lanes for this song.");
-                    renderer.Dispose();
+                    LogPerformanceError("PerformanceStage: Tab display unavailable; staying in Lanes for this song.");
+                    return;
+                }
+                candidate.OnChartPublished(bpm, scrollSpeed);
+                if (!ReferenceEquals(scope, BackgroundWork))
+                {
+                    var stale = candidate;
+                    candidate = null;
+                    stale.Dispose();
+                    return;
                 }
             }
             catch (Exception ex)
             {
-                LogPerformanceError(
-                    "PerformanceStage: notation renderer construction failed; staying in Lanes for this song.",
-                    ex);
+                try { candidate?.Dispose(); }
+                catch { }
+                LogPerformanceError("PerformanceStage: Tab construction failed; staying in Lanes for this song.", ex);
+                return;
             }
 
-            art.Release();
+            var lanes = _playfield;
+            _playfield = candidate;
+            try { lanes?.Dispose(); }
+            catch (Exception ex) { LogPerformanceError("PerformanceStage: Lanes cleanup failed after Tab selection.", ex); }
         }
 
         /// <summary>
@@ -1157,22 +1064,6 @@ namespace DTXMania.Game.Lib.Stage
                     judgementManager.IsActive = true;
                 }
             }
-        }
-
-        /// <summary>
-        /// Draws the HPA-411 notation strip in the base BackToFront batch with the same
-        /// logical song clock as the falling notes and the live scroll-speed percentage.
-        /// The strip is the entire Tab playfield, so it stays on screen whenever it
-        /// exists — loading, the READY countdown, pause and the exit fade — at the
-        /// clock's current logical position (0 before transport starts).
-        /// </summary>
-        private void DrawNotationStrip()
-        {
-            var currentTimeMs = (_audioSession != null && _currentGameTime != null)
-                ? _audioSession.GetCurrentMs(_currentGameTime)
-                : 0.0;
-            var speedPercent = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
-            _notationStrip?.Draw(_spriteBatch, currentTimeMs, speedPercent);
         }
 
         /// <summary>
@@ -1475,13 +1366,7 @@ namespace DTXMania.Game.Lib.Stage
             // Trigger immediate pad press effect on input (regardless of judgement). Visual pad
             // feedback is intentionally allowed during loading/countdown so the player sees their
             // input registered, even before the song clock starts.
-            if (_notationStrip == null)
-                _lanesPlayfield?.OnLaneInput(e.Lane);
-
-            // HPA-509 Tab: manual input refreshes the lane's key flash immediately,
-            // even without a judged note (judgement later overwrites the same slot).
-            if (_notationStrip != null)
-                _tabHudDisplay?.TriggerKeyFlash(e.Lane);
+            _playfield?.OnLaneInput(e.Lane);
 
             // Only record gameplay telemetry and chip sounds while the chart is actively playing.
             // During loading, the ready countdown, or after stop, the song clock is not advancing,
@@ -1528,34 +1413,8 @@ namespace DTXMania.Game.Lib.Stage
                 && e.IsHit()
                 && !FrozenAutoPlayLanes.Contains(e.Lane);
 
-            // The Lanes-vs-Tab split keys on the HUD's readiness, not the strip alone:
-            // a Tab HUD that failed to load rolls the strip back to Lanes, so the
-            // legacy popup path stays consistent with what is on screen (HPA-509 review).
-            if (!IsTabHudActive)
-            {
-                var frame = Rules?.BuildFrameState(CurrentVisualSongTimeMs, _currentProgressValue) ?? default;
-                _lanesPlayfield?.OnJudgement(e, frame, showPerHitTiming);
-            }
-            else
-            {
-                // HPA-509 Tab: the legacy popups draw at Lanes positions, so their
-                // spawns are gated (DrawJudgementTexts stays untouched and finds no
-                // transients) and the Tab HUD's own newest-wins slot is fed instead.
-                // Every judgement also refreshes the lane's key cap: its lane color for
-                // hits, danger for Miss, so instrument identity survives rapid popup
-                // replaces.
-                _tabHudDisplay?.TriggerKeyFlash(e.Lane, isMiss: !e.IsHit());
-
-                // Partial autoplay: an automated lane's judgement must not replace
-                // the player's popup — its word carries no timing and would wipe the
-                // player's fast/slow line within milliseconds (HPA-509 review). The
-                // lane still flashes above; under full autoplay every judgement feeds
-                // the popup, matching what the Lanes HUD shows.
-                bool automatedPartialLane = FrozenAutoPlayLanes.Contains(e.Lane)
-                    && FrozenAutoPlayLanes.Count < PerformanceUILayout.LaneCount;
-                if (!automatedPartialLane)
-                    _tabHudDisplay?.NotifyJudgement(e.Type, showPerHitTiming, e.DeltaMs);
-            }
+            var frame = Rules?.BuildFrameState(CurrentVisualSongTimeMs, _currentProgressValue) ?? default;
+            _playfield?.OnJudgement(e, frame, showPerHitTiming);
         }
 
         /// <summary>
@@ -1627,8 +1486,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void PlayAutoNote(Note note)
         {
-            if (_notationStrip == null)
-                _lanesPlayfield?.OnAutoHit(note.LaneIndex);
+            _playfield?.OnAutoHit(note.LaneIndex);
             _audioSession?.PlayChip(note);
         }
 
@@ -1670,12 +1528,7 @@ namespace DTXMania.Game.Lib.Stage
             // Update background renderer
             _backgroundRenderer?.Update(deltaTime);
 
-            _lanesPlayfield?.Update(deltaTime, !_isLoading && !(_isReady && _readyCountdown > 0));
-
-            // HPA-509 Tab: advance the popup slot and key flash decay on every
-            // frame — UpdateGameplay returns early during loading and the READY
-            // countdown, which would leave a triggered flash lit at full alpha.
-            _tabHudDisplay?.Update(deltaTime);
+            _playfield?.Update(deltaTime, !_isLoading && !(_isReady && _readyCountdown > 0));
 
         }
 
@@ -1720,17 +1573,6 @@ namespace DTXMania.Game.Lib.Stage
 
         internal void DrawUiPass(UIManager? uiManager)
         {
-            // HPA-411 Tab: the skill panel covers the strip's hit marker and key labels,
-            // and the progress bar/skill meter obscure the notation look-ahead, so all
-            // four draws are skipped while Tab is effective. Their underlying
-            // metric/state updates keep running. HPA-509 Tab: the legacy-position
-            // gauge/score/combo draws are skipped for the same reason — the Tab HUD
-            // renders those values in its own regions instead. Only the legacy-position
-            // draws are gated; the managers keep updating either way.
-            // The decision keys on the HUD's readiness, which now implies the strip:
-            // a HUD that failed to load rolls the strip back in
-            // TryConstructNotationStrip, so an inactive Tab HUD means consistent
-            // Lanes — including judgement popups via OnJudgementMade (HPA-509 review).
             // Draw shutters first (overlay elements)
             DrawShutters();
 
@@ -1744,16 +1586,7 @@ namespace DTXMania.Game.Lib.Stage
 
         internal void DrawPlayfieldHud(SpriteBatch batch)
         {
-            var frame = CurrentFrame;
-            if (!IsTabHudActive)
-            {
-                _lanesPlayfield?.DrawHud(batch, frame);
-            }
-            else
-            {
-                // HPA-509: compact Tab HUD (header/combo/LIFE/progress/stats).
-                _tabHudDisplay?.Draw(batch, frame, _visualGates.HideCombo);
-            }
+            _playfield?.DrawHud(batch, CurrentFrame);
         }
 
         internal PerformanceFrameState CurrentFrame => Volatile.Read(ref _publishedTelemetry).Frame;
@@ -1905,8 +1738,7 @@ namespace DTXMania.Game.Lib.Stage
                 ClockReadable = readable,
                 // Lanes and the pre-refactor Tab HUD retain the last gameplay progress after Stop.
                 Frame = Rules?.BuildFrameState(rawMs, chartManager != null ? _currentProgressValue : 0f) ?? default,
-                NoteDisplayStyle = _notationStrip != null
-                    ? nameof(DrumsNoteDisplayStyle.Tab) : nameof(DrumsNoteDisplayStyle.Lanes),
+                NoteDisplayStyle = (_playfield?.Mode ?? DrumsNoteDisplayStyle.Lanes).ToString(),
                 LastHit = _lastLaneHit
             };
             Volatile.Write(ref _publishedTelemetry, snapshot);

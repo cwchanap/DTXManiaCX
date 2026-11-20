@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -225,6 +226,144 @@ public class PerformancePlayfieldStageTests
         stage.Deactivate();
     }
 
+    [Fact]
+    public void TabSelection_ShouldPublishOnUpdateThreadAndReleaseLanesBeforePixel()
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ScrollSpeed = 100, ShowCombo = false };
+        config.AutoPlayLanes.Add(2);
+        var manager = new Mock<IConfigManager>();
+        var lanes = new Mock<IPerformancePlayfield>();
+        var tab = new Mock<IPerformancePlayfield>();
+        tab.SetupGet(t => t.Mode).Returns(DrumsNoteDisplayStyle.Tab);
+        var pixel = new Mock<ITexture>();
+        var order = new List<string>();
+        lanes.Setup(x => x.Dispose()).Callback(() => order.Add("lanes"));
+        tab.Setup(x => x.OnChartPublished(150, 200)).Callback(() => order.Add("prepare"));
+        tab.Setup(x => x.Dispose()).Callback(() => order.Add("tab"));
+        pixel.Setup(x => x.RemoveReference()).Callback(() => order.Add("pixel"));
+        using var stage = new HeadlessStage(CreateGame(config, input, manager), lanes.Object)
+        {
+            Pixel = pixel.Object,
+            TabFactory = () => tab.Object
+        };
+        var chart = new ParsedChart("tab-factory.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
+        chart.FinalizeChart();
+        chart.Bpm = 150;
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Tab" }, 0, chart));
+        input.TriggerLaneHit(1);
+        lanes.Verify(x => x.OnLaneInput(1), Times.Once);
+        config.ScrollSpeed = 200;
+        config.ShowCombo = true;
+        config.AutoPlayLanes.Clear();
+        int thread = Environment.CurrentManagedThreadId;
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            stage.Update(0);
+            return stage.TabFactoryThread != 0;
+        }, TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(thread, stage.TabFactoryThread);
+        Assert.Equal(new[] { "prepare", "lanes" }, order);
+        pixel.Verify(x => x.RemoveReference(), Times.Never);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
+        input.TriggerLaneHit(1);
+        tab.Verify(x => x.OnLaneInput(1), Times.Once);
+        manager.Raise(x => x.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(200, 225));
+        tab.Verify(x => x.OnScrollSpeedChanged(225), Times.Once);
+        stage.DrawPlayfieldBase(null!);
+        stage.DrawPlayfieldOverlay(null!);
+        stage.DrawPlayfieldHud(null!);
+        stage.DrawPlayfieldAdditive(null!);
+        tab.Verify(x => x.DrawBase(null!, It.IsAny<ChartManager?>(), It.IsAny<bool>(), It.IsAny<double>()), Times.Once);
+        tab.Verify(x => x.DrawOverlay(null!, It.IsAny<ChartManager?>(), It.IsAny<bool>(), It.IsAny<double>()), Times.Once);
+        tab.Verify(x => x.DrawHud(null!, It.IsAny<PerformanceFrameState>()), Times.Once);
+        tab.Verify(x => x.DrawAdditive(null!), Times.Once);
+        stage.Deactivate();
+        Assert.Equal(new[] { "prepare", "lanes", "tab", "pixel" }, order);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void TabSelection_WhenCandidateUnavailableOrThrows_ShouldKeepCompleteLanes(int failure)
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+        var lanes = new Mock<IPerformancePlayfield>();
+        lanes.SetupGet(x => x.Mode).Returns(DrumsNoteDisplayStyle.Lanes);
+        var tab = new Mock<IPerformancePlayfield>();
+        if (failure == 2)
+            tab.Setup(x => x.OnChartPublished(It.IsAny<double>(), It.IsAny<int>())).Throws(new InvalidOperationException("prepare"));
+        using var stage = new HeadlessStage(CreateGame(config, input), lanes.Object)
+        {
+            TabFactory = () => failure == 0 ? null : failure == 1
+                ? throw new InvalidOperationException("create") : tab.Object
+        };
+        var chart = new ParsedChart("tab-fallback.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
+        chart.FinalizeChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fallback" }, 0, chart));
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            stage.Update(0);
+            return stage.AudioSession != null;
+        }, TimeSpan.FromSeconds(5)));
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
+        Assert.True(telemetry.PerformanceReady);
+        input.TriggerLaneHit(1);
+        lanes.Verify(x => x.OnLaneInput(1), Times.Once);
+        lanes.Verify(x => x.Dispose(), Times.Never);
+        tab.Verify(x => x.Dispose(), Times.Exactly(failure == 2 ? 1 : 0));
+        stage.Deactivate();
+        lanes.Verify(x => x.Dispose(), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TabSelection_WhenCandidateSynchronouslyDeactivates_ShouldDisposeWithoutPublishingIt(bool duringPrepare)
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
+        var lanes = new Mock<IPerformancePlayfield>();
+        var tab = new Mock<IPerformancePlayfield>();
+        tab.SetupGet(t => t.Mode).Returns(DrumsNoteDisplayStyle.Tab);
+        using var stage = new HeadlessStage(CreateGame(config, input), lanes.Object);
+        if (duringPrepare)
+            tab.Setup(t => t.OnChartPublished(It.IsAny<double>(), It.IsAny<int>())).Callback(stage.Deactivate);
+        stage.TabFactory = () =>
+        {
+            if (!duringPrepare) stage.Deactivate();
+            return tab.Object;
+        };
+        var chart = new ParsedChart("tab-reentrant.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
+        chart.FinalizeChart();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Reentrant" }, 0, chart));
+
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            stage.Update(0);
+            return !stage.IsActive;
+        }, TimeSpan.FromSeconds(5)));
+
+        tab.Verify(t => t.OnChartPublished(It.IsAny<double>(), It.IsAny<int>()),
+            Times.Exactly(duringPrepare ? 1 : 0));
+        tab.Verify(t => t.Dispose(), Times.Once);
+        lanes.Verify(t => t.Dispose(), Times.Once);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
+    }
+
     private static IStageGame CreateGame(ConfigData config, MockInputManagerCompat input,
         Mock<IConfigManager>? configManager = null)
     {
@@ -245,10 +384,17 @@ public class PerformancePlayfieldStageTests
         public HeadlessStage(IStageGame game, IPerformancePlayfield field) : base(game) => _field = field;
         public ITexture? Pixel { get; set; }
         public Exception? FactoryFailure { get; set; }
+        public Func<IPerformancePlayfield?>? TabFactory { get; set; }
+        public int TabFactoryThread { get; private set; }
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
         protected override ITexture? CreateFallbackWhiteTexture() => Pixel;
         protected override IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel) =>
             FactoryFailure != null ? throw FactoryFailure : _field;
+        protected override IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create)
+        {
+            TabFactoryThread = Environment.CurrentManagedThreadId;
+            return TabFactory?.Invoke();
+        }
         protected override IChartVideoPlayer CreateChartVideoPlayer() =>
             throw new InvalidOperationException("Headless activation must not construct a video player.");
     }
