@@ -4,6 +4,8 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -24,5 +26,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal GaugeDamageLevel DamageLevel { get; }
         internal int Risky { get; }
         internal bool FailureEnabled { get; }
+
+        internal ChartManager? ChartManager { get; private set; }
+
+        internal void BindChart(ParsedChart chart) => ChartManager = new ChartManager(chart);
+
+        internal void ClearChart() => ChartManager = null;
     }
 }
