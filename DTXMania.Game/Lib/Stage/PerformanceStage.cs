@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -176,23 +177,9 @@ namespace DTXMania.Game.Lib.Stage
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary = null!;
         
-        // Autoplay functionality. The lane set is copied from config at
-        // activation (frozen for the run); the live ConfigData collection is
-        // never retained. An empty set means fully manual play.
-        private HashSet<int> _autoPlayLanes = new HashSet<int>();
-
-        /// <summary>
-        /// Read accessor for the frozen lane set. Lazily materializes an empty
-        /// set so reflection-created (uninitialized) stage instances — common
-        /// in tests — behave as fully manual play instead of throwing
-        /// NullReferenceException.
-        /// </summary>
-        private HashSet<int> FrozenAutoPlayLanes => _autoPlayLanes ??= new HashSet<int>();
-
-        private bool _autoAddGaugeEnabled = true;
-        private GaugeDamageLevel _gaugeDamageLevel = GaugeDamageLevel.Normal;
-        private int _riskyLimit = RiskyRange.Default;
-        private bool _gaugeFailureEnabled = true;
+        private GameplayRules? _gameplayRules;
+        private IReadOnlySet<int> FrozenAutoPlayLanes =>
+            _gameplayRules?.AutoPlayLanes ?? FrozenSet<int>.Empty;
         private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
         private PerformanceVisualGates _visualGates;
 
@@ -505,14 +492,7 @@ namespace DTXMania.Game.Lib.Stage
                 ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false,
                 RequestedNoteDisplayStyle: noteDisplayStyle);
 
-            // Defensive copy: the run owns its lane set. Later config edits
-            // (UI toggles, mid-song SetAutoPlayLane) must not alter which
-            // lanes this performance automates.
-            _autoPlayLanes = new HashSet<int>(config?.AutoPlayLanes ?? Enumerable.Empty<int>());
-            _autoAddGaugeEnabled = config?.AutoAddGauge ?? true;
-            _gaugeDamageLevel = config?.DamageLevel ?? GaugeDamageLevel.Normal;
-            _riskyLimit = RiskyRange.Clamp(config?.Risky ?? RiskyRange.Default);
-            _gaugeFailureEnabled = !(config?.NoFail ?? false);
+            _gameplayRules = new GameplayRules(config);
             _autoPlayNoteIndex = 0;
 
         }
@@ -1743,9 +1723,9 @@ namespace DTXMania.Game.Lib.Stage
             _comboManager = new ComboManager();
             _gaugeManager = new GaugeManager(
                 GaugeManager.StartingLife,
-                _gaugeDamageLevel,
-                _riskyLimit,
-                _gaugeFailureEnabled);
+                _gameplayRules?.DamageLevel ?? GaugeDamageLevel.Normal,
+                _gameplayRules?.Risky ?? RiskyRange.Default,
+                _gameplayRules?.FailureEnabled ?? true);
             _skillManager = new SkillManager(_chartManager.TotalNotes, _comboManager);
 
             // Initialize UI state values
@@ -1855,7 +1835,7 @@ namespace DTXMania.Game.Lib.Stage
             // manual-lane judgements always reach the gauge.
             _scoreManager?.ProcessJudgement(e);
             _comboManager?.ProcessJudgement(e);
-            if (!FrozenAutoPlayLanes.Contains(e.Lane) || _autoAddGaugeEnabled)
+            if (!FrozenAutoPlayLanes.Contains(e.Lane) || (_gameplayRules?.AutoAddGauge ?? true))
                 _gaugeManager?.ProcessJudgement(e);
             _skillManager?.ProcessJudgement(e);
             _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
