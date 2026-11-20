@@ -4,12 +4,13 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
-    /// <summary>Frozen gameplay policy for one performance run.</summary>
+    /// <summary>Frozen gameplay policy and chart-bound state for one performance run.</summary>
     internal sealed class GameplayRules
     {
         internal GameplayRules(ConfigData? config)
@@ -28,8 +29,24 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal bool FailureEnabled { get; }
 
         internal ChartManager? ChartManager { get; private set; }
+        internal JudgementManager? JudgementManager { get; private set; }
 
         internal void BindChart(ParsedChart chart) => ChartManager = new ChartManager(chart);
+
+        internal void InitializeJudgement(IInputManagerCompat inputManager)
+        {
+            var manager = new JudgementManager(inputManager, ChartManager!);
+            manager.IsActive = false;
+            // Automated lanes ignore physical input but remain available to autoplay.
+            manager.SetIgnoredPlayerInputLanes(AutoPlayLanes);
+            JudgementManager = manager;
+        }
+
+        internal void ClearJudgement()
+        {
+            JudgementManager?.Dispose();
+            JudgementManager = null;
+        }
 
         internal void ClearChart() => ChartManager = null;
     }

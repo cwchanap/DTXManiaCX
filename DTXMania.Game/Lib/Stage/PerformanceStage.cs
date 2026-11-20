@@ -74,7 +74,6 @@ namespace DTXMania.Game.Lib.Stage
         private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
-        private JudgementManager _judgementManager = null!;
         private ScoreManager _scoreManager = null!;
         private ComboManager _comboManager = null!;
         private GaugeManager _gaugeManager = null!;
@@ -794,9 +793,9 @@ namespace DTXMania.Game.Lib.Stage
             StopGameplayAudioInstances();
 
             // 2. Deactivate judgement manager to stop processing input
-            if (_judgementManager != null)
+            if (Rules?.JudgementManager is { } judgementManager)
             {
-                _judgementManager.IsActive = false;
+                judgementManager.IsActive = false;
             }
 
             // 3. Pause input to block further judgement processing
@@ -1252,9 +1251,9 @@ namespace DTXMania.Game.Lib.Stage
                 _isReady = false;
 
                 // Activate the judgement manager now that the song is playing
-                if (_judgementManager != null)
+                if (Rules?.JudgementManager is { } judgementManager)
                 {
-                    _judgementManager.IsActive = true;
+                    judgementManager.IsActive = true;
                 }
             }
         }
@@ -1713,14 +1712,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             // Initialize managers
-            _judgementManager = new JudgementManager(_inputManager, chartManager);
-            // Start with judgement manager inactive - it will be activated when song starts
-            _judgementManager.IsActive = false;
-            // Lane-scoped input filtering: automated lanes ignore physical input
-            // while manual lanes keep full player control (the seam copies the
-            // frozen set, so it stays run-owned). Unlike DTXManiaNX, which lets
-            // player and autoplay coexist, automated lanes drop player hits.
-            _judgementManager.SetIgnoredPlayerInputLanes(FrozenAutoPlayLanes);
+            Rules!.InitializeJudgement(_inputManager);
 
             _scoreManager = new ScoreManager(chartManager.TotalNotes);
             _comboManager = new ComboManager();
@@ -1749,11 +1741,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void WireUpEventHandlers()
         {
-            if (_judgementManager == null || _scoreManager == null || _comboManager == null || _gaugeManager == null)
+            var judgementManager = Rules?.JudgementManager;
+            if (judgementManager == null || _scoreManager == null || _comboManager == null || _gaugeManager == null)
                 return;
 
             // Subscribe to judgement events and forward to all managers
-            _judgementManager.JudgementMade += OnJudgementMade;
+            judgementManager.JudgementMade += OnJudgementMade;
 
             // Subscribe to manager events for UI updates
             _scoreManager.ScoreChanged += OnScoreChanged;
@@ -1985,7 +1978,7 @@ namespace DTXMania.Game.Lib.Stage
             // note is not marked missed before the player hears it: using raw
             // time would shrink the reaction window by AudioLatencyOffsetMs
             // whenever the user configures a manual latency offset.
-            _judgementManager?.Update(pendingHitTimeMs, pendingHitTimeMs);
+            Rules?.JudgementManager?.Update(pendingHitTimeMs, pendingHitTimeMs);
         }
         
         /// <summary>
@@ -2005,7 +1998,8 @@ namespace DTXMania.Game.Lib.Stage
         private void ProcessAutoPlay(double currentSongTimeMs)
         {
             var chartManager = Rules?.ChartManager;
-            if (chartManager == null || _judgementManager == null)
+            var judgementManager = Rules?.JudgementManager;
+            if (chartManager == null || judgementManager == null)
                 return;
 
             var allNotes = chartManager.AllNotes;
@@ -2034,13 +2028,13 @@ namespace DTXMania.Game.Lib.Stage
                 // only resolve notes on automated lanes.
                 if (FrozenAutoPlayLanes.Contains(note.LaneIndex))
                 {
-                    var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
+                    var noteData = judgementManager.GetNoteRuntimeData(note.Id);
                     if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
                     {
                         // Resolve directly by note ID, bypassing hit detection window.
                         // This ensures deterministic hits even when currentSongTimeMs is
                         // far past the note time (e.g., after GC pause or frame hitch).
-                        _judgementManager.ResolveAutoHit(note.Id);
+                        judgementManager.ResolveAutoHit(note.Id);
 
                         // Trigger pad press effect for autoplay
                         _padRenderer?.TriggerPadPress(note.LaneIndex, true);
@@ -2062,7 +2056,8 @@ namespace DTXMania.Game.Lib.Stage
         private Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs)
         {
             var chartManager = Rules?.ChartManager;
-            if (chartManager == null || _judgementManager == null)
+            var judgementManager = Rules?.JudgementManager;
+            if (chartManager == null || judgementManager == null)
                 return null;
 
             // Use the Poor window (150ms) so chip sounds only play for non-Miss judgements.
@@ -2084,7 +2079,7 @@ namespace DTXMania.Game.Lib.Stage
                 if (note.LaneIndex != laneIndex)
                     continue;
 
-                var data = _judgementManager.GetNoteRuntimeData(note.Id);
+                var data = judgementManager.GetNoteRuntimeData(note.Id);
                 if (data == null || data.Status != NoteStatus.Pending)
                     continue;
 
@@ -2107,9 +2102,9 @@ namespace DTXMania.Game.Lib.Stage
         private void CleanupGameplayManagers()
         {
             // Unsubscribe from events
-            if (_judgementManager != null)
+            if (Rules?.JudgementManager is { } judgementManager)
             {
-                _judgementManager.JudgementMade -= OnJudgementMade;
+                judgementManager.JudgementMade -= OnJudgementMade;
             }
 
             if (_scoreManager != null)
@@ -2140,8 +2135,7 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Dispose managers
-            _judgementManager?.Dispose();
-            _judgementManager = null;
+            Rules?.ClearJudgement();
             _scoreManager?.Dispose();
             _scoreManager = null;
             _comboManager?.Dispose();
@@ -2578,9 +2572,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Pause input handling and deactivate judgement manager
             _inputPaused = true;
-            if (_judgementManager != null)
+            if (Rules?.JudgementManager is { } judgementManager)
             {
-                _judgementManager.IsActive = false;
+                judgementManager.IsActive = false;
             }
 
             // Stop audible gameplay audio instances (song timer, scheduled BGM
@@ -2608,11 +2602,11 @@ namespace DTXMania.Game.Lib.Stage
                 Score = _scoreManager?.CurrentScore ?? 0,
                 MaxCombo = _comboManager?.MaxCombo ?? 0,
                 ClearFlag = reason == CompletionReason.SongComplete,
-                PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
-                GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
-                GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
-                PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
-                MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
+                PerfectCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
+                GreatCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
+                GoodCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
+                PoorCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
+                MissCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
                 TotalNotes = Rules?.ChartManager?.TotalNotes ?? 0,
                 FinalLife = _gaugeManager?.CurrentLife ?? 0.0f,
                 CompletionReason = reason,
@@ -2694,11 +2688,11 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.Gauge = _gaugeManager?.CurrentLife ?? 0.0f;
             telemetry.HasFailed = _gaugeManager?.HasFailed ?? false;
             telemetry.TotalNotes = chartManager?.TotalNotes ?? 0;
-            telemetry.PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
-            telemetry.GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
-            telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
-            telemetry.PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
-            telemetry.MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
+            telemetry.PerfectCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
+            telemetry.GreatCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
+            telemetry.GoodCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
+            telemetry.PoorCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
+            telemetry.MissCount = Rules?.JudgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
             // HPA-411 effective style: the strip reference is nulled before disposal and
             // only retained after IsReady, so a live reference means Tab is actually active.
             telemetry.NoteDisplayStyle = (_notationStrip != null
