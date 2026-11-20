@@ -92,8 +92,6 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         internal GameplayAudioSession? AudioSession => _audioSession;
 
-        internal Task<PreparedGameplayAudioSet?>? AudioPreparationTask { get; private set; }
-
         private PlaybackModifiers _playbackModifiers = new(100, 0);
         private bool _metronomeEnabled;
         private AudioPreparationProgress? _audioPreparationProgress;
@@ -142,11 +140,7 @@ namespace DTXMania.Game.Lib.Stage
         private PerformanceVisualGates _visualGates;
 
         private readonly record struct PerformanceVisualGates(
-            bool HideLaneBackground,
-            bool HideMeasureLines,
-            bool HideJudgementLine,
             bool HideCombo,
-            bool EnableLaneFlush,
             bool ShowHitTimingFeedback,
             DrumsNoteDisplayStyle RequestedNoteDisplayStyle);
 
@@ -286,7 +280,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Start chart/audio preparation on the activation's background-work scope;
             // every activation input is snapshotted on this (update) thread before Run.
-            AudioPreparationTask = StartGameplayInitialization();
+            _ = StartGameplayInitialization();
 
             var configManager = _game?.ConfigManager;
             if (configManager != null)
@@ -457,14 +451,9 @@ namespace DTXMania.Game.Lib.Stage
         private void FreezeRunConfiguration()
         {
             var config = _game?.ConfigManager?.Config;
-            var laneDisplayMode = config?.LaneDisplayMode ?? DrumsLaneDisplayMode.AllOn;
             var noteDisplayStyle = config?.NoteDisplayStyle ?? DrumsNoteDisplayStyle.Lanes;
             _visualGates = new PerformanceVisualGates(
-                HideLaneBackground: !laneDisplayMode.ShowsLaneBackground(),
-                HideMeasureLines: !laneDisplayMode.ShowsMeasureLines(),
-                HideJudgementLine: !(config?.ShowJudgementLine ?? true),
                 HideCombo: !(config?.ShowCombo ?? true),
-                EnableLaneFlush: config?.EnableLaneFlush ?? false,
                 ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false,
                 RequestedNoteDisplayStyle: noteDisplayStyle);
 
@@ -630,7 +619,6 @@ namespace DTXMania.Game.Lib.Stage
             _audioSession = null;
 
             // Clear chart data
-            AudioPreparationTask = null;
             _parsedChart = null;
             Rules?.ClearChart();
 
@@ -791,7 +779,7 @@ namespace DTXMania.Game.Lib.Stage
         /// await the real terminal (result payload included) instead of inferring
         /// completion from stage state; production callers safely ignore it.
         /// </summary>
-        private Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
+        internal virtual Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
         {
             var scope = BackgroundWork;
 

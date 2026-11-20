@@ -272,8 +272,7 @@ public class PerformanceStageDeterministicTests
     private static Task<PreparedGameplayAudioSet?> StartGameplayInitialization(PerformanceStage stage)
     {
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
-        return ReflectionHelpers.InvokePrivateMethod<Task<PreparedGameplayAudioSet?>>(
-            stage, "StartGameplayInitialization")!;
+        return stage.StartGameplayInitialization();
     }
 
     private static PreparedGameplayAudioSet WaitForQueuedAudioSet(StageBackgroundWorkScope scope)
@@ -865,11 +864,11 @@ public class PerformanceStageDeterministicTests
             var staleChart = Chart("stale", 0);
             var freshChart = Chart("fresh", 120);
             stage.Activate(new SongPlayRequest(new SongListNode { Title = "Stale" }, 0, staleChart));
-            var staleTask = Assert.IsAssignableFrom<Task<PreparedGameplayAudioSet?>>(stage.AudioPreparationTask);
+            var staleTask = Assert.IsAssignableFrom<Task<PreparedGameplayAudioSet?>>(stage.LastPreparationTask);
             Assert.True(SpinWait.SpinUntil(() => logger.ParkedCount >= 1, TimeSpan.FromSeconds(5)));
             stage.Deactivate();
             stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh" }, 0, freshChart));
-            var freshTask = Assert.IsAssignableFrom<Task<PreparedGameplayAudioSet?>>(stage.AudioPreparationTask);
+            var freshTask = Assert.IsAssignableFrom<Task<PreparedGameplayAudioSet?>>(stage.LastPreparationTask);
             Assert.NotSame(staleTask, freshTask);
             Assert.True(SpinWait.SpinUntil(() => logger.ParkedCount >= 2, TimeSpan.FromSeconds(5)));
             UpdateUntil(stage, () => stage.Rules?.ChartManager != null);
@@ -1302,11 +1301,7 @@ public class PerformanceStageDeterministicTests
         var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
         Assert.NotNull(visualGates);
         var gateType = visualGates!.GetType();
-        Assert.True((bool)gateType.GetProperty("HideLaneBackground")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("HideMeasureLines")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("HideJudgementLine")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("ShowHitTimingFeedback")!.GetValue(visualGates)!);
         // The requested note display style is frozen too: live config edits must not
         // change the style this run was started with.
@@ -1932,11 +1927,9 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
+    public void StartGameplayInitialization_WithHiddenCombo_ShouldFreezeTabComboGate()
     {
-        // Direct initialization must capture the configured visual gates the same way
-        // OnActivate does; without the freeze before the scope work the gates stay
-        // at their all-false defaults and hidden lanes/lines/combo render anyway.
+        // Direct initialization must capture the Tab combo gate like OnActivate.
         var config = new ConfigData
         {
             LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
@@ -1963,11 +1956,7 @@ public class PerformanceStageDeterministicTests
         var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
         Assert.NotNull(visualGates);
         var gateType = visualGates!.GetType();
-        Assert.True((bool)gateType.GetProperty("HideLaneBackground")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("HideMeasureLines")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("HideJudgementLine")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
-        Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
     }
 
     [Fact]
@@ -3811,25 +3800,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawLaneBackgrounds_WhenGateHidesLaneBackground_ShouldSkipTextureDraw()
-    {
-        var laneTexture = CreateTextureMock(width: 512, height: 512);
-        LanesPlayfield.DrawLaneBackgrounds(null!, laneTexture.Object, null, hidden: true);
-
-        laneTexture.Verify(
-            texture => texture.Draw(
-                It.IsAny<SpriteBatch>(),
-                It.IsAny<Rectangle>(),
-                It.IsAny<Rectangle?>(),
-                It.IsAny<Color>(),
-                It.IsAny<float>(),
-                It.IsAny<Vector2>(),
-                It.IsAny<SpriteEffects>(),
-                It.IsAny<float>()),
-            Times.Never);
-    }
-
-    [Fact]
     public void DrawLaneBackgrounds_WhenLaneTextureMissing_ShouldUseFallbackRendererPathWithoutThrowing()
     {
         using var fallback = new LaneBackgroundRenderer(new Mock<IResourceManager>().Object);
@@ -4881,7 +4851,7 @@ public class PerformanceStageDeterministicTests
         Assert.NotNull(gatesType);
         return Activator.CreateInstance(
             gatesType!,
-            false, false, false, false, false,
+            false,
             showHitTimingFeedback,
             style)!;
     }
@@ -6678,6 +6648,9 @@ public class PerformanceStageDeterministicTests
 
         public Action<BeatMarker>? OnMetronomeClick { get; set; }
         public IPerformancePlayfield? Playfield { get; set; }
+        public Task<PreparedGameplayAudioSet?>? LastPreparationTask { get; private set; }
+        internal override Task<PreparedGameplayAudioSet?> StartGameplayInitialization() =>
+            LastPreparationTask = base.StartGameplayInitialization();
         protected override void PlayMetronomeClick(BeatMarker marker)
         {
             if (OnMetronomeClick != null)

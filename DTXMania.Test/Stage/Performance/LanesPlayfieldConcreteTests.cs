@@ -17,6 +17,51 @@ namespace DTXMania.Test.Stage.Performance;
 [Trait("Category", "Unit")]
 public class LanesPlayfieldConcreteTests
 {
+    [Theory]
+    [InlineData(DrumsLaneDisplayMode.AllOn, DrumsLaneDisplayMode.AllOff, true, true, true, true)]
+    [InlineData(DrumsLaneDisplayMode.AllOff, DrumsLaneDisplayMode.AllOn, false, false, false, false)]
+    [InlineData(DrumsLaneDisplayMode.LaneOff, DrumsLaneDisplayMode.LineOff, false, true, true, false)]
+    [InlineData(DrumsLaneDisplayMode.LineOff, DrumsLaneDisplayMode.LaneOff, true, false, false, true)]
+    public void VisualGates_ShouldFollowConstructionConfigDespiteLaterMutation(
+        DrumsLaneDisplayMode mode, DrumsLaneDisplayMode changedMode, bool showBackground,
+        bool showMeasures, bool showJudgement, bool laneFlush)
+    {
+        var resources = CreateResources(out _);
+        var laneTexture = new Mock<ITexture>();
+        var texture = laneTexture.Object;
+        resources.Setup(r => r.TryLoadTexture(TexturePath.LaneStrips, out texture)).Returns(true);
+        var visuals = new RecordingVisuals(resources.Object);
+        var config = new ConfigData
+        {
+            LaneDisplayMode = mode,
+            ShowJudgementLine = showJudgement,
+            EnableLaneFlush = laneFlush
+        };
+        using var field = new LanesPlayfield(resources.Object, config, visuals);
+        config.LaneDisplayMode = changedMode;
+        config.ShowJudgementLine = !showJudgement;
+        config.EnableLaneFlush = !laneFlush;
+        var chart = new ParsedChart("visual-gates.dtx");
+        chart.Notes.Add(new Note { TimeMs = 1000, LaneIndex = 0 });
+        chart.MeasureLines.Add(new MeasureLine { TimeMs = 1000 });
+
+        field.DrawBase(null!, new ChartManager(chart), true, 1000);
+        field.OnJudgement(new JudgementEvent(1, 2, 0, JudgementType.Great), default, false);
+        field.OnJudgement(new JudgementEvent(2, 5, 0, JudgementType.Miss), default, false);
+
+        laneTexture.Verify(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(),
+            It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(),
+            It.IsAny<SpriteEffects>(), It.IsAny<float>()),
+            Times.Exactly(showBackground ? PerformanceUILayout.LaneCount : 0));
+        Assert.Equal(showMeasures ? 1 : 0, visuals.Notes.MeasureDraws.Count);
+        Assert.Equal(showJudgement ? 1 : 0, visuals.Line.DrawCount);
+        Assert.Equal(laneFlush ? new[] { 2 } : Array.Empty<int>(), visuals.Notes.Flashes);
+        Assert.Single(visuals.Notes.NoteDraws);
+        Assert.Equal(1, visuals.Pads.DrawCount);
+        Assert.Equal(new[] { (2, true) }, visuals.Pads.Presses);
+        Assert.Equal(2, visuals.FontPopups.ActivePopupCount);
+    }
+
     [Fact]
     public void JudgementsAndInput_ShouldReachConcretePlayfieldLeavesInEveryFrame()
     {
