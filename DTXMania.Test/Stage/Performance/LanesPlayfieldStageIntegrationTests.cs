@@ -62,16 +62,19 @@ public class LanesPlayfieldStageIntegrationTests
         var resources = CreateResources();
         var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object);
         using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Auto", 1);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Manual", 3);
+        input.ModularInputManager.KeyBindings.BindButton("Test.After", 4);
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
 
-        input.TriggerLaneHit(1);
-        input.TriggerLaneHit(3);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Auto", true));
+        Assert.True(input.ModularInputManager.InjectButton("Test.Manual", true));
+        input.ModularInputManager.Update();
 
         Assert.Equal(new[] { (3, false) }, visuals.Pads.Presses);
-        Assert.Equal(1, PerformanceStageDeterministicTests.CountPadFeedbackSubscribers(stage, input));
         stage.Deactivate();
-        input.TriggerLaneHit(4);
-        Assert.Equal(0, PerformanceStageDeterministicTests.CountPadFeedbackSubscribers(stage, input));
+        Assert.True(input.ModularInputManager.InjectButton("Test.After", true));
+        input.ModularInputManager.Update();
         Assert.Equal(new[] { (3, false) }, visuals.Pads.Presses);
     }
 
@@ -544,18 +547,57 @@ public class LanesPlayfieldStageIntegrationTests
         using var stage = new HeadlessLanesStage(CreateGame(config, input, resources.Object), config, resources.Object, visuals);
         var chart = new ParsedChart("stage-overlay.dtx") { DurationMs = 10000 };
         chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 9000 });
-        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Overlays" }, 0, chart));
+        var request = new SongPlayRequest(new SongListNode { Title = "Overlays" }, 0, chart);
+        stage.Activate(request);
         stage.LoadPerformanceUIAssets();
 
         stage.DrawUiPass(null);
         VerifyDraw(shutter, 0.2f);
+        danger.Verify(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(),
+            It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(),
+            It.IsAny<float>()), Times.Never);
         Assert.Equal(1, visuals.Score.DrawCount);
 
         UpdateUntil(stage, () => stage.AudioSession != null);
-        stage.Rules!.GaugeManager!.Reset(10);
+        var gauge = stage.Rules!.GaugeManager!;
+        void AssertGaugeAndOverlay(float life, bool isDanger)
+        {
+            gauge.Reset(life);
+            stage.Update(0);
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal(life, telemetry.Gauge);
+            Assert.Equal(life, stage.CurrentFrame.Gauge);
+            Assert.Equal(life / 100f, stage.CurrentFrame.Life);
+            Assert.Equal(isDanger, stage.CurrentFrame.IsDanger);
+            danger.Invocations.Clear();
+            stage.DrawUiPass(null);
+            danger.Verify(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()),
+                isDanger ? Times.Once : Times.Never);
+            danger.Verify(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), 0.05f),
+                isDanger ? Times.Once : Times.Never);
+        }
+
+        AssertGaugeAndOverlay(75, false);
+        AssertGaugeAndOverlay(15, true);
+        AssertGaugeAndOverlay(20, false);
+        AssertGaugeAndOverlay(15, true);
+
+        stage.Deactivate();
+        stage.Activate(request);
+        stage.LoadPerformanceUIAssets();
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        gauge = stage.Rules!.GaugeManager!;
+        Assert.Equal(50f, stage.CurrentFrame.Gauge);
+        danger.Invocations.Clear();
         stage.DrawUiPass(null);
-        VerifyDraw(danger, 0.05f);
-        Assert.Equal(2, visuals.Score.DrawCount);
+        danger.Verify(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(),
+            It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(),
+            It.IsAny<float>()), Times.Never);
+        AssertGaugeAndOverlay(15, true);
+        AssertGaugeAndOverlay(75, false);
     }
 
     [Fact]
