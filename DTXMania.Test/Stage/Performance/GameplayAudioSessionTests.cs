@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading;
 using DTXMania.Game;
@@ -12,6 +11,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -151,7 +151,7 @@ public class GameplayAudioSessionTests
         var sound = new Mock<ISound>();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
             .Callback(() => played.Add("01"))
-            .Returns(CreateLiveSoundEffectInstance());
+            .Returns(CreateSoundEffectInstance());
         var session = CreateBgmSession(("01", 100.0, sound.Object));
 
         session.Advance(99.0);
@@ -174,7 +174,7 @@ public class GameplayAudioSessionTests
             var sound = new Mock<ISound>();
             sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
                 .Callback(() => playedOrder.Add(wavId))
-                .Returns(CreateLiveSoundEffectInstance());
+                .Returns(CreateSoundEffectInstance());
             return sound.Object;
         }
         // Declared in non-alphabetical order so an unstable or reversed
@@ -195,7 +195,7 @@ public class GameplayAudioSessionTests
     {
         var sound = new Mock<ISound>();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
-            .Returns(CreateLiveSoundEffectInstance());
+            .Returns(CreateSoundEffectInstance());
         var session = CreateBgmSession(("01", 100.0, sound.Object));
 
         session.Advance(150.0);
@@ -291,14 +291,16 @@ public class GameplayAudioSessionTests
         Assert.False(session.IsPaused);
     }
 
-    [Fact]
+    [AudioFact]
     public void StopAll_StopsLiveBgmAndChipInstancesWithoutDisposing()
     {
-        var bgmInstance = CreateLiveSoundEffectInstance();
+        using var bgm = PlayingSoundInstance.Create();
+        var bgmInstance = bgm.Instance;
         var bgmSound = new Mock<ISound>();
         bgmSound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
             .Returns(bgmInstance);
-        var chipInstance = CreateLiveSoundEffectInstance();
+        using var chip = PlayingSoundInstance.Create();
+        var chipInstance = chip.Instance;
         var chipSound = new Mock<ISound>();
         chipSound.Setup(x => x.Play()).Returns(chipInstance);
 
@@ -579,84 +581,4 @@ public class GameplayAudioSessionTests
 #pragma warning restore SYSLIB0050
     }
 
-    // Fake SourceIds start far above any real OpenAL source id (they are small
-    // sequential ints) so a fake can never alias a real source if a context
-    // appears mid-test from another collection running in parallel.
-    private static int s_nextLiveSourceId = 0x7FFF0000;
-    private static byte[]? s_silencePcm;
-
-    /// <summary>
-    /// A <see cref="SoundEffectInstance"/> whose State reports Playing until
-    /// stopped, used wherever a test needs tracked playback that can be
-    /// observed being stopped. Prefers a real playing SoundEffect/instance
-    /// pair (new SoundEffect self-initializes the OpenAL context under the
-    /// ALSOFT null driver); only when the platform cannot produce one does it
-    /// fall back to an uninitialized instance whose managed SoundState field
-    /// the platform layer reads for sources it cannot query. An instance
-    /// created by <see cref="CreateSoundEffectInstance"/> alone reports
-    /// Stopped unconditionally and cannot exercise this path.
-    /// </summary>
-    private static SoundEffectInstance CreateLiveSoundEffectInstance()
-    {
-        var real = TryCreateRealSoundEffectInstance();
-        if (real != null)
-            return real;
-
-        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance;
-        var type = typeof(SoundEffectInstance);
-        var instance = CreateSoundEffectInstance();
-        type.GetField("HasSourceId", flags)!.SetValue(instance, true);
-        type.GetField("sourceMutex", flags)!.SetValue(instance, new object());
-        type.GetField("SourceId", flags)!.SetValue(
-            instance,
-            Interlocked.Increment(ref s_nextLiveSourceId));
-        type.GetField("SoundState", flags)!.SetValue(instance, SoundState.Playing);
-        var controller = TryGetOpenALController();
-        if (controller != null)
-            type.GetField("controller", flags)!.SetValue(instance, controller);
-        return instance;
-    }
-
-    /// <summary>
-    /// Real playing instance over a silent buffer, or null when the platform
-    /// cannot produce one (no usable OpenAL context).
-    /// </summary>
-    private static SoundEffectInstance? TryCreateRealSoundEffectInstance()
-    {
-        try
-        {
-            // One second of mono PCM16 silence: a real playing source needs a
-            // real buffer, and the duration outlives any test assertion window.
-            var pcm = s_silencePcm ??= new byte[88200];
-            var soundEffect = new SoundEffect(pcm, 44100, AudioChannels.Mono);
-            var instance = soundEffect.CreateInstance();
-            try
-            {
-                instance.Play();
-            }
-            catch
-            {
-                instance.Dispose();
-                return null;
-            }
-            return instance.State == SoundState.Playing ? instance : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// The OpenALSoundController singleton if the process already initialized
-    /// audio, else null. Reading the static field directly avoids triggering
-    /// initialization as a side effect.
-    /// </summary>
-    private static object? TryGetOpenALController()
-    {
-        return typeof(SoundEffectInstance).Assembly
-            .GetType("Microsoft.Xna.Framework.Audio.OpenALSoundController")
-            ?.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null);
-    }
 }

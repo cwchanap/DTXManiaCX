@@ -502,13 +502,19 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
-        // Non-default profile makes the update thread resolve the overridden
-        // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
+        // Non-default profile: the update thread resolves the overridden
+        // processor factory, whose worker-side invocation then throws the
+        // stage's sentinel failure — after the worker publishes the chart.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
 
         StartGameplayInitialization(stage);
         DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
 
+        // Chart-first ordering holds even on dependency failure: the worker
+        // published the chart (ChartManager is only created by ApplyParsedChart)
+        // before the throwing factory's fault reached the error path — and the
+        // failed audio set is never bound.
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<ChartManager>(stage, "_chartManager"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.Contains(
             "Audio preparation failed",
@@ -1042,8 +1048,9 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
-        // Non-default profile makes the update thread resolve the overridden
-        // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
+        // Non-default profile: the update thread resolves the overridden
+        // processor factory, whose worker-side invocation then throws the
+        // stage's sentinel failure — after the worker publishes the chart.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
 
         ReflectionHelpers.InvokePrivateMethod(stage, "WireUpInputEventHandlers");
@@ -1948,26 +1955,42 @@ public class PerformanceStageDeterministicTests
         private static TaskCompletionSource NewGate() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        protected override IAudioVariantProcessor CreateAudioVariantProcessor() => new GatedProcessor(this);
+        // The gates are snapshot inputs captured when the stage resolves the
+        // factory (update thread); the worker-side processor never touches
+        // live stage state.
+        protected override Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
+        {
+            var entered = ProcessorEntered;
+            var release = ReleaseProcessor;
+            return () => new GatedProcessor(entered, release);
+        }
 
-        protected override PlaybackAudioVariantCache CreateAudioVariantCache() =>
-            new(Path.Combine(
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+        {
+            var cacheRoot = Path.Combine(
                 Path.GetTempPath(),
-                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N")));
+                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N"));
+            return () => new PlaybackAudioVariantCache(cacheRoot);
+        }
 
         private sealed class GatedProcessor : IAudioVariantProcessor
         {
-            private readonly GatedVariantStage _stage;
+            private readonly TaskCompletionSource _entered;
+            private readonly TaskCompletionSource _release;
 
-            public GatedProcessor(GatedVariantStage stage) => _stage = stage;
+            public GatedProcessor(TaskCompletionSource entered, TaskCompletionSource release)
+            {
+                _entered = entered;
+                _release = release;
+            }
 
             public async Task<PreparedAudioArtifact> PrepareAsync(
                 string sourcePath,
                 PlaybackModifiers modifiers,
                 CancellationToken cancellationToken)
             {
-                _stage.ProcessorEntered.TrySetResult();
-                await _stage.ReleaseProcessor.Task.ConfigureAwait(false);
+                _entered.TrySetResult();
+                await _release.Task.ConfigureAwait(false);
                 // The cancellation check runs after the release so the worker stays
                 // provably inside the preparation chain while the test holds the
                 // gate (progress ordering below). This gate must not be used to
@@ -3769,12 +3792,16 @@ public class PerformanceStageDeterministicTests
         Assert.Null(stage.AudioSession);
     }
 
-    [Fact]
+    [AudioFact]
     public void ReturnToSongSelect_ShouldPauseInputStopTimerAndChangeStage()
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        var session = InstallSessionWithLiveAudio(stage, out var bgmInstance, out var chipInstance);
+        using var bgm = PlayingSoundInstance.Create();
+        using var chip = PlayingSoundInstance.Create();
+        var bgmInstance = bgm.Instance;
+        var chipInstance = chip.Instance;
+        var session = InstallSessionWithLiveAudio(stage, bgmInstance, chipInstance);
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote())
         {
             IsActive = true
@@ -5695,33 +5722,59 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void StartSong_WhenPlaybackFailsWithoutBgmEvents_ShouldDisableReadyAndActivateJudgementManager()
     {
+        // The timer's real SoundEffectInstance is uninitialized, so Play()
+        // throws inside SongTimer.Play, which reports false: StartSong must
+        // log the failure and still hand off to gameplay on the silent clock.
         var stage = CreateStage();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        InstallBoundSession(stage);
+        var session = InstallBoundSession(
+            stage,
+            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
+        // The playback clock never started, the failure was reported, and the
+        // stage continued anyway: countdown cleared, judgement activated.
+        Assert.False(session.IsPlaying);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.True(judgementManager.IsActive);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Failed to start song playback", StringComparison.Ordinal)),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     [Fact]
     public void StartSong_WhenPlaybackFailsWithBgmEvents_ShouldStillDisableReadyAndActivateJudgementManager()
     {
+        // Same genuine playback failure, but with scheduled BGM events: the
+        // mute policy for the main track is independent of playback outcome.
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
         var bgmChart = new ParsedChart("startsong-bgm.dtx") { Bpm = 120.0 };
         bgmChart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 250.0 });
-        InstallBoundSession(stage, chart: bgmChart);
+        var session = InstallBoundSession(
+            stage,
+            chart: bgmChart,
+            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
+        Assert.False(session.IsPlaying);
+        Assert.Equal(0.0f, session.Timer!.Volume);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.True(judgementManager.IsActive);
     }
@@ -5729,9 +5782,12 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public void StartSong_WhenLegacyBgmAndBackgroundWavIdDefined_ShouldApplyPerWavVolumeAndPan()
     {
-        // Legacy (no-BGM-events) path: when the chart resolves a BackgroundWavId,
-        // StartSong must honor that WAV's #VOLUME/#PAN on the master background
-        // track rather than defaulting to full volume.
+        // Legacy (no-BGM-events) path: when the stage's parsed chart resolves a
+        // BackgroundWavId, StartSong must honor that WAV's #VOLUME/#PAN on the
+        // master background track rather than defaulting to full volume. The
+        // session is deliberately bound to a different empty chart, so the
+        // applied values can only come through the _parsedChart the stage
+        // hands to session.Start.
         var stage = CreateStage();
         var chart = new ParsedChart("legacy-bgm.dtx");
         chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 40 });
@@ -5743,7 +5799,6 @@ public class PerformanceStageDeterministicTests
         var instance = CreateSoundEffectInstance();
         var session = InstallBoundSession(
             stage,
-            chart: chart,
             preparedSet: CreatePreparedSetWithMainBackground(instance));
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
@@ -5755,28 +5810,6 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.4f, session.Timer!.Volume);
         Assert.Equal(-0.8f, session.Timer!.Pan);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-    }
-
-    [Fact]
-    public void StartSong_WhenLegacyBgmAndNoBackgroundWavId_ShouldDefaultToFullVolume()
-    {
-        // Legacy path with no resolved BackgroundWavId falls back to full volume.
-        var stage = CreateStage();
-        var chart = new ParsedChart("legacy-bgm-no-id.dtx");
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
-
-        var instance = CreateSoundEffectInstance();
-        var session = InstallBoundSession(
-            stage,
-            chart: chart,
-            preparedSet: CreatePreparedSetWithMainBackground(instance));
-        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
-
-        Assert.Equal(1.0f, session.Timer!.Volume);
     }
 
     [Fact]
@@ -7025,88 +7058,6 @@ public class PerformanceStageDeterministicTests
 #pragma warning restore SYSLIB0050
     }
 
-    // Fake SourceIds start far above any real OpenAL source id (they are small
-    // sequential ints) so a fake can never alias a real source if a context
-    // appears mid-test from another collection running in parallel.
-    private static int s_nextLiveSourceId = 0x7FFF0000;
-    private static byte[]? s_silencePcm;
-
-    /// <summary>
-    /// A <see cref="SoundEffectInstance"/> whose State reports Playing until
-    /// stopped, used wherever a test needs tracked playback that can be
-    /// observed being stopped. Prefers a real playing SoundEffect/instance
-    /// pair (new SoundEffect self-initializes the OpenAL context under the
-    /// ALSOFT null driver); only when the platform cannot produce one does it
-    /// fall back to an uninitialized instance whose managed SoundState field
-    /// the platform layer reads for sources it cannot query. An instance
-    /// created by <see cref="CreateSoundEffectInstance"/> alone reports
-    /// Stopped unconditionally and cannot exercise this path.
-    /// </summary>
-    private static SoundEffectInstance CreateLiveSoundEffectInstance()
-    {
-        var real = TryCreateRealSoundEffectInstance();
-        if (real != null)
-            return real;
-
-        var instance = CreateSoundEffectInstance();
-        ReflectionHelpers.SetPrivateField(instance, "HasSourceId", true);
-        ReflectionHelpers.SetPrivateField(instance, "sourceMutex", new object());
-        ReflectionHelpers.SetPrivateField(
-            instance,
-            "SourceId",
-            Interlocked.Increment(ref s_nextLiveSourceId));
-        ReflectionHelpers.SetPrivateField(instance, "SoundState", SoundState.Playing);
-        var controller = TryGetOpenALController();
-        if (controller != null)
-            ReflectionHelpers.SetPrivateField(instance, "controller", controller);
-        return instance;
-    }
-
-    /// <summary>
-    /// Real playing instance over a silent buffer, or null when the platform
-    /// cannot produce one (no usable OpenAL context).
-    /// </summary>
-    private static SoundEffectInstance? TryCreateRealSoundEffectInstance()
-    {
-        try
-        {
-            // One second of mono PCM16 silence: a real playing source needs a
-            // real buffer, and the duration outlives any test assertion window.
-            var pcm = s_silencePcm ??= new byte[88200];
-            var soundEffect = new SoundEffect(pcm, 44100, AudioChannels.Mono);
-            var instance = soundEffect.CreateInstance();
-            try
-            {
-                instance.Play();
-            }
-            catch
-            {
-                instance.Dispose();
-                return null;
-            }
-            return instance.State == SoundState.Playing ? instance : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// The OpenALSoundController singleton if the process already initialized
-    /// audio, else null. Reading the static field directly avoids triggering
-    /// initialization as a side effect.
-    /// </summary>
-    private static object? TryGetOpenALController()
-    {
-        return typeof(SoundEffectInstance).Assembly
-            .GetType("Microsoft.Xna.Framework.Audio.OpenALSoundController")
-            ?.GetField(
-                "_instance",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
-            ?.GetValue(null);
-    }
-
     /// <summary>
     /// Installs a bound, started session that already owns one live scheduled-BGM
     /// instance and one live chip instance, so transition tests can verify the
@@ -7114,15 +7065,13 @@ public class PerformanceStageDeterministicTests
     /// </summary>
     private static GameplayAudioSession InstallSessionWithLiveAudio(
         PerformanceStage stage,
-        out SoundEffectInstance bgmInstance,
-        out SoundEffectInstance chipInstance)
+        SoundEffectInstance bgmInstance,
+        SoundEffectInstance chipInstance)
     {
-        bgmInstance = CreateLiveSoundEffectInstance();
         var bgmSound = new Mock<ISound>();
         bgmSound
             .Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
             .Returns(bgmInstance);
-        chipInstance = CreateLiveSoundEffectInstance();
         var chipSound = new Mock<ISound>();
         chipSound.Setup(x => x.Play()).Returns(chipInstance);
 
@@ -7193,7 +7142,14 @@ public class PerformanceStageDeterministicTests
                 "Simulated variant processor failure",
                 new InvalidDataException("inner chain"));
 
-        protected override IAudioVariantProcessor CreateAudioVariantProcessor() => throw Failure;
+        // The sentinel is captured when the stage resolves the factory (update
+        // thread) so the worker-side invocation throws it without touching
+        // stage state — and still after chart publication.
+        protected override Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
+        {
+            var failure = Failure;
+            return () => throw failure;
+        }
     }
 
     private sealed class CancelingAudioVariantStage : PerformanceStage
@@ -7203,12 +7159,18 @@ public class PerformanceStageDeterministicTests
         {
         }
 
-        protected override IAudioVariantProcessor CreateAudioVariantProcessor() => new CancelingProcessor();
+        protected override Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
+            => () => new CancelingProcessor();
 
-        protected override PlaybackAudioVariantCache CreateAudioVariantCache() =>
-            new(Path.Combine(
+        // The cache path is a snapshot input, so the worker-side construction
+        // touches only the captured string — never live stage state.
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+        {
+            var cacheRoot = Path.Combine(
                 Path.GetTempPath(),
-                "DTXMania_PerformanceStage_CancelCache_" + Guid.NewGuid().ToString("N")));
+                "DTXMania_PerformanceStage_CancelCache_" + Guid.NewGuid().ToString("N"));
+            return () => new PlaybackAudioVariantCache(cacheRoot);
+        }
 
         private sealed class CancelingProcessor : IAudioVariantProcessor
         {
@@ -7248,10 +7210,15 @@ public class PerformanceStageDeterministicTests
 
         public float? DrawFallbackTextureDepth { get; private set; }
 
-        protected override PlaybackAudioVariantCache CreateAudioVariantCache() =>
-            new(Path.Combine(
+        // The cache path is a snapshot input, so the worker-side construction
+        // touches only the captured string — never live stage state.
+        protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+        {
+            var cacheRoot = Path.Combine(
                 Path.GetTempPath(),
-                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N")));
+                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N"));
+            return () => new PlaybackAudioVariantCache(cacheRoot);
+        }
 
         internal override void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
         {
@@ -7575,29 +7542,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartSong_WhenChartDefinesBackgroundWavId_AppliesChartVolumeToTimer()
-    {
-        // The legacy (no BGM events) path honors #VOLUME for the master track —
-        // but only if the stage hands its parsed chart to session.Start.
-        var stage = CreateStage();
-        var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var session = InstallBoundSession(
-            stage,
-            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
-        var parsedChart = new ParsedChart("startsong-legacy.dtx") { Bpm = 120.0 };
-        parsedChart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 40 });
-        parsedChart.BackgroundWavId = "01";
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
-
-        Assert.Equal(0.4f, session.Timer!.Volume);
-    }
-
-    [Fact]
     public void StartSong_WhenSongTimerIsNull_ShouldNotThrow()
     {
         var stage = CreateStage();
@@ -7608,12 +7552,16 @@ public class PerformanceStageDeterministicTests
         Assert.Null(exception);
     }
 
-    [Fact]
+    [AudioFact]
     public void FinalizePerformance_ShouldMarkCompletedPauseInputStopTimerCreateSummary()
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        var session = InstallSessionWithLiveAudio(stage, out var bgmInstance, out var chipInstance);
+        using var bgm = PlayingSoundInstance.Create();
+        using var chip = PlayingSoundInstance.Create();
+        var bgmInstance = bgm.Instance;
+        var chipInstance = chip.Instance;
+        var session = InstallSessionWithLiveAudio(stage, bgmInstance, chipInstance);
         StageTransitionPayload? capturedPayload = null;
         var bgmStoppedAtTransition = false;
         var chipStoppedAtTransition = false;
