@@ -18,41 +18,11 @@ using TabHud = DTXMania.Game.Lib.UI.Layout.PerformanceUILayout.TabHud;
 namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
-    /// Per-frame Tab HUD values snapshotted by PerformanceStage from the existing
-    /// gameplay owners (HPA-509). <see cref="TabHudDisplay"/> renders the snapshot
-    /// read-only; it never recalculates score, combo, life, progress or the song clock.
-    /// </summary>
-    public readonly struct TabHudFrameState
-    {
-        public int Score { get; init; }
-        public int Combo { get; init; }
-        public float Life { get; init; }
-        public float Progress { get; init; }
-        public double ElapsedMs { get; init; }
-        public double TotalMs { get; init; }
-        public double Achievement { get; init; }
-        public int PerfectCount { get; init; }
-        public int GreatCount { get; init; }
-        public int GoodCount { get; init; }
-        public int PoorCount { get; init; }
-        public int MissCount { get; init; }
-        public int MaxCombo { get; init; }
-        public int FastCount { get; init; }
-        public int SlowCount { get; init; }
-
-        /// <summary>
-        /// Run-gate snapshot: the frozen ShowCombo=false must hide the Tab combo
-        /// exactly like the Lanes combo draw (HPA-509 final review).
-        /// </summary>
-        public bool HideCombo { get; init; }
-    }
-
-    /// <summary>
     /// Compact Tab-mode HUD renderer (HPA-509), styled after the skin's neon panel
     /// language: a title panel and a SCORE panel on top, combo + judgement above the
     /// strip hit marker, a segmented LIFE gauge, a thin progress rail and a bottom
     /// stats panel. Presentation only — every value arrives via
-    /// <see cref="TabHudFrameState"/>; the level-weighted game skill reuses the shared
+    /// <see cref="PerformanceFrameState"/>; the level-weighted game skill reuses the shared
     /// <see cref="SongScore.CalculateGameSkill"/> formula on the same chart values
     /// SkillPanelDisplay draws. Colors come from the theme-resolved
     /// <see cref="SkinPalette"/>; panels use the skin's nine-slice
@@ -212,13 +182,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// resources failed to acquire.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        public void Draw(SpriteBatch spriteBatch, in TabHudFrameState state)
+        public void Draw(SpriteBatch spriteBatch, in PerformanceFrameState state, bool hideCombo)
         {
             if (_disposed || spriteBatch == null || !HasDrawResources)
                 return;
 
             DrawHeader(spriteBatch, state.Score);
-            DrawCombo(spriteBatch, state);
+            DrawCombo(spriteBatch, state, hideCombo);
             DrawTransientFeedback(spriteBatch);
             DrawLife(spriteBatch, state.Life);
             DrawProgress(spriteBatch, state.Progress, state.ElapsedMs, state.TotalMs);
@@ -398,10 +368,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         [ExcludeFromCodeCoverage]
-        private void DrawCombo(SpriteBatch spriteBatch, in TabHudFrameState state)
+        private void DrawCombo(SpriteBatch spriteBatch, in PerformanceFrameState state, bool hideCombo)
         {
             // Same gate as the Lanes combo draw: ShowCombo=false hides it entirely.
-            if (state.HideCombo || state.Combo <= 0)
+            if (hideCombo || state.Combo <= 0)
                 return;
 
             if (state.Combo != _lastCombo)
@@ -514,7 +484,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         [ExcludeFromCodeCoverage]
-        private void DrawStatsRow(SpriteBatch spriteBatch, in TabHudFrameState state)
+        private void DrawStatsRow(SpriteBatch spriteBatch, in PerformanceFrameState state)
         {
             // Level-weighted game skill: same shared formula and same chart values
             // SkillPanelDisplay.Draw uses — no new skill formula here.

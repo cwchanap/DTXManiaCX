@@ -1803,7 +1803,9 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnJudgementMade(object? sender, DTXMania.Game.Lib.Song.Entities.JudgementEvent e)
         {
-            _skillPanelDisplay?.ProcessJudgement(e, Rules?.ComboManager?.MaxCombo ?? 0);
+            // The event invocation may have captured this handler before synchronous teardown.
+            if (sender is JudgementManager && !ReferenceEquals(sender, Rules?.JudgementManager))
+                return;
 
             // Spawn hit effect for successful hits (non-Miss)
             if (e.IsHit())
@@ -1901,15 +1903,10 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Handles skill changes and updates both display components.
+        /// Handles skill changes for the animated skill meter.
         /// </summary>
         private void OnSkillChanged(object? sender, SkillChangedEventArgs e)
         {
-            if (_skillPanelDisplay != null)
-            {
-                _skillPanelDisplay.Skill = e.CurrentSkill;
-                _skillPanelDisplay.ShowMax = e.IsMax;
-            }
             if (_skillMeterDisplay != null)
             {
                 _skillMeterDisplay.Skill = e.CurrentSkill;
@@ -2180,6 +2177,10 @@ namespace DTXMania.Game.Lib.Stage
             // TryConstructNotationStrip, so an inactive Tab HUD means consistent
             // Lanes — including judgement popups via OnJudgementMade (HPA-509 review).
             bool tabHudActive = IsTabHudActive;
+            var rawMs = (_audioSession != null && _currentGameTime != null)
+                ? _audioSession.GetCurrentMs(_currentGameTime)
+                : 0.0;
+            var frame = Rules?.BuildFrameState(rawMs) ?? default;
 
             // Draw shutters first (overlay elements)
             DrawShutters();
@@ -2192,14 +2193,14 @@ namespace DTXMania.Game.Lib.Stage
                 // Draw progress bar
                 DrawProgressBar();
 
-                _skillPanelDisplay?.Draw(_spriteBatch);
+                _skillPanelDisplay?.Draw(_spriteBatch, frame);
                 _skillMeterDisplay?.Draw(_spriteBatch);
             }
 
             if (tabHudActive)
             {
                 // HPA-509: compact Tab HUD (header/combo/LIFE/progress/stats).
-                _tabHudDisplay?.Draw(_spriteBatch, BuildTabHudFrameState());
+                _tabHudDisplay?.Draw(_spriteBatch, frame, _visualGates.HideCombo);
             }
             else
             {
@@ -2220,36 +2221,6 @@ namespace DTXMania.Game.Lib.Stage
             DrawOverlays();
         }
 
-        /// <summary>
-        /// Snapshot the live Tab HUD values from the existing gameplay owners
-        /// (HPA-509). Read-only: score/combo/counts come from the displays that
-        /// update them, life/progress from the stage's already-clamped fields, time
-        /// from the existing song clock, achievement from SkillPanelDisplay. The
-        /// level-weighted game skill is derived inside TabHudDisplay via the shared
-        /// SongScore formula — no value is recalculated or duplicated here.
-        /// </summary>
-        private TabHudFrameState BuildTabHudFrameState() => new TabHudFrameState
-        {
-            Score = _scoreDisplay?.Score ?? 0,
-            Combo = _comboDisplay?.Combo ?? 0,
-            Life = _currentGaugeValue,
-            Progress = _currentProgressValue,
-            ElapsedMs = (_audioSession != null && _currentGameTime != null)
-                ? _audioSession.GetCurrentMs(_currentGameTime)
-                : 0.0,
-            TotalMs = _parsedChart?.DurationMs ?? 0.0,
-            Achievement = _skillPanelDisplay?.Skill ?? 0.0,
-            PerfectCount = _skillPanelDisplay?.PerfectCount ?? 0,
-            GreatCount = _skillPanelDisplay?.GreatCount ?? 0,
-            GoodCount = _skillPanelDisplay?.GoodCount ?? 0,
-            PoorCount = _skillPanelDisplay?.PoorCount ?? 0,
-            MissCount = _skillPanelDisplay?.MissCount ?? 0,
-            MaxCombo = _skillPanelDisplay?.MaxCombo ?? 0,
-            FastCount = _skillPanelDisplay?.FastCount ?? 0,
-            SlowCount = _skillPanelDisplay?.SlowCount ?? 0,
-            HideCombo = _visualGates.HideCombo,
-        };
-        
         /// <summary>
         /// Draws shutter animation using DTXManiaNX layout
         /// </summary>
