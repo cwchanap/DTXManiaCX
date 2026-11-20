@@ -2273,77 +2273,137 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void InitializeGameplayManagers_WhenDependenciesExist_ShouldCreateManagersAndInitializeState()
+    public void ChartPublication_InitializesGameplayAndIgnoresCountdownInput()
     {
-        var stage = CreateStage();
-        var inputManager = new MockInputManagerCompat();
-        var chartManager = CreateChartManagerWithSingleNote();
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var chart = new ParsedChart("countdown-input.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        input.ModularInputManager.KeyBindings.BindButton("Test.Countdown", 0);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.Equal(1, telemetry.TotalNotes);
+        Assert.Equal(0, telemetry.Score);
+        Assert.Equal(0, telemetry.CurrentCombo);
+        Assert.Equal(GaugeManager.StartingLife, telemetry.Gauge);
 
-        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
-        Assert.NotNull(judgementManager);
-        Assert.False(judgementManager!.IsActive);
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
-        Assert.Equal(0.5f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentGaugeValue"));
-        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"));
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isPaused"));
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isDanger"));
+        Assert.True(input.ModularInputManager.InjectButton("Test.Countdown", true));
+        input.ModularInputManager.Update();
+        Assert.True(input.ModularInputManager.InjectButton("Test.Countdown", false));
+        input.ModularInputManager.Update();
+        stage.Update(1.1);
+        stage.Update(0.1);
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(0, telemetry.PerfectCount);
+        Assert.Equal(0, telemetry.Score);
+
+        Assert.True(input.ModularInputManager.InjectButton("Test.Countdown", true));
+        input.ModularInputManager.Update();
+        stage.Update(0);
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(1, telemetry.PerfectCount);
+        Assert.Equal(1000000, telemetry.Score);
+        Assert.Equal(1, telemetry.CurrentCombo);
+        Assert.Equal(52f, telemetry.Gauge);
+        stage.Deactivate();
     }
 
     [Fact]
-    public void InitializeGameplayManagers_WithFrozenAutoPlayLanes_ShouldFilterOnlyAutomatedPhysicalInput()
+    public void ChartPublication_FiltersPhysicalInputOnlyForFrozenAutomatedLanes()
     {
-        using var stage = CreateStageWithAutoPlay(1);
-        var inputManager = new MockInputManagerCompat();
-        var chartManager = BuildChartManager(new[]
-        {
-            new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x11, value: "01"),
-            new Note(laneIndex: 1, bar: 0, tick: 96, channel: 0x12, value: "01")
-        });
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), config, input));
+        var chart = new ParsedChart("mixed-input.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 950 });
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 1, TimeMs = 1000 });
+        input.ModularInputManager.KeyBindings.BindButton("Test.Manual", 0);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Auto", 1);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        config.AutoPlayLanes.Clear();
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Auto", true));
+        Assert.True(input.ModularInputManager.InjectButton("Test.Manual", true));
+        input.ModularInputManager.Update();
+        stage.Update(0.95);
 
-        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
-        Assert.NotNull(judgementManager);
-        judgementManager.IsActive = true;
-        JudgementEvent? captured = null;
-        judgementManager.JudgementMade += (_, judgement) => captured = judgement;
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(1, telemetry.PerfectCount);
+        Assert.Equal(0, telemetry.GreatCount);
+        Assert.Equal(500000, telemetry.Score);
+        Assert.Equal(1, telemetry.CurrentCombo);
 
-        inputManager.TriggerLaneHit(1);
-        judgementManager.Update(1000.0);
-        Assert.Null(captured);
-        Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
-
-        inputManager.TriggerLaneHit(0);
-        judgementManager.Update(1000.0);
-
-        Assert.NotNull(captured);
-        Assert.Equal(0, captured!.Lane);
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+        stage.Update(0.06);
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(2, telemetry.PerfectCount);
+        Assert.Equal(1000000, telemetry.Score);
+        Assert.Equal(2, telemetry.CurrentCombo);
+        stage.Deactivate();
     }
 
     [Fact]
-    public void CleanupGameplayManagers_WhenManagersInitialized_ShouldClearAllManagerReferences()
+    public void Deactivation_ClearsGameplayStateAndReactivationStartsFresh()
     {
-        var stage = CreateStage();
-        var inputManager = new MockInputManagerCompat();
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(
+            CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
+        var firstChart = new ParsedChart("first-lifetime.dtx") { DurationMs = 10000 };
+        firstChart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        var secondChart = new ParsedChart("second-lifetime.dtx") { DurationMs = 10000 };
+        secondChart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        secondChart.Notes.Add(new Note { Id = 1, LaneIndex = 1, TimeMs = 1000 });
+        input.ModularInputManager.KeyBindings.BindButton("Test.Lifetime", 0);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupGameplayManagers");
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "First" }, 0, firstChart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Lifetime", true));
+        input.ModularInputManager.Update();
+        stage.Update(0.1);
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(1000000, telemetry.Score);
+        Assert.Equal(1, telemetry.CurrentCombo);
+        Assert.Equal(52f, telemetry.Gauge);
+        stage.Deactivate();
 
-        Assert.Null(ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
+        stage.PopulateTelemetry(telemetry);
+        Assert.False(telemetry.PerformanceReady);
+        Assert.Equal(0, telemetry.TotalNotes);
+        Assert.Equal(0, telemetry.Score);
+        Assert.Equal(0, telemetry.CurrentCombo);
+        Assert.Equal(0, telemetry.PerfectCount);
+        Assert.Equal(0f, telemetry.Gauge);
+
+        Assert.True(input.ModularInputManager.InjectButton("Test.Lifetime", false));
+        input.ModularInputManager.Update();
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Second" }, 0, secondChart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.PopulateTelemetry(telemetry);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.Equal(2, telemetry.TotalNotes);
+        Assert.Equal(0, telemetry.Score);
+        Assert.Equal(0, telemetry.PerfectCount);
+        Assert.Equal(GaugeManager.StartingLife, telemetry.Gauge);
+        stage.Update(1.1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Lifetime", true));
+        input.ModularInputManager.Update();
+        stage.Update(0.1);
+        stage.PopulateTelemetry(telemetry);
+        Assert.Equal(500000, telemetry.Score);
+        Assert.Equal(1, telemetry.PerfectCount);
+        Assert.Equal(1, telemetry.CurrentCombo);
+        stage.Deactivate();
     }
 
     [Fact]
