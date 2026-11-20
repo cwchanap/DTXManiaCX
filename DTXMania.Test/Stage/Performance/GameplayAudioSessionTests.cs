@@ -81,6 +81,8 @@ public class GameplayAudioSessionTests
         session.Bind(
             CreateChart(chart => chart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0 })),
             CreatePreparedSetWithMainBackground(instance));
+        // Seed an audible volume: the scheduled-BGM path must mute it back to 0.
+        session.Timer!.Volume = 0.7f;
 
         session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), null);
 
@@ -125,6 +127,39 @@ public class GameplayAudioSessionTests
         var session = CreateSession();
 
         Assert.False(session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), null));
+    }
+
+    [Fact]
+    public void Start_WhenMainBackgroundPlaybackFails_ReturnsFalse()
+    {
+        // Play() throws on the uninitialized instance, so SongTimer reports the
+        // transport failure and the logical playback clock never starts.
+        var session = CreateSession();
+        session.Bind(CreateChart(), CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
+
+        var started = session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), null);
+
+        Assert.False(started);
+        Assert.False(session.IsPlaying);
+    }
+
+    [Fact]
+    public void Start_WhenPlaybackFailsWithBgmEvents_StillMutesMainTimer()
+    {
+        // The BGM mute policy is independent of playback outcome: even when
+        // Play() fails, the main-track volume is forced to zero.
+        var instance = CreateSoundEffectInstance();
+        var session = CreateSession();
+        session.Bind(
+            CreateChart(chart => chart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0 })),
+            CreatePreparedSetWithMainBackground(instance));
+        // Seed an audible volume: the mute write must be observable, not a default.
+        session.Timer!.Volume = 0.7f;
+
+        var started = session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), null);
+
+        Assert.False(started);
+        Assert.Equal(0.0f, session.Timer!.Volume);
     }
 
     [Fact]
@@ -572,7 +607,8 @@ public class GameplayAudioSessionTests
     /// <summary>
     /// Creates a real SoundEffectInstance without invoking its constructor
     /// (which requires a native audio device). Volume/Pan backing fields work
-    /// on the uninitialized instance; Play/Stop are no-ops on it.
+    /// on the uninitialized instance, while Play/Stop throw — which lets
+    /// SongTimer.Play report a transport failure.
     /// </summary>
     private static SoundEffectInstance CreateSoundEffectInstance()
     {
