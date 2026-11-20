@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
+using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Resources;
@@ -301,6 +302,30 @@ public class GameplayAudioSessionTests
         Assert.Equal(100.0, click.TimeMs);
     }
 
+    [Theory]
+    [InlineData(50, 150.0, true)]
+    [InlineData(50, 151.0, false)]
+    [InlineData(100, 200.0, true)]
+    [InlineData(100, 201.0, false)]
+    [InlineData(200, 300.0, true)]
+    [InlineData(200, 301.0, false)]
+    public void UpdateMetronome_ScalesLateToleranceBySessionSpeed(int speed, double time, bool expectedClick)
+    {
+        var clicks = new List<BeatMarker>();
+        using var session = CreateSession(modifiers: new PlaybackModifiers(speed, 0),
+            metronomeEnabled: true, playClick: clicks.Add);
+        var chart = CreateChart();
+        chart.BeatMarkers.Add(new BeatMarker { TimeMs = 100.0 });
+        session.Bind(chart, CreateEmptyPreparedSet());
+
+        session.UpdateMetronome(time);
+
+        if (expectedClick)
+            Assert.Equal(100.0, Assert.Single(clicks).TimeMs);
+        else
+            Assert.Empty(clicks);
+    }
+
     [Fact]
     public void UpdateMetronome_WhenDisabled_IsNoOp()
     {
@@ -310,6 +335,124 @@ public class GameplayAudioSessionTests
         Assert.Null(session.Metronome);
         var exception = Record.Exception(() => session.UpdateMetronome(1000.0));
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void InitializeMetronome_WhenDisabled_ShouldNotLoadClickSoundsOrCreatePlayer()
+    {
+        var resources = new Mock<IResourceManager>();
+        using var session = CreateSession(resourceManager: resources.Object);
+        session.Bind(CreateChart(), CreateEmptyPreparedSet());
+        resources.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Never);
+        Assert.Null(session.Metronome);
+    }
+
+    [Fact]
+    public void InitializeMetronome_WhenEnabled_ShouldLoadBothSoundsAndUseFinalizedMarkers()
+    {
+        var beat = new Mock<ISound>();
+        var accent = new Mock<ISound>();
+        var resources = new Mock<IResourceManager>();
+        var beatResult = beat.Object;
+        var accentResult = accent.Object;
+        resources.Setup(x => x.TryLoadSound(SoundPath.MetronomeBeat, out beatResult)).Returns(true);
+        resources.Setup(x => x.TryLoadSound(SoundPath.MetronomeAccent, out accentResult)).Returns(true);
+        var clicks = new List<BeatMarker>();
+        using var session = CreateSession(resourceManager: resources.Object, metronomeEnabled: true, playClick: clicks.Add);
+        var chart = CreateChart();
+        chart.BeatMarkers.Add(new BeatMarker { TimeMs = 0, IsMeasureStart = true });
+        chart.BeatMarkers.Add(new BeatMarker { TimeMs = 100 });
+        session.Bind(chart, CreateEmptyPreparedSet());
+        session.UpdateMetronome(0);
+        resources.Verify(x => x.TryLoadSound(SoundPath.MetronomeBeat, out It.Ref<ISound>.IsAny), Times.Once);
+        resources.Verify(x => x.TryLoadSound(SoundPath.MetronomeAccent, out It.Ref<ISound>.IsAny), Times.Once);
+        Assert.NotNull(session.Metronome);
+        Assert.True(Assert.Single(clicks).IsMeasureStart);
+        Assert.Equal(0, clicks[0].TimeMs);
+    }
+
+    [Fact]
+    public void InitializeMetronome_AfterCleanup_ShouldCreateFreshPlayerStartingAtMarkerZero()
+    {
+        var sound = new Mock<ISound>();
+        var resources = new Mock<IResourceManager>();
+        var result = sound.Object;
+        resources.Setup(x => x.TryLoadSound(It.IsAny<string>(), out result)).Returns(true);
+        var clicks = new List<BeatMarker>();
+        var chart = CreateChart();
+        chart.BeatMarkers.Add(new BeatMarker { TimeMs = 0, IsMeasureStart = true });
+        using var first = CreateSession(resourceManager: resources.Object, metronomeEnabled: true, playClick: clicks.Add);
+        first.Bind(chart, CreateEmptyPreparedSet());
+        var firstPlayer = first.Metronome;
+        first.Dispose();
+        using var second = CreateSession(resourceManager: resources.Object, metronomeEnabled: true, playClick: clicks.Add);
+        second.Bind(chart, CreateEmptyPreparedSet());
+        Assert.NotNull(firstPlayer);
+        Assert.NotNull(second.Metronome);
+        Assert.NotSame(firstPlayer, second.Metronome);
+        second.UpdateMetronome(0);
+        Assert.Equal(0, Assert.Single(clicks).TimeMs);
+    }
+
+    [Fact]
+    public void InitializeMetronome_WhenClickResourcesAreMissing_ShouldLeaveGameplayUsable()
+    {
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny))
+            .Throws(new FileNotFoundException("click asset missing"));
+        var clicks = new List<BeatMarker>();
+        using var session = CreateSession(resourceManager: resources.Object, metronomeEnabled: true, playClick: clicks.Add);
+        var chart = CreateChart();
+        chart.BeatMarkers.Add(new BeatMarker { TimeMs = 0, IsMeasureStart = true });
+        session.Bind(chart, CreateEmptyPreparedSet());
+        session.UpdateMetronome(0);
+        Assert.NotNull(session.Metronome);
+        Assert.Single(clicks);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PlayMetronomeClick_SelectsBeatOrAccentSound(bool accentMarker)
+    {
+        var beat = new Mock<ISound>();
+        var accent = new Mock<ISound>();
+        using var session = CreateMetronomeSession(NullLogger<PerformanceStage>.Instance, beat.Object, accent.Object);
+        session.PlayMetronomeClick(new BeatMarker { IsMeasureStart = accentMarker });
+        beat.VerifyGet(s => s.SoundEffect, accentMarker ? Times.Never() : Times.Once());
+        accent.VerifyGet(s => s.SoundEffect, accentMarker ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
+    public void PlayMetronomeClick_WhenEachSoundFails_LogsOriginalOncePerSoundAndAgainForNewSession()
+    {
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        var beatFailure = new InvalidOperationException("beat failed");
+        var accentFailure = new InvalidOperationException("accent failed");
+        var beat = new Mock<ISound>();
+        var accent = new Mock<ISound>();
+        beat.SetupGet(s => s.SoundEffect).Throws(beatFailure);
+        accent.SetupGet(s => s.SoundEffect).Throws(accentFailure);
+        using var first = CreateMetronomeSession(logger.Object, beat.Object, accent.Object);
+        var beatMarker = new BeatMarker { IsMeasureStart = false };
+        var accentMarker = new BeatMarker { IsMeasureStart = true };
+        first.PlayMetronomeClick(beatMarker);
+        first.PlayMetronomeClick(beatMarker);
+        first.PlayMetronomeClick(accentMarker);
+        first.PlayMetronomeClick(accentMarker);
+        beat.VerifyGet(s => s.SoundEffect, Times.Exactly(2));
+        accent.VerifyGet(s => s.SoundEffect, Times.Exactly(2));
+        logger.Verify(l => l.Log(LogLevel.Error, It.IsAny<EventId>(),
+            It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("Metronome click playback failed")),
+            beatFailure, It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Once);
+        logger.Verify(l => l.Log(LogLevel.Error, It.IsAny<EventId>(),
+            It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("Metronome click playback failed")),
+            accentFailure, It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Once);
+        using var second = CreateMetronomeSession(logger.Object, beat.Object, accent.Object);
+        second.PlayMetronomeClick(beatMarker);
+        logger.Verify(l => l.Log(LogLevel.Error, It.IsAny<EventId>(),
+            It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("Metronome click playback failed")),
+            beatFailure, It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -438,6 +581,66 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
+    public void Bind_WhenAudioLoaderConstructionFails_DisposesTransferredSetExactlyOnce()
+    {
+        var sound = new Mock<ISound>();
+        var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["01"] = sound.Object });
+        var session = new GameplayAudioSession(null, null, NullLogger<PerformanceStage>.Instance,
+            new PlaybackModifiers(100, 0), false);
+
+        Assert.Throws<ArgumentNullException>(() => session.Bind(CreateChart(), prepared));
+        Assert.Same(prepared, session.PreparedSet);
+        sound.Verify(s => s.Dispose(), Times.Never);
+        session.Dispose();
+        session.Dispose();
+        sound.Verify(s => s.Dispose(), Times.Once);
+        Assert.Null(session.PreparedSet);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PreparedSet_RetiredQueuedOrLateResult_DisposesOwnedSoundExactlyOnce(bool queued)
+    {
+        var sound = new Mock<ISound>();
+        var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["01"] = sound.Object });
+        var scope = new StageBackgroundWorkScope();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applied = 0;
+        var drops = 0;
+        var task = scope.RunAsync(async _ =>
+        {
+            entered.SetResult();
+            await release.Task;
+            return prepared;
+        }, _ => applied++, onDropped: result =>
+        {
+            drops++;
+            result.Dispose();
+        });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (queued)
+        {
+            release.SetResult();
+            Assert.Same(prepared, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+            sound.Verify(s => s.Dispose(), Times.Never);
+        }
+        scope.Retire();
+        if (!queued)
+        {
+            release.SetResult();
+            Assert.Same(prepared, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        scope.Retire();
+        scope.Drain();
+        prepared.Dispose();
+        Assert.Equal(0, applied);
+        Assert.Equal(1, drops);
+        sound.Verify(s => s.Dispose(), Times.Once);
+    }
+
+    [Fact]
     public void Dispose_IsIdempotent()
     {
         var session = CreateSession();
@@ -485,6 +688,16 @@ public class GameplayAudioSessionTests
             modifiers ?? new PlaybackModifiers(100, 0),
             metronomeEnabled,
             playClick);
+    }
+
+    private static GameplayAudioSession CreateMetronomeSession(ILogger logger, ISound beat, ISound accent)
+    {
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(x => x.TryLoadSound(SoundPath.MetronomeBeat, out beat)).Returns(true);
+        resources.Setup(x => x.TryLoadSound(SoundPath.MetronomeAccent, out accent)).Returns(true);
+        var session = CreateSession(resourceManager: resources.Object, metronomeEnabled: true, logger: logger);
+        session.Bind(CreateChart(), CreateEmptyPreparedSet());
+        return session;
     }
 
     private static ParsedChart CreateChart(Action<ParsedChart>? configure = null)
