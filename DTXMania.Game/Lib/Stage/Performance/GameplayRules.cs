@@ -44,9 +44,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal SkillManager? SkillManager { get; private set; }
         internal bool IsCompleted { get; private set; }
 
-        internal PerformanceFrameState BuildFrameState(double rawMs)
+        internal PerformanceFrameState BuildFrameState(double rawMs, float? retainedProgress = null)
         {
-            var life = (GaugeManager?.CurrentLife ?? PerformanceUILayout.GaugeSettings.StartingLife) / 100f;
+            var gauge = GaugeManager?.CurrentLife;
+            var life = (gauge ?? PerformanceUILayout.GaugeSettings.StartingLife) / 100f;
             var totalMs = ChartManager?.DurationMs ?? 0.0;
             return new PerformanceFrameState
             {
@@ -54,6 +55,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 Combo = ComboManager?.CurrentCombo ?? 0,
                 MaxCombo = ComboManager?.MaxCombo ?? 0,
                 Life = life,
+                Gauge = gauge ?? 0f,
+                HasFailed = GaugeManager?.HasFailed ?? false,
                 IsDanger = life < PerformanceUILayout.GaugeSettings.DangerThreshold / 100f,
                 Achievement = SkillManager?.CurrentSkill ?? 0.0,
                 IsMaxSkill = SkillManager?.IsMax ?? false,
@@ -63,9 +66,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 PoorCount = SkillManager?.PoorCount ?? 0,
                 // HUD counts judgement events; Result counts missed note statuses.
                 MissCount = SkillManager?.MissCount ?? 0,
+                StatusPerfectCount = JudgementManager?.GetStatusCount(JudgementType.Perfect) ?? 0,
+                StatusGreatCount = JudgementManager?.GetStatusCount(JudgementType.Great) ?? 0,
+                StatusGoodCount = JudgementManager?.GetStatusCount(JudgementType.Good) ?? 0,
+                StatusPoorCount = JudgementManager?.GetStatusCount(JudgementType.Poor) ?? 0,
+                StatusMissCount = JudgementManager?.GetStatusCount(JudgementType.Miss) ?? 0,
+                TotalNotes = ChartManager?.TotalNotes ?? 0,
                 FastCount = _fastCount,
                 SlowCount = _slowCount,
-                Progress = totalMs > 0 ? (float)Math.Clamp(rawMs / totalMs, 0.0, 1.0) : 0f,
+                Progress = retainedProgress ?? (totalMs > 0 ? (float)Math.Clamp(rawMs / totalMs, 0.0, 1.0) : 0f),
                 ElapsedMs = rawMs,
                 TotalMs = totalMs
             };
