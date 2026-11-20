@@ -2273,6 +2273,80 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void InitializeGameplayManagers_WhenDependenciesExist_ShouldCreateManagersAndInitializeState()
+    {
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        var chartManager = CreateChartManagerWithSingleNote();
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+
+        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
+        Assert.NotNull(judgementManager);
+        Assert.False(judgementManager!.IsActive);
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
+        Assert.Equal(0.5f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentGaugeValue"));
+        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isPaused"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isDanger"));
+    }
+
+    [Fact]
+    public void InitializeGameplayManagers_WithFrozenAutoPlayLanes_ShouldFilterOnlyAutomatedPhysicalInput()
+    {
+        using var stage = CreateStageWithAutoPlay(1);
+        var inputManager = new MockInputManagerCompat();
+        var chartManager = BuildChartManager(new[]
+        {
+            new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x11, value: "01"),
+            new Note(laneIndex: 1, bar: 0, tick: 96, channel: 0x12, value: "01")
+        });
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+
+        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
+        Assert.NotNull(judgementManager);
+        judgementManager.IsActive = true;
+        JudgementEvent? captured = null;
+        judgementManager.JudgementMade += (_, judgement) => captured = judgement;
+
+        inputManager.TriggerLaneHit(1);
+        judgementManager.Update(1000.0);
+        Assert.Null(captured);
+        Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
+
+        inputManager.TriggerLaneHit(0);
+        judgementManager.Update(1000.0);
+
+        Assert.NotNull(captured);
+        Assert.Equal(0, captured!.Lane);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+    }
+
+    [Fact]
+    public void CleanupGameplayManagers_WhenManagersInitialized_ShouldClearAllManagerReferences()
+    {
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupGameplayManagers");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<ScoreManager>(stage, "_scoreManager"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<ComboManager>(stage, "_comboManager"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager"));
+    }
+
+    [Fact]
     public void ChartPublication_InitializesGameplayAndIgnoresCountdownInput()
     {
         using var input = new MockInputManagerCompat();
