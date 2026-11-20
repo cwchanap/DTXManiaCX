@@ -50,6 +50,7 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
 {
     private readonly HitTimingFeedbackState?[] _activeStates;
     private readonly IResourceManager? _resourceManager;
+    private readonly Func<ITexture, bool> _isInvalidTexture;
     private ITexture? _lagNumbersTexture;
     private bool _reloadAttempted;
     private bool _disposed;
@@ -59,6 +60,7 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
         ArgumentNullException.ThrowIfNull(resourceManager);
 
         _resourceManager = resourceManager;
+        _isInvalidTexture = IsInvalidTexture;
         _activeStates = new HitTimingFeedbackState?[PerformanceUILayout.LaneCount];
         _lagNumbersTexture = LoadLagNumbersTexture(resourceManager);
         _reloadAttempted = _lagNumbersTexture == null;
@@ -66,10 +68,12 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
 
     private HitTimingFeedbackDisplay(
         ITexture? lagNumbersTexture,
-        IResourceManager? resourceManager)
+        IResourceManager? resourceManager,
+        Func<ITexture, bool>? isInvalidTexture)
     {
         _lagNumbersTexture = lagNumbersTexture;
         _resourceManager = resourceManager;
+        _isInvalidTexture = isInvalidTexture ?? IsInvalidTexture;
         _activeStates = new HitTimingFeedbackState?[PerformanceUILayout.LaneCount];
 
         _reloadAttempted = lagNumbersTexture == null;
@@ -77,9 +81,10 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
 
     internal static HitTimingFeedbackDisplay CreateForTesting(
         ITexture? lagNumbersTexture,
-        IResourceManager? resourceManager = null)
+        IResourceManager? resourceManager = null,
+        Func<ITexture, bool>? isInvalidTexture = null)
     {
-        return new HitTimingFeedbackDisplay(lagNumbersTexture, resourceManager);
+        return new HitTimingFeedbackDisplay(lagNumbersTexture, resourceManager, isInvalidTexture);
     }
 
     internal IReadOnlyList<HitTimingFeedbackState?> ActiveStatesForTesting => _activeStates;
@@ -236,7 +241,7 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
 
         try
         {
-            if (!IsInvalidTexture(texture))
+            if (!_isInvalidTexture(texture))
                 return true;
         }
         catch (Exception)
@@ -283,7 +288,7 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
         var invalid = true;
         try
         {
-            invalid = IsInvalidTexture(texture);
+            invalid = _isInvalidTexture(texture);
         }
         catch
         {

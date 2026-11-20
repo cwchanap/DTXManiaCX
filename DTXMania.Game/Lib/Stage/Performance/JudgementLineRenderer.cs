@@ -9,7 +9,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Judgement line renderer component for PerformanceStage
     /// Renders the horizontal judgement line where notes are hit
     /// </summary>
-    public class JudgementLineRenderer : IDisposable
+    public class JudgementLineRenderer : IDisposable, ILanesJudgementLine
     {
         #region Private Fields
 

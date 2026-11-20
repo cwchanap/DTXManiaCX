@@ -78,6 +78,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly List<SpriteJudgementTextPopup> _activePopups;
         private readonly Action<JudgementEvent>? _fontFallback;
         private readonly IResourceManager? _resourceManager;
+        private readonly Func<ITexture, bool> _isInvalidTexture;
         private ITexture? _spriteTexture;
         private bool _reloadAttempted;
         private bool _disposed;
@@ -91,12 +92,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ITexture? spriteTexture,
             Action<JudgementEvent>? fontFallback,
             List<SpriteJudgementTextPopup> activePopups,
-            IResourceManager? resourceManager = null)
+            IResourceManager? resourceManager = null,
+            Func<ITexture, bool>? isInvalidTexture = null)
         {
             _spriteTexture = spriteTexture;
             _fontFallback = fontFallback;
             _activePopups = activePopups;
             _resourceManager = resourceManager;
+            _isInvalidTexture = isInvalidTexture ?? IsInvalidSpriteTexture;
             // If no valid texture was available at construction, don't retry on every call;
             // reload is only attempted after a mid-stage invalidation of a previously valid
             // texture (see TryReloadSpriteTexture).
@@ -107,13 +110,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ITexture? spriteTexture,
             Action<JudgementEvent>? fontFallback = null,
             List<SpriteJudgementTextPopup>? activePopups = null,
-            IResourceManager? resourceManager = null)
+            IResourceManager? resourceManager = null,
+            Func<ITexture, bool>? isInvalidTexture = null)
         {
             return new SpriteJudgementTextPopupManager(
                 spriteTexture,
                 fontFallback,
                 activePopups ?? new List<SpriteJudgementTextPopup>(),
-                resourceManager);
+                resourceManager,
+                isInvalidTexture);
         }
 
         internal IReadOnlyList<SpriteJudgementTextPopup> ActivePopupsForTesting => _activePopups;
@@ -264,7 +269,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                if (!IsInvalidSpriteTexture(spriteTexture))
+                if (!_isInvalidTexture(spriteTexture))
                     return true;
             }
             catch (Exception)
@@ -330,7 +335,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var invalid = true;
             try
             {
-                invalid = IsInvalidSpriteTexture(spriteTexture);
+                invalid = _isInvalidTexture(spriteTexture);
             }
             catch
             {

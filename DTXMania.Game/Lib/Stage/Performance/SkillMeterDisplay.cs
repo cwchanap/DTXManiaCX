@@ -14,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// background, 7_Graph_Gauge.png as the filling bar, and a small text overlay
     /// for the numeric value. Mirrors DTXManiaNX CActPerfSkillMeter (drums layout).
     /// </summary>
-    public class SkillMeterDisplay : IDisposable
+    public class SkillMeterDisplay : IDisposable, ILanesSkillMeter
     {
         #region Private Fields
 

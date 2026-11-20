@@ -32,7 +32,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Supports sprite sheet format with 2 rows × N columns (idle on row 0, pressed on row 1).
     /// Flashes when player hits pads, autoplay triggers, or during lane testing.
     /// </summary>
-    public class PadRenderer : IDisposable
+    public class PadRenderer : IDisposable, ILanesPadRenderer
     {
         #region Constants
 

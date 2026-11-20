@@ -92,8 +92,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist,
             Texture2D? whiteTexture = null, SkinPalette? palette = null, TabModeArt? art = null,
             ILogger<TabHudDisplay>? logger = null)
+            : this(graphicsDevice, chart, title, artist, whiteTexture, palette, art, logger, acquireResources: true)
         {
-            _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
+        }
+
+        internal static TabHudDisplay CreateHeadlessForTesting() =>
+            new(null, null, null, null, null, null, null, null, acquireResources: false);
+
+        private TabHudDisplay(GraphicsDevice? graphicsDevice, SongChart? chart, string? title, string? artist,
+            Texture2D? whiteTexture, SkinPalette? palette, TabModeArt? art,
+            ILogger<TabHudDisplay>? logger, bool acquireResources)
+        {
+            if (acquireResources && graphicsDevice == null)
+                throw new ArgumentNullException(nameof(graphicsDevice));
+            _graphicsDevice = graphicsDevice!;
             _chart = chart;
             _title = title ?? string.Empty;
             _artist = artist ?? string.Empty;
@@ -112,7 +124,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             // Font acquisition needs a live GraphicsDevice, so it can never run
             // under headless coverage — excluded like the Draw paths.
-            AcquireDrawResources();
+            if (acquireResources) AcquireDrawResources();
         }
 
         /// <summary>Theme-resolved colors shared with the notation strip.</summary>
