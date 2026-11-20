@@ -24,14 +24,23 @@ public class GameplayRulesTests
             chart.Notes.Add(new Note { LaneIndex = i, TimeMs = 1000 * (i + 1) });
         var rules = CreatePlayingRules(null, chart, input);
         var judgement = rules.JudgementManager!;
+        void AssertStatusCounts()
+        {
+            foreach (var type in Enum.GetValues<JudgementType>())
+                Assert.Equal(judgement.GetJudgementCount(type), judgement.GetStatusCount(type));
+        }
+        AssertStatusCounts();
         Assert.True(judgement.ResolveAutoHit(chart.Notes[0].Id));
+        AssertStatusCounts();
         foreach (var (lane, time) in new[] { (1, 2040), (2, 3080), (3, 4120), (4, 5160) })
         {
             judgement.EnqueueLaneHit(lane);
             judgement.Update(time, 0);
+            AssertStatusCounts();
         }
         var beforeTimeout = rules.BuildFrameState(2500);
         judgement.Update(0, 6201);
+        AssertStatusCounts();
         var frame = rules.BuildFrameState(2500);
         var skill = rules.SkillManager!;
 
@@ -69,6 +78,7 @@ public class GameplayRulesTests
         Assert.Equal("   2", SkillPanelDisplay.FormatJudgementCount(frame.MissCount));
         Assert.Equal(" 33%", SkillPanelDisplay.FormatJudgementPercent(frame.MissCount, total));
         rules.ClearJudgement();
+        AssertStatusCounts();
         rules.ClearScoreAndCombo();
         rules.ClearGaugeAndSkill();
     }
@@ -155,6 +165,7 @@ public class GameplayRulesTests
         {
             duringFailure = rules.BuildFrameState(1120);
             resultPoorCount = judgement.GetJudgementCount(JudgementType.Poor);
+            Assert.Equal(resultPoorCount, judgement.GetStatusCount(JudgementType.Poor));
             rules.ClearJudgement();
             rules.ClearScoreAndCombo();
             rules.ClearGaugeAndSkill();
@@ -196,6 +207,52 @@ public class GameplayRulesTests
         Assert.Equal(0, frame.PoorCount);
         Assert.Equal(0, frame.SlowCount);
         Assert.Equal(0, frame.Score);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AutoPlay_RebindingDuringScoreOrComboDoesNotAffectNewManagersOrFeedback(bool duringScore)
+    {
+        var config = new ConfigData();
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("old-auto.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(config, chart, input);
+        void Rebind()
+        {
+            rules.ClearJudgement();
+            rules.ClearScoreAndCombo();
+            rules.ClearGaugeAndSkill();
+            var next = new ParsedChart("next-auto.dtx");
+            next.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+            rules.BindChart(next);
+            rules.InitializeJudgement(input);
+            rules.InitializeScoreAndCombo();
+            rules.InitializeGaugeAndSkill();
+            rules.JudgementManager!.IsActive = true;
+        }
+        if (duringScore)
+            rules.ScoreManager!.ScoreChanged += (_, _) => Rebind();
+        else
+            rules.ComboManager!.ComboChanged += (_, _) => Rebind();
+        int feedback = 0;
+
+        rules.ProcessAutoPlay(1000, _ => feedback++);
+
+        Assert.Equal(0, feedback);
+        Assert.Equal(0, rules.ScoreManager!.CurrentScore);
+        Assert.Equal(0, rules.ComboManager!.CurrentCombo);
+        Assert.Equal(GaugeManager.StartingLife, rules.GaugeManager!.CurrentLife);
+        Assert.Equal(0, rules.SkillManager!.PerfectCount);
+        rules.ProcessAutoPlay(1000, _ => feedback++);
+        Assert.Equal(1, feedback);
+        Assert.Equal(1000000, rules.ScoreManager.CurrentScore);
+        Assert.Equal(1, rules.ComboManager.CurrentCombo);
         rules.ClearJudgement();
         rules.ClearScoreAndCombo();
         rules.ClearGaugeAndSkill();
