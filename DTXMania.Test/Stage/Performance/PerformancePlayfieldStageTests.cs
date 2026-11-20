@@ -728,6 +728,186 @@ public class PerformancePlayfieldStageTests
         Assert.Equal(0, finalPixel.Object.ReferenceCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfigTeardownFailures_CleanRealPlayfieldAndPreparedAudio(bool unsubscribeFails)
+    {
+        var directory = Directory.CreateTempSubdirectory("dtx-config-teardown-");
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData();
+        var manager = new Mock<IConfigManager>();
+        var resources = new Mock<IResourceManager>();
+        var visuals = new LanesPlayfieldConcreteTests.RecordingVisuals(resources.Object) { ThrowOnScoreDispose = true };
+        var field = new LanesPlayfield(resources.Object, config, visuals);
+        var first = new InvalidOperationException(unsubscribeFails ? "unsubscribe" : "flush");
+        if (unsubscribeFails)
+            manager.SetupRemove(x => x.ScrollSpeedChanged -= It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>()).Throws(first);
+        manager.Setup(x => x.FlushPendingSave()).Throws(unsubscribeFails ? new IOException("flush") : first);
+        using var stage = new HeadlessStage(CreateGame(config, input, manager, resources.Object), field);
+        try
+        {
+            var chart = new ParsedChart("config-teardown.dtx") { DurationMs = 10000 };
+            chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+            chart.BackgroundAudioPath = AudioTestUtils.CreateTestWavFile(directory.FullName, "audio.wav");
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Config cleanup" }, 0, chart));
+            var prepared = Assert.IsType<PreparedGameplayAudioSet>(await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5)));
+            var sound = Assert.IsAssignableFrom<ISound>(prepared.MainBackground);
+            Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+            Assert.False(sound.IsDisposed);
+
+            var caught = Assert.Throws<InvalidOperationException>(() => stage.Deactivate());
+
+            Assert.Same(first, caught);
+            Assert.NotNull(caught.StackTrace);
+            manager.Verify(x => x.FlushPendingSave(), Times.Once);
+            Assert.Contains("score", visuals.Disposals);
+            Assert.Contains("pads", visuals.Disposals);
+            Assert.True(sound.IsDisposed);
+            Assert.Null(stage.AudioSession);
+            Assert.Null(stage.Rules!.ChartManager);
+            var snapshot = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(snapshot);
+            Assert.False(snapshot.PerformanceReady);
+            Assert.Equal(0, snapshot.TotalNotes);
+            stage.Deactivate();
+        }
+        finally
+        {
+            visuals.ThrowOnScoreDispose = false;
+            await stage.Workers.WaitAsync(TimeSpan.FromSeconds(5));
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfigFlush_ReactivationPreservesFreshRunAndOriginalFailure(bool throws)
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData();
+        var manager = new Mock<IConfigManager>();
+        var oldField = new Mock<IPerformancePlayfield>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException("old flush");
+        using var stage = new HeadlessStage(CreateGame(config, input, manager), oldField.Object);
+        manager.Setup(x => x.FlushPendingSave()).Callback(() =>
+        {
+            stage.Deactivate();
+            stage.LanesFactory = () => freshField.Object;
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh config" }, 0,
+                new ParsedChart("fresh-config.dtx")));
+            if (throws) throw failure;
+        });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old config" }, 0,
+            new ParsedChart("old-config.dtx")));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        if (throws) Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => stage.Deactivate()));
+        else stage.Deactivate();
+
+        oldField.Verify(x => x.Dispose(), Times.Once);
+        freshField.Verify(x => x.Dispose(), Times.Never);
+        Assert.True(stage.IsActive);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        var snapshot = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(snapshot);
+        Assert.Equal("Fresh config", snapshot.SelectedSongTitle);
+        Assert.True(snapshot.PerformanceReady);
+        manager.Raise(x => x.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(100, 125));
+        freshField.Verify(x => x.OnScrollSpeedChanged(125), Times.Once);
+        manager.Setup(x => x.FlushPendingSave());
+        stage.Deactivate();
+        freshField.Verify(x => x.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfigUnsubscribe_ReactivationDoesNotFlushOrCleanFreshRun()
+    {
+        using var input = new MockInputManagerCompat();
+        var config = new ConfigData();
+        var manager = new Mock<IConfigManager>();
+        var oldField = new Mock<IPerformancePlayfield>();
+        var freshField = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException("old unsubscribe");
+        using var stage = new HeadlessStage(CreateGame(config, input, manager), oldField.Object);
+        manager.SetupRemove(x => x.ScrollSpeedChanged -= It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>())
+            .Callback(() =>
+            {
+                stage.Deactivate();
+                stage.LanesFactory = () => freshField.Object;
+                stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fresh unsubscribe" }, 0,
+                    new ParsedChart("fresh-unsubscribe.dtx")));
+                throw failure;
+            });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Old unsubscribe" }, 0,
+            new ParsedChart("old-unsubscribe.dtx")));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => stage.Deactivate()));
+
+        manager.Verify(x => x.FlushPendingSave(), Times.Never);
+        oldField.Verify(x => x.Dispose(), Times.Once);
+        freshField.Verify(x => x.Dispose(), Times.Never);
+        Assert.True(stage.IsActive);
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        await stage.PreparationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        var snapshot = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(snapshot);
+        Assert.Equal("Fresh unsubscribe", snapshot.SelectedSongTitle);
+        Assert.True(snapshot.PerformanceReady);
+        manager.SetupRemove(x => x.ScrollSpeedChanged -= It.IsAny<EventHandler<ScrollSpeedChangedEventArgs>>());
+        stage.Deactivate();
+        freshField.Verify(x => x.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfigFlushFailure_ConcurrentPollingSeesReadyThenCleanedSnapshots()
+    {
+        using var input = new MockInputManagerCompat();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new Mock<IConfigManager>();
+        var failure = new IOException("flush");
+        manager.Setup(x => x.FlushPendingSave()).Callback(() =>
+        {
+            entered.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(5));
+            throw failure;
+        });
+        using var stage = new HeadlessStage(CreateGame(new ConfigData(), input, manager), new Mock<IPerformancePlayfield>().Object);
+        var chart = new ParsedChart("config-polling.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Config polling" }, 0, chart));
+        Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
+        var teardown = Task.Run(stage.Deactivate);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            for (int i = 0; i < 128; i++)
+            {
+                var snapshot = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(snapshot);
+                Assert.True(snapshot.PerformanceReady);
+                Assert.Equal(1, snapshot.TotalNotes);
+            }
+        }
+        finally { release.Set(); }
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(async () => await teardown.WaitAsync(TimeSpan.FromSeconds(5))));
+        for (int i = 0; i < 128; i++)
+        {
+            var snapshot = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(snapshot);
+            Assert.False(snapshot.PerformanceReady);
+            Assert.Equal(0, snapshot.TotalNotes);
+        }
+        stage.Deactivate();
+    }
+
     [Fact]
     public async Task TeardownFailures_PublishCleanedTelemetryAndPreserveFirstException()
     {
