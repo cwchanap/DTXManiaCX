@@ -519,6 +519,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InitializeComponents()
         {
+            if (_spriteBatch == null)
+            {
+                WireUpInputEventHandlers();
+                return;
+            }
+
             // HPA-796: acquire the cached white pixel BEFORE constructing renderers —
             // JudgementLineRenderer (and later the Tab HUD) borrow its raw texture.
             _fallbackWhiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
