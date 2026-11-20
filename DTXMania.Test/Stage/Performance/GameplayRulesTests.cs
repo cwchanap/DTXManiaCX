@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.Helpers;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance;
@@ -14,6 +15,145 @@ namespace DTXMania.Test.Stage.Performance;
 [Trait("Category", "Unit")]
 public class GameplayRulesTests
 {
+    [Theory]
+    [InlineData(false, false, 52f)]
+    [InlineData(true, false, 52f)]
+    [InlineData(false, true, 50f)]
+    [InlineData(true, true, 52f)]
+    public void JudgementFanout_UsesFrozenGaugePolicyForManualAndAutomatedLanes(
+        bool autoAddGauge, bool automated, float expectedGauge)
+    {
+        var config = new ConfigData { AutoAddGauge = autoAddGauge };
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("fanout.dtx");
+        chart.Notes.Add(new Note { LaneIndex = automated ? 1 : 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(config, chart, input);
+        config.AutoAddGauge = !autoAddGauge;
+        config.AutoPlayLanes.Clear();
+        var order = new List<string>();
+        rules.ScoreManager!.ScoreChanged += (_, _) => order.Add("score");
+        rules.ComboManager!.ComboChanged += (_, _) => order.Add("combo");
+        rules.GaugeManager!.GaugeChanged += (_, _) => order.Add("gauge");
+        rules.SkillManager!.SkillChanged += (_, _) => order.Add("skill");
+        rules.JudgementManager!.JudgementMade += (_, _) => order.Add("observer");
+
+        if (automated)
+            Assert.True(rules.JudgementManager.ResolveAutoHit(chart.Notes[0].Id));
+        else
+        {
+            input.TriggerLaneHit(0);
+            rules.JudgementManager.Update(1000);
+        }
+
+        Assert.Equal(1000000, rules.ScoreManager.CurrentScore);
+        Assert.Equal(1, rules.ComboManager.CurrentCombo);
+        Assert.Equal(expectedGauge, rules.GaugeManager.CurrentLife);
+        Assert.Equal(1, rules.SkillManager.PerfectCount);
+        Assert.Equal(SongScore.CalculatePlayingSkill(1, 1, 0, 1), rules.SkillManager.CurrentSkill);
+        Assert.Equal(expectedGauge == 50f
+            ? new[] { "score", "combo", "skill", "observer" }
+            : new[] { "score", "combo", "gauge", "skill", "observer" }, order);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void JudgementFanout_AutomatedLaneGreatSkipsGaugeButUpdatesOtherManagers()
+    {
+        var config = new ConfigData { AutoAddGauge = false };
+        config.AutoPlayLanes.Add(1);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("automated-great.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 1, TimeMs = 1000 });
+        var rules = CreatePlayingRules(config, chart, input);
+
+        rules.JudgementManager!.EnqueueLaneHit(1);
+        rules.JudgementManager.Update(1040);
+
+        Assert.Equal(900000, rules.ScoreManager!.CurrentScore);
+        Assert.Equal(1, rules.ComboManager!.CurrentCombo);
+        Assert.Equal(GaugeManager.StartingLife, rules.GaugeManager!.CurrentLife);
+        Assert.Equal(1, rules.SkillManager!.GreatCount);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void JudgementFanout_LateManualMissFailsBeforeSkillButKeepsNoteStatusCounts()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("late-miss.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(new ConfigData { Risky = 1 }, chart, input);
+        var order = new List<string>();
+        rules.ScoreManager!.ScoreChanged += (_, _) => order.Add("score");
+        rules.GaugeManager!.Failed += (_, _) =>
+        {
+            order.Add("failure");
+            Assert.Equal(0, rules.SkillManager!.MissCount);
+            Assert.Equal(0, rules.JudgementManager!.GetJudgementCount(JudgementType.Miss));
+            Assert.Equal(NoteStatus.Hit, rules.JudgementManager.GetNoteRuntimeData(chart.Notes[0].Id)!.Status);
+        };
+        rules.GaugeManager.GaugeChanged += (_, _) => order.Add("gauge");
+        rules.JudgementManager!.JudgementMade += (_, _) =>
+        {
+            order.Add("observer");
+            Assert.Equal(1, rules.SkillManager!.MissCount);
+        };
+
+        input.TriggerLaneHit(0);
+        rules.JudgementManager.Update(1160);
+
+        Assert.Equal(new[] { "score", "failure", "gauge", "observer" }, order);
+        Assert.True(rules.GaugeManager.HasFailed);
+        Assert.Equal(47f, rules.GaugeManager.CurrentLife);
+        Assert.Equal(0, rules.JudgementManager.GetStatistics().MissCount);
+        Assert.Equal(1, rules.SkillManager!.MissCount);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void ClearJudgement_UnsubscribesRulesAndKeepsOtherObserversAcrossRuns()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("lifetime.dtx");
+        chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+        var rules = CreatePlayingRules(null, chart, input);
+        var oldManager = rules.JudgementManager!;
+        EventHandler<JudgementEvent> observer = (_, _) => { };
+        oldManager.JudgementMade += observer;
+        var callbacks = ReflectionHelpers.GetPrivateField<EventHandler<JudgementEvent>>(oldManager, "JudgementMade");
+        Assert.Contains(callbacks!.GetInvocationList(), callback => callback.Target == rules);
+
+        rules.ClearJudgement();
+        Assert.Equal(observer, ReflectionHelpers.GetPrivateField<EventHandler<JudgementEvent>>(oldManager, "JudgementMade"));
+        rules.InitializeJudgement(input);
+        rules.JudgementManager!.IsActive = true;
+        input.TriggerLaneHit(0);
+        rules.JudgementManager.Update(1000);
+        Assert.Equal(1000000, rules.ScoreManager!.CurrentScore);
+        Assert.Equal(1, rules.SkillManager!.PerfectCount);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    private static GameplayRules CreatePlayingRules(ConfigData? config, ParsedChart chart, MockInputManagerCompat input)
+    {
+        var rules = new GameplayRules(config);
+        rules.BindChart(chart);
+        rules.InitializeJudgement(input);
+        rules.InitializeScoreAndCombo();
+        rules.InitializeGaugeAndSkill();
+        rules.JudgementManager!.IsActive = true;
+        return rules;
+    }
+
     [Fact]
     public void InitializeGaugeAndSkill_UsesFrozenPolicyBoundChartAndRulesCombo()
     {

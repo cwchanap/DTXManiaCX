@@ -46,8 +46,8 @@ namespace DTXMania.Game.Lib.Stage
     /// 4. Stage completion - Results calculation and transition to next stage
     /// 
     /// The stage uses an event-driven architecture where JudgementManager raises
-    /// JudgementMade events that are forwarded to ScoreManager, ComboManager,
-    /// and GaugeManager for processing.
+    /// JudgementMade events that GameplayRules forwards to the gameplay managers,
+    /// followed by stage visual feedback.
     /// </remarks>
     public class PerformanceStage : BaseStage, IStageTelemetryProvider
     {
@@ -1738,7 +1738,7 @@ namespace DTXMania.Game.Lib.Stage
                 || gaugeManager == null || skillManager == null)
                 return;
 
-            // Subscribe to judgement events and forward to all managers
+            // Rules subscribe first; the stage handles visual feedback afterwards.
             judgementManager.JudgementMade += OnJudgementMade;
 
             // Subscribe to manager events for UI updates
@@ -1815,18 +1815,10 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Handles judgement events and forwards them to all managers
+        /// Handles visual feedback after gameplay rules process a judgement
         /// </summary>
         private void OnJudgementMade(object? sender, DTXMania.Game.Lib.Song.Entities.JudgementEvent e)
         {
-            // Forward judgement to all managers. Gauge follows the frozen
-            // AutoAddGauge policy only for automated-lane judgements;
-            // manual-lane judgements always reach the gauge.
-            Rules?.ScoreManager?.ProcessJudgement(e);
-            Rules?.ComboManager?.ProcessJudgement(e);
-            if (!FrozenAutoPlayLanes.Contains(e.Lane) || (Rules?.AutoAddGauge ?? true))
-                Rules?.GaugeManager?.ProcessJudgement(e);
-            Rules?.SkillManager?.ProcessJudgement(e);
             _skillPanelDisplay?.ProcessJudgement(e, Rules?.ComboManager?.MaxCombo ?? 0);
 
             // Spawn hit effect for successful hits (non-Miss)
