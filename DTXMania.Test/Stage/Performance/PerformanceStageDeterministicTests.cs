@@ -7873,6 +7873,55 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void RiskyFailure_PoorHitIsCountedInReentrantResultAndTelemetry()
+    {
+        var config = new ConfigData { Risky = 1 };
+        config.AutoPlayLanes.Add(0);
+        using var input = new MockInputManagerCompat();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var manager = new Mock<IStageManager>();
+        PerformanceResult? result = null;
+        GameTelemetrySnapshot? telemetryAtTransition = null;
+        manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) =>
+            {
+                result = (PerformanceResult)payload;
+                telemetryAtTransition = new GameTelemetrySnapshot();
+                stage.PopulateTelemetry(telemetryAtTransition);
+            });
+        stage.StageManager = manager.Object;
+        var chart = new ParsedChart("poor-failure.dtx") { DurationMs = 10000 };
+        chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 100 });
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 1, TimeMs = 1000 });
+
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
+        UpdateUntil(stage, () => stage.AudioSession != null);
+        stage.Update(1.1);
+        stage.Update(0.1);
+        input.ModularInputManager.KeyBindings.BindButton("Test.Lane1", 1);
+        Assert.True(input.ModularInputManager.InjectButton("Test.Lane1", true));
+        input.ModularInputManager.Update();
+        stage.Update(1.02);
+
+        Assert.NotNull(result);
+        Assert.Equal(CompletionReason.PlayerFailed, result.Summary.CompletionReason);
+        Assert.Equal(500000, result.Summary.Score);
+        Assert.Equal(1, result.Summary.MaxCombo);
+        Assert.Equal(1, result.Summary.PerfectCount);
+        Assert.Equal(1, result.Summary.PoorCount);
+        Assert.Equal(0, result.Summary.MissCount);
+        Assert.Equal(SongScore.CalculatePlayingSkill(2, 1, 0, 1), result.Summary.PlayingSkill);
+        Assert.NotNull(telemetryAtTransition);
+        Assert.Equal(1, telemetryAtTransition.PerfectCount);
+        Assert.Equal(1, telemetryAtTransition.PoorCount);
+        Assert.Equal(0, telemetryAtTransition.MissCount);
+        Assert.Equal(0, telemetryAtTransition.CurrentCombo);
+        Assert.True(telemetryAtTransition.HasFailed);
+        manager.Verify(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
+        stage.Deactivate();
+    }
+
+    [Fact]
     public void RiskyFailure_LateManualMissIsAbsentFromResultAndTelemetryMissCounts()
     {
         using var input = new MockInputManagerCompat();
