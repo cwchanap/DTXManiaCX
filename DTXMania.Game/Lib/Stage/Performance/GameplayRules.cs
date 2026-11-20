@@ -32,6 +32,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal JudgementManager? JudgementManager { get; private set; }
         internal ScoreManager? ScoreManager { get; private set; }
         internal ComboManager? ComboManager { get; private set; }
+        internal GaugeManager? GaugeManager { get; private set; }
+        internal SkillManager? SkillManager { get; private set; }
 
         internal void BindChart(ParsedChart chart) => ChartManager = new ChartManager(chart);
 
@@ -62,6 +64,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ScoreManager = null;
             ComboManager?.Dispose();
             ComboManager = null;
+        }
+
+        internal void InitializeGaugeAndSkill()
+        {
+            GaugeManager = new GaugeManager(GaugeManager.StartingLife, DamageLevel, Risky, FailureEnabled);
+            SkillManager = new SkillManager(ChartManager!.TotalNotes, ComboManager!);
+        }
+
+        internal void ClearGaugeAndSkill()
+        {
+            GaugeManager?.Dispose();
+            GaugeManager = null;
+            SkillManager?.Dispose();
+            SkillManager = null;
         }
 
         internal void ClearChart() => ChartManager = null;
