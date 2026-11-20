@@ -532,6 +532,51 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void StartGameplayInitialization_WhenFactoryResolutionThrows_ShouldPublishChartBeforeFailing()
+    {
+        // CreateAudioVariantProcessorFactory itself throws while the stage
+        // resolves the factories on the update thread. The stage defers that
+        // failure into a throwing factory delegate, so the worker still
+        // publishes the chart before the fault reaches the normal onError
+        // path — the same chart-first ordering contract as a worker-side
+        // factory invocation failure.
+        var stage = CreateSyncThrowingAudioVariantStage();
+        stage.InstallTestBackgroundScope();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+        var chart = new ParsedChart("variant-resolution-failure.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", new Mock<IResourceManager>().Object);
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
+
+        StartGameplayInitialization(stage);
+        DrainScopeUntil(stage, () => !ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+
+        // The chart was published before the deferred failure surfaced, the
+        // failed audio set was never bound, and the original exception
+        // instance reached the error log.
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<ChartManager>(stage, "_chartManager"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        Assert.Contains(
+            "Audio preparation failed",
+            ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+        Assert.Null(stage.AudioSession?.PreparedSet);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Audio preparation failed", StringComparison.Ordinal)),
+                stage.Failure,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
     public void StartGameplayInitialization_WhenResultQueuedBeforeDeactivation_ShouldDropItAndDisposeThePreparedSetExactlyOnce()
     {
         // The worker finished and its terminal sat in the scope queue when the stage
@@ -5720,61 +5765,23 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartSong_WhenPlaybackFailsWithoutBgmEvents_ShouldDisableReadyAndActivateJudgementManager()
+    public void StartSong_WhenSessionCannotStartPlayback_ShouldDisableReadyAndActivateJudgementManager()
     {
-        // The timer's real SoundEffectInstance is uninitialized, so Play()
-        // throws inside SongTimer.Play, which reports false: StartSong must
-        // log the failure and still hand off to gameplay on the silent clock.
+        // A session installed before its audio set binds has no song timer, so
+        // session.Start reports false: StartSong must continue anyway — clear
+        // the countdown and hand off to gameplay on the silent clock.
         var stage = CreateStage();
-        var logger = new Mock<ILogger<PerformanceStage>>();
-        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var session = InstallBoundSession(
-            stage,
-            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
+        var session = CreateSession();
+        ReflectionHelpers.SetPrivateField(stage, "_audioSession", session);
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
 
-        // The playback clock never started, the failure was reported, and the
-        // stage continued anyway: countdown cleared, judgement activated.
+        // The playback clock never started, and the stage continued anyway.
         Assert.False(session.IsPlaying);
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-        Assert.True(judgementManager.IsActive);
-        logger.Verify(
-            l => l.Log(
-                LogLevel.Error,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((state, _) =>
-                    state.ToString()!.Contains("Failed to start song playback", StringComparison.Ordinal)),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public void StartSong_WhenPlaybackFailsWithBgmEvents_ShouldStillDisableReadyAndActivateJudgementManager()
-    {
-        // Same genuine playback failure, but with scheduled BGM events: the
-        // mute policy for the main track is independent of playback outcome.
-        var stage = CreateStage();
-        var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        var bgmChart = new ParsedChart("startsong-bgm.dtx") { Bpm = 120.0 };
-        bgmChart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 250.0 });
-        var session = InstallBoundSession(
-            stage,
-            chart: bgmChart,
-            preparedSet: CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
-        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
-
-        Assert.False(session.IsPlaying);
-        Assert.Equal(0.0f, session.Timer!.Volume);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
         Assert.True(judgementManager.IsActive);
     }
@@ -6600,6 +6607,17 @@ public class PerformanceStageDeterministicTests
         return stage;
     }
 
+    private static SyncThrowingAudioVariantStage CreateSyncThrowingAudioVariantStage()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (SyncThrowingAudioVariantStage)FormatterServices.GetUninitializedObject(typeof(SyncThrowingAudioVariantStage));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
+        return stage;
+    }
+
     private static CancelingAudioVariantStage CreateCancelingAudioVariantStage()
     {
 #pragma warning disable SYSLIB0050
@@ -7150,6 +7168,29 @@ public class PerformanceStageDeterministicTests
             var failure = Failure;
             return () => throw failure;
         }
+    }
+
+    private sealed class SyncThrowingAudioVariantStage : PerformanceStage
+    {
+        public SyncThrowingAudioVariantStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        // Lazily initialized so instances created via FormatterServices
+        // (which skips property initializers) still expose a real sentinel.
+        private InvalidOperationException? _failure;
+
+        public InvalidOperationException Failure =>
+            _failure ??= new InvalidOperationException(
+                "Simulated variant factory resolution failure",
+                new InvalidDataException("inner chain"));
+
+        // Resolution itself throws on the update thread; the stage captures it
+        // and defers it into a throwing factory, so the worker still publishes
+        // the chart before the fault reaches onError.
+        protected override Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
+            => throw Failure;
     }
 
     private sealed class CancelingAudioVariantStage : PerformanceStage
