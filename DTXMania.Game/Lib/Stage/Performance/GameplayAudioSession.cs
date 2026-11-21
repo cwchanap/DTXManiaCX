@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
@@ -238,7 +239,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Starts song playback. Applies the BGM mute/per-WAV volume/pan
         /// policy after the timer starts, exactly as the stage did.
-        /// Returns false when the timer is missing or playback failed to start.
+        /// Returns false when the timer is missing or playback failed to start;
+        /// the logical clock still advances on its GameTime fallback in that
+        /// case, so the song can be played through and completed silently.
         /// </summary>
         internal bool Start(GameTime gameTime, ParsedChart? chart)
         {
@@ -411,36 +414,55 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Releases the owned timer, loader, live BGM instances, chip cache,
         /// metronome sound references and the prepared set. Borrowed BGM/chip
         /// sounds are not disposed individually — the prepared set owns them.
+        /// Every owned field is detached before any release runs, and each
+        /// release is attempted independently: the stage has already dropped
+        /// its session reference when this is called, so a throwing release
+        /// must not skip the rest — there is no retry. The first failure is
+        /// rethrown after all releases have run.
         /// </summary>
         public void Dispose()
         {
-            _songTimer?.Dispose();
-            _songTimer = null;
-            _audioLoader?.Dispose();
-            _audioLoader = null;
+            var songTimer = _songTimer;
+            var audioLoader = _audioLoader;
+            var bgmInstances = _activeBgmInstances.ToArray();
+            var chipSoundCache = _chipSoundCache;
+            var metronomeBeatSound = _metronomeBeatSound;
+            var metronomeAccentSound = _metronomeAccentSound;
+            var preparedAudioSet = _preparedAudioSet;
 
-            foreach (var instance in _activeBgmInstances)
-            {
-                try { instance.Stop(); instance.Dispose(); }
-                catch { }
-            }
+            _songTimer = null;
+            _audioLoader = null;
             _activeBgmInstances.Clear();
             _bgmSounds.Clear();
             _bgmPlayFailureReported.Clear();
             _scheduledBGMEvents.Clear();
-
-            _chipSoundCache?.Dispose();
             _chipSoundCache = null;
-
             _metronomePlayer = null;
-            _metronomeBeatSound?.RemoveReference();
             _metronomeBeatSound = null;
-            _metronomeAccentSound?.RemoveReference();
             _metronomeAccentSound = null;
-
-            _preparedAudioSet?.Dispose();
             _preparedAudioSet = null;
             _chart = null;
+
+            Exception? firstFailure = null;
+            void Release(Action action)
+            {
+                try { action(); }
+                catch (Exception ex) { firstFailure ??= ex; }
+            }
+
+            Release(() => songTimer?.Dispose());
+            Release(() => audioLoader?.Dispose());
+            foreach (var instance in bgmInstances)
+            {
+                Release(() => { instance.Stop(); instance.Dispose(); });
+            }
+            Release(() => chipSoundCache?.Dispose());
+            Release(() => metronomeBeatSound?.RemoveReference());
+            Release(() => metronomeAccentSound?.RemoveReference());
+            Release(() => preparedAudioSet?.Dispose());
+
+            if (firstFailure != null)
+                ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
         private void BindPreparedBGMSounds()

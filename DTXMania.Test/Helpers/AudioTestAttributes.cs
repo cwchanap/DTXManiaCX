@@ -52,6 +52,21 @@ namespace DTXMania.Test.Helpers
     }
 
     /// <summary>
+    /// Theory for a real-audio test: Skipped (never passed) when the platform
+    /// cannot produce a playing SoundEffectInstance.
+    /// </summary>
+    public sealed class AudioTheoryAttribute : TheoryAttribute
+    {
+        public AudioTheoryAttribute()
+        {
+            if (!AudioTestGate.IsAvailable)
+            {
+                Skip = AudioTestGate.SkipReason;
+            }
+        }
+    }
+
+    /// <summary>
     /// A real playing <see cref="SoundEffectInstance"/> over a silent buffer,
     /// together with the <see cref="SoundEffect"/> that owns its audio data.
     /// Disposing releases both.
