@@ -1,94 +1,115 @@
-# HPA-801 — Song library responsibilities: implementation plan
+# HPA-801 — Revised implementation plan (one PR, <=3 engineer days)
 
-**Design:** [HPA-801 design](../../proposals/2026-11-21-hpa-801-design.md)  
+**Design:** [reviewed HPA-801 design](../../proposals/2026-11-21-hpa-801-design.md)  
+**Review:** https://github.com/cwchanap/DTXManiaCX/pull/252#pullrequestreview-6007914307  
 **Linear:** https://linear.app/cwchanap/issue/HPA-801  
-**Branch / delivery:** `plan/hpa-801-song-library-responsibilities` — implement **on this single existing draft PR**. Do not open implementation or test follow-up PRs for this ticket.  
-**Baseline:** `main` `5e8b47e311badceafc8942b804a255f0527f9463`, 2026-11-21. Re-read changed code if main advances.  
-**State:** plan only. No production code, tests, graphical E2E, or screenshots have been executed as part of this draft.
+**Work on this existing draft:** `plan/hpa-801-song-library-responsibilities` / PR #252. **Do not create a second implementation PR.**  
+**Baseline:** `main` `5e8b47e311badceafc8942b804a255f0527f9463`, 2026-11-21. Recheck latest main when implementation starts.  
+**Status:** docs-only review revision; no code implementation, test run, CI E2E or screenshot verification has been performed for this revision.
 
-## Agent contract
+## Non-negotiable agent contract
 
-**Budget:** at most **3 engineer days** including migration, tests, MCP-driven E2E and screenshot verification. Favor mechanical moves, constructor injection and existing abstractions over new framework design. The task is structural: preserve SQL schema, scan results, score receipts, stage lifecycle, events and UI. No backward-compatibility aliases, static service locator, new art/SFX, database migration, feature work or nullable cleanup.
+Mechanical responsibility split only. Preserve current playable chart hierarchy, SQL schema, configuration, level mapping, input, audio/scoring semantics, scan error/cancellation behavior and rendered UI. **No DI framework, generic repository hierarchy, compatibility facade, new service interfaces, second update-thread queue, new image/SFX, or UI redesign.** Max budget is **3 engineer days** including test migration, CI E2E and screenshot inspection.
 
-Current code seams to inspect before editing: `SongManager`, `SongDatabaseService`, `SongLibrarySnapshot`, `SongEnumerationBatch`, `SongDbContext`, `BaseGame`/`IStageGame`, `StartupStage`, `SongSelectionStage`, `ResultStage`, `ConfigStage`/`SongLibraryReloadService`, and their dedicated tests. Avoid trying to translate *all* old private-field assertions 1:1: keep behavioral regression scenarios, retire duplicate implementation-detail tests only when their behaviors are covered.
+Keep every full relevant suite green **after each extraction**, not just after the final stage rewiring. Use *behavioral* tests; do not translate assertions of old private fields or retain dead production members solely for tests. The existing constructor seam matrix in the design is the migration map. **Busy/cancel, incomplete batch, post-commit finalization/publication, score idempotency and coherent snapshots are essential regressions to migrate—not tests to delete.**
 
-## Step 0 — establish the baseline (0.10 day)
+## Step 0 — baseline and production-call audit (0.10 day)
 
-- [ ] Record the PR's actual base/head and list production/test references to `SongManager.Instance`, `ResetInstanceForTesting` and `SongDatabaseService` (including reflection-based tests). Read existing startup and score-persistence scenarios.
-- [ ] Run/record the baseline canonical unit suite and available graphical E2E smoke before refactoring. Existing failures must be reported separately, not attributed to this task. Save existing tour screenshots as comparison fixtures.
-- [ ] Confirm `DTXMania.Test/DTXMania.Test.csproj` is the only canonical unit project (the old separate Mac test project was merged in HPA-797). Preserve current target framework; do not retarget .NET.
+- [ ] Check PR base and current `main`, find all production/test references to `SongManager`, `SongDatabaseService`, `IStageGame` and existing production stage consumers.
+- [ ] Record baseline `dotnet test DTXMania.Test/DTXMania.Test.csproj` outcome and existing `gameplay-e2e-windows` run/artifact availability. Do not call an unrun test passing.
+- [ ] Verify suspected unused public APIs are genuinely absent in production, including reflection/dynamic paths; only then proceed with deletion.
 
-## Step 1 — extract SQLite operations, preserve transactions (0.55 day)
+## Step 1 — delete dead surface before moving classes (0.25 day)
 
-- [ ] Narrow `SongDatabaseService` into a constructor-built `SongDatabase` that only owns context configuration, initialization, schema/version validation and context creation. Move bulk import + cleanup + scan metadata to `SongCatalogStore`; score history/save/receipts to `SongScoreStore`; recent/bookmark/search/genre SQL to `SongQueryStore`. Retain original SQL and EF Core query shapes.
-- [ ] Give each store the same database context owner and explicit constructors; do not add generic repositories, new DB tables, a copy of the DbContext options, or a temporary global database singleton.
-- [ ] Migrate DB tests to store constructors/in-memory SQLite first, including idempotent `RunId` saves, transaction rollback, duplicate rows, performance-history speed buckets, root-scoped metadata, cleanup, and schema/version checks. Remove old service tests only after equivalent behaviors remain covered.
-- [ ] **Exit:** DB-focused tests green; schema and persisted outcomes unchanged.
+- [ ] Remove verified test-only methods/events and obsolete wrappers listed in Design Decision 0 (including `SongDiscovered`/`EnumerationCompleted`, search/genre/top-score dead paths, old boolean score save, obsolete DB cleanup, `SongListNode.PopulateScoresFromDatabase` and singleton-only helpers). Remove their test-only expectations and DB seeding method in favor of fixture SQL/EF setup.
+- [ ] Remove `SetCurrentSearchPaths` and its test-only pending-root behavior; consolidate `_pendingSearchPaths` into the one published active-roots field after verifying live paths.
+- [ ] Preserve `SongLibraryPublished` and event error isolation. Run focused tests; skip any deletion if the audit finds a production use and note the exception in the PR.
+- [ ] **Exit:** no tests are broken by intentionally removed live behavior; no dead methods will be carried into the extracted services.
 
-## Step 2 — extract scanning, definitions, hierarchy and atomic publication (0.80 day)
+## Step 2 — remove the singleton now; wire non-null DB and stage access (0.55 day)
 
-- [ ] Add `SongDefinitionReader` for SET.def/box.def decoding and metadata; move the existing logic, fallback encodings and root/title handling without changing parsing behavior.
-- [ ] Add `SongHierarchyBuilder` to assemble scan or database hierarchies. Keep SET grouping, BOX nesting, score hydration, difficulty labels, bundled-root placement, and root disambiguation.
-- [ ] Add `SongLibraryScanner` for enumerating, change detection, cancel/single-flight, and orchestration with `SongCatalogStore`. Retain the exact scan → import → finalize → publish sequence. Keep the start-time watermark backoff, dirty recoverable-error roots, inactive-root row retention, rejected tabs and the cancellation/busy result contracts.
-- [ ] Introduce `SongLibrary` as the sole owner of the shared published snapshot, counters, version, event subscriptions and locked score-mutation operation. Publish event handlers outside the lock. The scanner may prepare work on a worker, but only the complete result is published.
-- [ ] Migrate `SongManagerBulkEnumerationTests`, `SongManagerLibrarySnapshotTests`, SET.def tests, root-policy tests and scan freshness/busy/cancel tests into constructor-built scanner/reader/builder/library tests. Preserve the scenarios that verify absence of partial publication and coherent snapshots.
-- [ ] **Exit:** scanned and warm-cache hierarchies match; no singleton in the core library; scan tests green.
+- [ ] Rename `SongManager` → `SongLibrary` **before** extracting subordinate components. Replace `Instance`/`ResetInstanceForTesting`/`Clear` and the global serialized `SongManager` test collection. Keep existing code in the renamed class until its owner moves.
+- [ ] `BaseGame` constructs `SongDatabase(AppPaths.GetSongsDatabasePath())` and one `SongLibrary` with logger; expose concrete `IStageGame.SongLibrary`, dispose after stage disposal. Make the database non-null but uninitialized until Startup; `CreateContext` still enforces its initialized guard.
+- [ ] Startup calls library/database `InitializeAsync`, not `GetSongsDatabasePath`/`InitializeDatabaseServiceAsync(path)`. Delete obsolete virtual path getter; update stage tests to inject their own library/temporary SQLite DB.
+- [ ] Rewire Startup, Song Selection event/snapshot, Config/reload/NX import and Result, plus logging setup and test game mocks. Keep HPA-799 `BackgroundWork.Latest` on the Song Selection stage. **No temporarily forwarded SongManager or static locator**.
+- [ ] Establish final optional constructor delegates (see design seam table) so tests can be migrated directly **once** to `SongLibrary` and collaborators rather than rewritten again after each extraction. Remove mutable per-test setter hooks when constructor seams are available.
+- [ ] **Exit:** game compiles and boots, canonical tests pass, all `SongManager.Instance` and singleton collection references gone.
 
-## Step 3 — score and query services (0.55 day)
+## Step 3 — database ownership and two stores (0.50 day)
 
-- [ ] Add `SongScoreService` for score persistence → exact in-memory chart/instrument/speed refresh and NX score import. Keep `ScoreSaveResult`/`ScoreRefreshOutcome` meaning, RunId idempotency, score variant merging and concurrent newer-snapshot behavior. A committed DB write with failed cache refresh **must not** report success to Result.
-- [ ] Add `SongQueryService` for recent/bookmarked/search/genre queries and mapping returned DB results to the *active published* hierarchy. Reuse `SongQueryStore`; keep ordering, filtering and bookmark semantics.
-- [ ] Migrate `SongManagerUpdateScoreTests`, `SongManagerNxImportTests`, recent/bookmark tests, and result-save tests to public behavioral calls on constructed services; do not keep private reflection helpers alive merely for tests.
-- [ ] **Exit:** score/query tests green; Result and Song Selection semantics unchanged.
+- [ ] Narrow `SongDatabaseService` into `SongDatabase` with context options, lifecycle, schema/version and `CreateContext`. Put batch import/chart inventory/watermark/rejected counts in `SongCatalogStore`; score transactions, `RunId` receipts and history in `SongScoreStore`.
+- [ ] Reuse the current EF queries, SQLite transactions and short-lived DbContexts; no new schema or migration. Stores share the **same non-null `SongDatabase`**. Delete the old monolith, not a forwarding wrapper.
+- [ ] Remove old `GetDatabaseStatsCoreAsync` and test-only service constructors. Migrate relevant DB tests using temporary real SQLite DBs, asserting schema initialization and corruption/recreation, root metadata, batch import/rollback, score receipt/race and speed variants.
+- [ ] **Exit:** focused SQLite tests pass; DB file layout and observable data are unchanged.
 
-## Step 4 — update the game wiring and remove the old classes (0.50 day)
+## Step 4 — `SongDefinitionReader` (0.25 day)
 
-- [ ] Construct one `SongLibrary` in `BaseGame` before stage use, expose it through `IStageGame`, and dispose it after stages stop. Use constructor-provided loggers; database path still comes from the existing Startup seam.
-- [ ] Replace every remaining call site: `StartupStage` initializes/checks/scans/publishes through library/scanner; `SongSelectionStage` reads snapshot and `Queries` plus activation-scoped publication event; `ConfigStage`/`SongLibraryReloadService` use scanner and score importer; `ResultStage` uses `Scores`. Keep test-injectable stage delegates.
-- [ ] Delete `SongManager`, its `Instance` and `ResetInstanceForTesting`, the singleton-only test collection, and the now-monolithic `SongDatabaseService`. Update stale documentation/comments about the singleton. Do not leave forwarding wrappers or test-only shims.
-- [ ] Search all production and test code for references to removed types/members. Run the **full** unit suite, fixing regression failures as part of the same PR.
-- [ ] **Exit:** build + full unit suite green, no removed symbols referenced, stage launch viable.
+- [ ] Move SET.def/box.def line reading, encoding fallbacks, normalization, parsing and metadata into `SongDefinitionReader` with optional constructor `ReadAllLines` delegate. No publication state or DbContext.
+- [ ] Move the existing parser tests, including malformed/encoding cases. Preserve grouping, difficulty labels, skin/color and root titles.
+- [ ] **Exit:** definition tests green without mutable SongLibrary parser hooks.
 
-## Step 5 — automated E2E and visual parity (0.40 day)
+## Step 5 — `SongHierarchyBuilder` and cold/warm parity (0.40 day)
 
-Execute/observe the **real game process through MCP** on **one supported platform** (one platform is enough; no separate Windows/macOS/native sign-off unless a platform-specific code path changes). Reuse `DTXMania.E2E`, its JSON-RPC game API, `Category=E2E` fixtures and the HPA-797 screenshot tour.
+- [ ] Extract warm-start `BuildHierarchyFromCharts`, `EnsureFolderHierarchy`, preparation and pending-node finalization into `SongHierarchyBuilder`. Keep cold-start tree built **during scan traversal**, not flattened and rebuilt.
+- [ ] Centralize one BOX/root-node helper (can be internal/static on builder) called by cold and warm paths; match skin path, genre, text color, breadcrumb, root header, bundled root and root-title disambiguation.
+- [ ] Extend existing `BuildSongListFromDatabase_ShouldMatchTheEnumeratedHierarchy` with `SkinPath`/colors, two configured song roots, bundled root, SET.def and nested BOX cases. Compare hierarchy, order, chart counts, labels and active roots after cold build versus DB reload.
+- [ ] **Exit:** extended parity gate and other hierarchy tests pass.
 
-- [ ] **Cold start:** first-run fixture scans/imports, displays correct song and difficulty/BOX hierarchy and progresses Startup → Title → Song Selection. Include bundled songs, SET.def grouping and an empty/unavailable-root case in deterministic coverage.
-- [ ] **Warm start:** relaunch with the same `songs.db` and unmodified files; confirm the cached hierarchy is reused and no unnecessary rescan, count drift or duplicate song. Change a chart/root and exercise Config reload; verify the updated active list, with no stale/canceled publication. Extend **one focused E2E smoke** if current E2E cases do not cover this behavior; no new harness.
-- [ ] **Player loop:** in the actual process navigate Song Selection (All/Recent/Bookmarks), play via the existing autoplay E2E, reach Result, persist a `RunId` score, return to Song Selection and confirm score/recent state. Verify a retry does not double-count. Use unit/integration tests for deeper score concurrent-race matrices.
-- [ ] **Screenshot parity:** use MCP-captured 1280×720 output from the existing default CX Neon skin tour (Startup, Song Selection with song/BOX listing and Recent/Bookmarks, Lanes/Tab gameplay if covered, and Result). Compare to the baseline screenshots visually or with screenshot/image diff tooling: no missing labels, wrong song/level/score, duplicated boxes, overlap, clipping, or new layout differences. Capture after reload as well. There is **no new UI mockup** because no UI is added.
-- [ ] Attach screenshots, E2E logs and command results to this PR. Do not assert E2E acceptance from unit tests alone.
+## Step 6 — stateless scanner, `SongLibrary` scan transaction (0.40 day)
 
-Recommended commands (use the current runner's supported OS and launch setup):
+- [ ] Extract file traversal, chart inventory and `NeedsEnumerationAsync(activeRoots)` into `SongLibraryScanner`; inject `ParseSongEntities`, `EnumerateFiles` and `EnumerateDirectories` via its constructor. The scanner does **not** own locks, cancellations, publication or score state.
+- [ ] Keep `SongLibrary.ScanAndPublishAsync` as **the sole orchestration owner**: acquire single-flight slot, build batch, commit `SongCatalogStore` import, finalize via `SongHierarchyBuilder`, publish atomically, write metadata/watermark, release slot in `finally`. Preserve distinct `SongEnumerationPostCommitException` phases.
+- [ ] Move `FindMovedFileAsync` to use explicitly passed canonical `activeRoots` instead of `_currentSearchPaths`/hard-coded defaults, retaining existing heuristic. Note the intentional configured-root search correction in PR and test moved chart→rescan.
+- [ ] Migrate **all** meaningful injected blocked-import, competing scan, cancellation-winddown, incomplete batch, post-commit injection, bad root, rejected-tab and watermark tests to constructor seams on `SongLibrary`. Never delete these contract tests. Keep stage publication on HPA-799's update thread.
+- [ ] **Exit:** scanner/snapshot/regression tests pass; no partial or stale publication.
 
-`dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj` (or `DTXMania.Game.Windows.csproj` on Windows)  
+## Step 7 — score and query services (0.30 day)
+
+- [ ] Extract `SongScoreService` using `SongScoreStore` + library's locked in-memory refresh. Keep saved-score success only after matching chart/instrument/speed variant is refreshed, and idempotent `RunId` retry receipts. Preserve NX import behavior.
+- [ ] Extract **one** `SongQueryService` handling live recent plays and bookmark read/toggle **with its SQL inline** against `SongDatabase`; avoid `SongQueryStore`. Preserve recency ordering, active-root filtering and bookmark nodes. Do not resurrect unused search/genre queries.
+- [ ] Switch remaining stage calls to `library.Scores` and `library.Queries`. Migrate affected behavioral tests; verify no old `SongManager`/`SongDatabaseService` references remain in production or tests.
+- [ ] **Exit:** score and recent/bookmark tests green; Result and Song Selection semantics unchanged.
+
+## Step 8 — CI E2E, MCP inspection and visual screenshot check (0.25 day)
+
+Primary end-to-end gate: existing Windows `gameplay-e2e-windows` job in `.github/workflows/build-and-test.yml`, which runs `dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E"` against a real game process, then uploads the HPA-797 screenshot tour. **Use MCP to run/observe the relevant GitHub Actions execution, read result/logs, retrieve artifacts and evaluate acceptance**. Do not build another launcher or E2E framework.
+
+- [ ] Confirm `GameplayAutoPlaySmokeTests.GameplaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches` exercises three launches (cold + two warm) over one songs.db and persists independent speed buckets. Check actual run/assertions via CI logs; also rely on existing autoplay/Tab E2E and recent/bookmark/Config reload behavioral tests. Add an E2E case only for a verified uncovered blocker, not as a blanket new screenshot tour.
+- [ ] **CI constraint:** `gameplay-e2e-windows` skips **draft** pull requests. For implementation acceptance, mark **this same PR** ready for review to get the normal PR CI run, or use an already-supported non-draft/dispatch run. Do not mark it ready during docs-only planning and do not treat a skipped job as passing.
+- [ ] **Visual acceptance:** via MCP retrieve the tour artifact and inspect `04-song-select.png`, `05-lanes-performance.png`, `06-result.png` and `07-tab-performance.png` (and Title/Config where relevant). Compare their layout and visible song/score/level data to a current-main baseline screenshot at 1280×720, using automated image comparison or the agent's screenshot visual inspection. Existing CI PNG integrity checks do **not** substitute for this. No new mockups or human sign-off.
+- [ ] Link CI outcome, logs, screenshot evidence and any expected visual differences in this PR. One supported platform (Windows CI) is sufficient; no second native platform check absent platform-specific changes.
+- [ ] **Exit:** full canonical unit suite + passing non-skipped Windows graphical E2E + MCP-backed visual inspection; no regressions.
+
+### Commands to verify locally before CI
+
+`dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj` (or `DTXMania.Game.Mac.csproj` on macOS)  
 `dotnet test DTXMania.Test/DTXMania.Test.csproj`  
-`dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E"`
+`dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E"` (on an existing supported graphical runner)
 
-Check actual platform project paths first; do not revive `DTXMania.Test.Mac.csproj`.
+Use the current .NET SDK/project target; do **not** revive `DTXMania.Test.Mac.csproj` or retarget the runtime.
 
-**Stop condition:** if a regression shows this cannot fit inside the 3-day budget, identify the smallest remaining *behaviorally complete* slice and ask the project lead to rescope HPA-801 **before opening another PR**. Never leave the old singleton as a permanent compatibility layer to make the deadline.
+## End-to-end acceptance criteria (automated / agent-observed, no human gate)
 
-## End-to-end acceptance criteria (all automated; no human acceptance gate)
+- [ ] Exactly **one** PR for this ticket. `SongManager.Instance`, `ResetInstanceForTesting`, `Clear`, obsolete singleton collection and monolithic `SongDatabaseService` are removed. Concrete library/stores/services have clear responsibilities, stable constructor seams and no forwarding facade.
+- [ ] Cold scan and warm-cache hierarchy parity passes for SET.def, BOX/root metadata/skin colors, multiple roots and bundled placement. Competing/canceled scan, incomplete batch, post-commit failure, dirty-root watermark and missing/moved file tests pass with no partial publication.
+- [ ] Result score save persists `RunId` idempotent receipts, speed-bucket/skill/history semantics and in-memory refresh-before-success. Recent plays/bookmarks and active-root query behavior remain correct.
+- [ ] Canonical full unit tests pass, and a **non-skipped** `gameplay-e2e-windows` run proves actual cold/warm process launch, gameplay completion and persistent Result score. Its outcome/logs/artifacts are checked through MCP on one platform.
+- [ ] MCP-backed **screenshot visual checks** establish Song Selection, Lanes/Tab gameplay and Result parity with baseline: no changed hierarchy/song title, score/level mismatch, clipped/missing text or unexpected layout shift. PNG file presence/integrity alone is not acceptance.
+- [ ] No schema, gameplay, UI, config, new assets, security infrastructure, backward compatibility shim or second PR introduced.
 
-- [ ] Singleton and monolithic class symbols are absent; each new component has one cohesive reason to change, constructor-built in tests and explicitly owned by the game. Only one implementation PR exists for HPA-801.
-- [ ] Cold import and cached restart produce identical root/hierarchy/chart counts and active-root behavior; SET.def/box.def, bundled root, chart moves, parse failures, cancellation and root reload preserve published snapshot invariants.
-- [ ] Score saves preserve `RunId` idempotency, speed buckets, rank/achievement/history and the write-plus-in-memory-refresh success contract. Bookmarks, recent plays, search and genre return the same results/order.
-- [ ] Canonical build and full unit tests pass. MCP runs an actual out-of-process graphical E2E with cold/warm start, reload, navigation, gameplay/Result save and restart verification on one platform.
-- [ ] Screenshot evidence shows CX Neon Startup, Song Selection/tabs, gameplay and Result match the baseline visually, including after library reload, with no overflow/overlap or missing UI data. Evidence is linked in the same PR.
-- [ ] No database schema migration, config change, rendered UI change, playback change, new external dependency, new image/SFX, or extra PR was introduced.
-
-## Time budget
+## Work budget and stop rule
 
 | Work | Days |
 | --- | ---: |
-| Baseline/reference inventory | 0.10 |
-| SQLite service extraction + tests | 0.55 |
-| Scanner/reader/hierarchy/publication + tests | 0.80 |
-| Scores/queries + tests | 0.55 |
-| Game/stage wiring, removed symbols, full unit | 0.50 |
-| MCP graphical E2E and screenshot parity | 0.40 |
-| Contingency | 0.10 |
+| Baseline/reference audit | 0.10 |
+| Delete dead surface | 0.25 |
+| Singleton removal + stage/test migration | 0.55 |
+| SQLite two-store extraction + tests | 0.50 |
+| SET.def/box.def reader + tests | 0.25 |
+| Hierarchy builder + parity test | 0.40 |
+| Stateless scanner + contracts | 0.40 |
+| Score/query services + tests | 0.30 |
+| MCP-backed CI E2E + visual check | 0.25 |
 | **Total** | **3.00** |
 
-The coding agent should report unresolved assumptions in the PR comments, not silently expand scope. Every extraction step includes its tests; do not defer all verification to the last step.
+If the full behavioral scope cannot fit within three days, stop and ask to rescope **this same ticket/PR** rather than opening parallel PRs, leaving a singleton shim or silently dropping critical regression tests. No human acceptance step is required.
