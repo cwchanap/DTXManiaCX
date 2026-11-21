@@ -143,6 +143,9 @@ public class GameplayAudioSessionTests
 
         Assert.False(started);
         Assert.True(session.IsPlaying);
+        Assert.Equal(
+            1500.0,
+            session.GetCurrentMs(new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero)));
     }
 
     [Fact]
