@@ -251,6 +251,43 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CompleteTransition_WhenPreviousDeactivateThrows_ShouldEvictStageAndComplete()
+        {
+            var failure = new InvalidOperationException("teardown");
+            _titleStage.DeactivateException = failure;
+            SetCurrentStage(_titleStage);
+
+            _stageManager.ChangeStage(StageType.Config, new InstantTransition());
+
+            Assert.False(_stageManager.IsTransitioning);
+            Assert.Same(_configStage, _stageManager.CurrentStage);
+            Assert.Equal(1, _titleStage.DeactivateCount);
+            Assert.Equal(1, _titleStage.DisposeCount);
+            Assert.False(GetStages(_stageManager).ContainsKey(StageType.Title));
+            Assert.Equal(1, _configStage.ActivateCount);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_pendingPayload"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_currentTransition"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_previousStage"));
+        }
+
+        [Fact]
+        public void Dispose_WhenCurrentDeactivateThrows_ShouldStillDisposeAllStages()
+        {
+            _titleStage.DeactivateException = new InvalidOperationException("teardown");
+            _configStage.DisposeException = new InvalidOperationException("dispose");
+            SetCurrentStage(_titleStage);
+
+            _stageManager.Dispose();
+
+            Assert.Equal(1, _titleStage.DeactivateCount);
+            Assert.Equal(1, _titleStage.DisposeCount);
+            Assert.Equal(1, _configStage.DisposeCount);
+            Assert.Equal(1, _resultStage.DisposeCount);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_currentStage"));
+            Assert.Empty(GetStages(_stageManager));
+        }
+
+        [Fact]
         public void Dispose_ShouldDeactivateCurrentStageAndDisposeCachedStages()
         {
             SetCurrentStage(_titleStage);
@@ -431,6 +468,8 @@ namespace DTXMania.Test.Stage
             public int TransitionOutCount { get; private set; }
             public int TransitionCompleteCount { get; private set; }
             public int DisposeCount { get; private set; }
+            public Exception? DeactivateException { get; set; }
+            public Exception? DisposeException { get; set; }
 
             public void Activate()
             {
@@ -449,6 +488,8 @@ namespace DTXMania.Test.Stage
             public void Deactivate()
             {
                 DeactivateCount++;
+                if (DeactivateException != null)
+                    throw DeactivateException;
                 CurrentPhase = StagePhase.Inactive;
             }
 
@@ -483,6 +524,8 @@ namespace DTXMania.Test.Stage
             public void Dispose()
             {
                 DisposeCount++;
+                if (DisposeException != null)
+                    throw DisposeException;
             }
         }
 

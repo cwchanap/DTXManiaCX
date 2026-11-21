@@ -2,8 +2,11 @@ using System;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Test.Helpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -325,13 +328,56 @@ namespace DTXMania.Test.Stage.Performance
         #region Draw Guard Tests
 
         [Fact]
+        public void Draw_UsesRulesSnapshotForCountsPercentSkillAndMaxBadge()
+        {
+            using var input = new MockInputManagerCompat();
+            var chart = new ParsedChart("panel-snapshot.dtx");
+            chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
+            var rules = new GameplayRules(null);
+            rules.BindChart(chart);
+            rules.InitializeJudgement(input);
+            rules.InitializeScoreAndCombo();
+            rules.InitializeGaugeAndSkill();
+            rules.JudgementManager!.IsActive = true;
+            Assert.True(rules.JudgementManager.ResolveAutoHit(chart.Notes[0].Id));
+            var frame = rules.BuildFrameState(1000);
+
+            var small = new Mock<ITexture>();
+            var large = new Mock<ITexture>();
+            var badge = new Mock<ITexture>();
+            var smallTexture = small.Object;
+            var largeTexture = large.Object;
+            var badgeTexture = badge.Object;
+            var resources = new Mock<IResourceManager>();
+            resources.Setup(r => r.TryLoadTexture(TexturePath.RateNumbersSmall, out smallTexture)).Returns(true);
+            resources.Setup(r => r.TryLoadTexture(TexturePath.RateNumbersLarge, out largeTexture)).Returns(true);
+            resources.Setup(r => r.TryLoadTexture(TexturePath.SkillMax, out badgeTexture)).Returns(true);
+            using var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resources.Object, CreateUninitialized<GraphicsDevice>(), null));
+            var batch = CreateUninitialized<SpriteBatch>();
+
+            display.Draw(batch, frame);
+
+            var counts = PerformanceUILayout.SkillPanel.JudgementCounts.PerfectCountPos;
+            var percent = PerformanceUILayout.SkillPanel.JudgementCounts.PerfectPercentPos;
+            small.Verify(t => t.Draw(batch, counts + new Vector2(60, 0), new Rectangle(20, 0, 20, 26)), Times.Once);
+            small.Verify(t => t.Draw(batch, percent, new Rectangle(20, 0, 20, 26)), Times.Once);
+            var skill = PerformanceUILayout.SkillPanel.SkillPercent.NumbersPosition;
+            large.Verify(t => t.Draw(batch, skill, new Rectangle(28, 0, 28, 42)), Times.Once);
+            badge.Verify(t => t.Draw(batch, PerformanceUILayout.SkillPanel.SkillPercent.MaxBadgePosition), Times.Once);
+            rules.ClearJudgement();
+            rules.ClearScoreAndCombo();
+            rules.ClearGaugeAndSkill();
+        }
+
+        [Fact]
         public void Draw_WhenDisposed_ShouldReturnImmediately()
         {
             var display = CreateUninitialized<SkillPanelDisplay>();
             SetPrivateField(display, "_disposed", true);
             SetPrivateField(display, "_font", CreateUninitialized<ManagedFont>());
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(null!, default));
             Assert.Null(exception);
         }
 
@@ -342,7 +388,7 @@ namespace DTXMania.Test.Stage.Performance
             SetPrivateField(display, "_disposed", false);
             SetPrivateField(display, "_font", CreateUninitialized<ManagedFont>());
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(null!, default));
             Assert.Null(exception);
         }
 
@@ -353,36 +399,8 @@ namespace DTXMania.Test.Stage.Performance
             SetPrivateField(display, "_disposed", false);
             SetPrivateField(display, "_font", null);
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(null!, default));
             Assert.Null(exception);
-        }
-
-        #endregion
-
-        #region Property Tests
-
-        [Fact]
-        public void Skill_Property_ShouldGetAndSet()
-        {
-            var display = CreateUninitialized<SkillPanelDisplay>();
-
-            display.Skill = 87.5;
-            Assert.Equal(87.5, display.Skill);
-
-            display.Skill = 0.0;
-            Assert.Equal(0.0, display.Skill);
-        }
-
-        [Fact]
-        public void ShowMax_Property_ShouldGetAndSet()
-        {
-            var display = CreateUninitialized<SkillPanelDisplay>();
-
-            display.ShowMax = true;
-            Assert.True(display.ShowMax);
-
-            display.ShowMax = false;
-            Assert.False(display.ShowMax);
         }
 
         #endregion

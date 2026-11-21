@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
@@ -107,9 +108,12 @@ namespace DTXMania.Game.Lib.Stage
             // Retire any leftover scope so queued owned results cannot leak.
             RetireBackgroundWork();
             _backgroundWork = CreateBackgroundWorkScope();
+            var scope = _backgroundWork;
 
             // Load stage background
             LoadStageBackground();
+            if (!ReferenceEquals(scope, _backgroundWork))
+                return;
 
             // Perform stage-specific activation
             OnActivate();
@@ -117,21 +121,27 @@ namespace DTXMania.Game.Lib.Stage
 
         public virtual void Deactivate()
         {
-        if (_currentPhase == StagePhase.Inactive)
-        {
-            return;
-        }
-
+            if (_currentPhase == StagePhase.Inactive)
+                return;
 
             // Retire queued background work before stage teardown so dropped
             // results cannot reach disposed UI/resources (HPA-799).
             RetireBackgroundWork();
+            if (_backgroundWork != null || _currentPhase == StagePhase.Inactive)
+                return;
 
-            // Perform stage-specific deactivation
-            OnDeactivate();
-
-            // Cleanup background
-            CleanupStageBackground();
+            Exception failure = null;
+            try { OnDeactivate(); }
+            catch (Exception ex) { failure = ex; }
+            if (_backgroundWork == null)
+            {
+                try { CleanupStageBackground(); }
+                catch (Exception ex) { failure ??= ex; }
+            }
+            if (failure != null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            if (_backgroundWork != null)
+                return;
 
             // Reset state
             _currentPhase = StagePhase.Inactive;
@@ -334,20 +344,29 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             _backgroundLoadAttempted = true;
+            var scope = _backgroundWork;
+            ITexture texture = null;
 
             try
             {
                 var texturePath = GetBackgroundTexturePath();
+                if (!ReferenceEquals(scope, _backgroundWork))
+                    return;
                 if (!string.IsNullOrEmpty(texturePath))
-                {
-                    _game.ResourceManager.TryLoadTexture(texturePath, out var texture);
-                    _stageBackgroundTexture = texture;
-                }
+                    _game.ResourceManager.TryLoadTexture(texturePath, out texture);
             }
             catch (Exception)
             {
-                _stageBackgroundTexture = null;
+                try { texture?.RemoveReference(); }
+                catch { }
+                texture = null;
             }
+            if (!ReferenceEquals(scope, _backgroundWork))
+            {
+                texture?.RemoveReference();
+                return;
+            }
+            _stageBackgroundTexture = texture;
         }
 
         /// <summary>
@@ -355,9 +374,10 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void CleanupStageBackground()
         {
-            _stageBackgroundTexture?.RemoveReference();
+            var texture = _stageBackgroundTexture;
             _stageBackgroundTexture = null;
             _backgroundLoadAttempted = false;
+            texture?.RemoveReference();
         }
 
         /// <summary>
@@ -434,18 +454,23 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (!_disposed)
             {
-                if (disposing)
+                try
                 {
-            // Deactivate if still active
-            if (_currentPhase != StagePhase.Inactive)
-            {
-                Deactivate();
-            }
-
-            // Clear transition payload
-            _transitionPayload = null;
+                    if (disposing)
+                    {
+                        // Deactivate if still active
+                        if (_currentPhase != StagePhase.Inactive)
+                        {
+                            Deactivate();
+                        }
+                    }
                 }
-                _disposed = true;
+                finally
+                {
+                    // Clear transition payload
+                    _transitionPayload = null;
+                    _disposed = true;
+                }
             }
         }
 

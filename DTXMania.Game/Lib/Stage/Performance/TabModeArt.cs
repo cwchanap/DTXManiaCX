@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Runtime.ExceptionServices;
 using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Resources;
 
@@ -13,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// (vertical hit-line beam). Each slot is independent: a missing key, a missing
     /// file or LoadTexture's 1x1 fallback leaves it null and the strip/HUD draw that
     /// part procedurally (in the theme palette) instead.
-    /// The stage owns the instance and calls <see cref="Release"/> on teardown.
+    /// The Tab playfield owns the instance and calls <see cref="Release"/> on teardown.
     /// </summary>
     public sealed class TabModeArt
     {
@@ -39,18 +40,37 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (resourceManager == null || theme == null)
                 return None;
 
-            return new TabModeArt(
-                TryLoad(resourceManager, theme, StripKey),
-                TryLoad(resourceManager, theme, PanelKey),
-                TryLoad(resourceManager, theme, HitLineKey));
+            ITexture? strip = null;
+            ITexture? panel = null;
+            try
+            {
+                strip = TryLoad(resourceManager, theme, StripKey);
+                panel = TryLoad(resourceManager, theme, PanelKey);
+                return new TabModeArt(strip, panel, TryLoad(resourceManager, theme, HitLineKey));
+            }
+            catch
+            {
+                try { strip?.RemoveReference(); }
+                catch { }
+                try { panel?.RemoveReference(); }
+                catch { }
+                throw;
+            }
         }
 
         /// <summary>Drops the references taken by <see cref="Load"/>.</summary>
         public void Release()
         {
-            Strip?.RemoveReference();
-            Panel?.RemoveReference();
-            HitLine?.RemoveReference();
+            Exception? firstFailure = null;
+            void Release(ITexture? texture)
+            {
+                try { texture?.RemoveReference(); }
+                catch (Exception ex) { firstFailure ??= ex; }
+            }
+            Release(Strip);
+            Release(Panel);
+            Release(HitLine);
+            if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
         private static ITexture? TryLoad(IResourceManager resourceManager, ISkinTheme theme, string key)
@@ -60,9 +80,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return null;
 
             ITexture? texture;
+            bool cached;
             try
             {
-                resourceManager.TryLoadTexture(path, out texture);
+                cached = resourceManager.TryLoadTexture(path, out texture);
             }
             catch
             {
@@ -71,17 +92,31 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             if (texture == null)
                 return null;
-            if (texture.Width > 1 && texture.Height > 1)
-                return texture;
+            try
+            {
+                var width = texture.Width;
+                var height = texture.Height;
+                if (width > 1 && height > 1)
+                    return texture;
 
-            // LoadTexture's 1x1 fallback is uncached, so disposing it is the only
-            // way to release its GPU texture (same rule as the skill-panel loader).
-            // Any other rejected size is a real file shared through the cache:
-            // drop only our reference.
-            if (texture.Width == 1 && texture.Height == 1)
-                texture.Dispose();
-            else
-                texture.RemoveReference();
+                // A 1x1 fallback is uncached; thin real textures are shared.
+                var invalid = texture;
+                texture = null;
+                if (width == 1 && height == 1)
+                    invalid.Dispose();
+                else
+                    invalid.RemoveReference();
+            }
+            catch
+            {
+                try
+                {
+                    if (cached) texture?.RemoveReference();
+                    else texture?.Dispose();
+                }
+                catch { }
+                throw;
+            }
             return null;
         }
 

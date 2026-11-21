@@ -15,7 +15,7 @@ namespace DTXMania.Test.Stage.Performance
     public sealed class PreparedGameplayAudioSetTests
     {
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_DeduplicatesRolesAndDisposesOwnedSoundOnce()
+        public async Task PrepareAsyncDefaultProfile_ShouldDeduplicateRolesAndDisposeOwnedSoundOnce()
         {
             var directory = CreateTempDirectory();
             try
@@ -62,7 +62,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_FailingMainBgm_FallsBackSilentlyInsteadOfAborting()
+        public async Task PrepareAsyncDefaultProfileFailingMainBgm_ShouldFallBackSilentlyInsteadOfAborting()
         {
             var directory = CreateTempDirectory();
             try
@@ -105,7 +105,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_OverBudget_RejectsBeforeConstructingAnySounds()
+        public async Task PrepareAsyncOverBudget_ShouldRejectBeforeConstructingAnySounds()
         {
             var directory = CreateTempDirectory();
             try
@@ -152,7 +152,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_WarmCache_ReportsCompletedTransformAndCacheHit()
+        public async Task PrepareAsyncWarmCache_ShouldReportCompletedTransformAndCacheHit()
         {
             var directory = CreateTempDirectory();
             try
@@ -201,7 +201,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_CancelledDuringVariantProcessing_DoesNotPublishSound()
+        public async Task PrepareAsyncCancelledDuringVariantProcessing_ShouldNotPublishSound()
         {
             var directory = CreateTempDirectory();
             try
@@ -271,7 +271,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_BlockingProcessor_ReportsInProgressBeforeCompletion()
+        public async Task PrepareAsyncBlockingProcessor_ShouldReportInProgressBeforeCompletion()
         {
             var directory = CreateTempDirectory();
             try
@@ -353,7 +353,7 @@ namespace DTXMania.Test.Stage.Performance
         /// This isolates the dictionary-retention contract the fix addresses.
         /// </remarks>
         [Fact]
-        public async Task PrepareAsync_VariantProfile_ReleasesArtifactBuffersAsSoundsAreCreated()
+        public async Task PrepareAsyncVariantProfile_ShouldReleaseArtifactBuffersAsSoundsAreCreated()
         {
             var directory = CreateTempDirectory();
             try
@@ -520,7 +520,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_InvalidArguments_ShouldThrow()
+        public async Task PrepareAsyncInvalidArguments_ShouldThrow()
         {
             var defaultModifiers = new PlaybackModifiers(100, 0);
             var nonDefaultModifiers = new PlaybackModifiers(50, 0);
@@ -626,7 +626,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_MissingAndBlankPaths_ShouldBeIgnored()
+        public async Task PrepareAsyncMissingAndBlankPaths_ShouldBeIgnored()
         {
             var directory = CreateTempDirectory();
             try
@@ -666,7 +666,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_ShouldReportScheduledAndChipRoles()
+        public async Task PrepareAsyncDefaultProfile_ShouldReportScheduledAndChipRoles()
         {
             var directory = CreateTempDirectory();
             try
@@ -707,7 +707,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultLoaderCancellation_ShouldPropagate()
+        public async Task PrepareAsyncDefaultLoaderCancellation_ShouldPropagate()
         {
             var directory = CreateTempDirectory();
             try
@@ -734,7 +734,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_PreparedFactoryFailure_ShouldDisposeCreatedSounds()
+        public async Task PrepareAsyncPreparedFactoryFailure_ShouldDisposeCreatedSounds()
         {
             var directory = CreateTempDirectory();
             try
@@ -780,7 +780,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task Dispose_WhenOneSoundThrows_ShouldContinueAndRemainIdempotent()
+        public async Task DisposeWhenOneSoundThrows_ShouldContinueAndRemainIdempotent()
         {
             var directory = CreateTempDirectory();
             try
@@ -821,7 +821,7 @@ namespace DTXMania.Test.Stage.Performance
 
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_CorruptChip_ShouldReportEachFailedSourceOnceWithOriginalException()
+        public async Task PrepareAsyncDefaultProfileCorruptChip_ShouldReportEachFailedSourceOnceWithOriginalException()
         {
             var directory = CreateTempDirectory();
             try
@@ -879,7 +879,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_CorruptMainBgm_ShouldReportFailureOnceAndKeepSilentFallback()
+        public async Task PrepareAsyncDefaultProfileCorruptMainBgm_ShouldReportFailureOnceAndKeepSilentFallback()
         {
             var directory = CreateTempDirectory();
             try
@@ -928,7 +928,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_ThrowingFailureReporter_ShouldNotFailPreparation()
+        public async Task PrepareAsyncDefaultProfileThrowingFailureReporter_ShouldNotFailPreparation()
         {
             var directory = CreateTempDirectory();
             try
@@ -972,7 +972,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_DefaultProfile_MissingReferencedAudio_ShouldReportEachDistinctMissingPathOnce()
+        public async Task PrepareAsyncDefaultProfileMissingReferencedAudio_ShouldReportEachDistinctMissingPathOnce()
         {
             var directory = CreateTempDirectory();
             try

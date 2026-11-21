@@ -12,7 +12,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Displays the current combo count with DTXMania-style formatting
     /// Hidden when combo is 0
     /// </summary>
-    public class ComboDisplay : IDisposable
+    public class ComboDisplay : IDisposable, ILanesComboDisplay
     {
         #region Private Fields
 

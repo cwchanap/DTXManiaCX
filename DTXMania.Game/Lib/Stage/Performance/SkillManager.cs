@@ -7,7 +7,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Computes DTXManiaNX-faithful Playing Skill (0.0-100.0) live during gameplay.
-    /// Subscribes via PerformanceStage to JudgementManager events and reads MaxCombo
+    /// Receives judgements via GameplayRules and reads MaxCombo
     /// from the injected ComboManager, so combo state is never duplicated here.
     /// Reference: DTXManiaNX CScoreIni.tCalculatePlayingSkill (Score,Song/CScoreIni.cs:1641).
     /// </summary>

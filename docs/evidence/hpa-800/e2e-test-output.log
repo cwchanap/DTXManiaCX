@@ -1,0 +1,44 @@
+  Determining projects to restore...
+  Restored DTXMania.Automation/DTXMania.Automation.csproj (in 1.13 sec).
+  Restored DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj (in 1.15 sec).
+  Restored DTXMania.E2E/DTXMania.E2E.csproj (in 1.17 sec).
+  Restored DTXMania.Game/DTXMania.Game.Mac.csproj (in 1.19 sec).
+  Tool 'dotnet-mgcb' (version '3.8.6.1') was restored. Available commands: mgcb
+  Tool 'dotnet-mgcb-editor' (version '3.8.6.1') was restored. Available commands: mgcb-editor
+  Tool 'dotnet-mgcb-editor-linux' (version '3.8.6.1') was restored. Available commands: mgcb-editor-linux
+  Tool 'dotnet-mgcb-editor-windows' (version '3.8.6.1') was restored. Available commands: mgcb-editor-windows
+  Tool 'dotnet-mgcb-editor-mac' (version '3.8.6.1') was restored. Available commands: mgcb-editor-mac
+
+  Restore was successful.
+  DTXMania.Automation -> DTXMania.Automation/bin/Debug/net10.0/DTXMania.Automation.dll
+  DTXMania.VideoRecorder -> DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video.dll
+  DTXMania.Game.Mac -> DTXMania.Game/bin/Debug/net10.0/DTXMania.Game.Mac.dll
+  DTXMania.E2E -> DTXMania.E2E/bin/Debug/net10.0-windows7.0/DTXMania.E2E.dll
+Test run for DTXMania.E2E/bin/Debug/net10.0-windows7.0/DTXMania.E2E.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (arm64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v4.0.1+0f7d528729 (64-bit .NET 10.0.0)
+[xUnit.net 00:00:00.06]   Discovering: DTXMania.E2E
+[xUnit.net 00:00:00.09]   Discovered:  DTXMania.E2E
+[xUnit.net 00:00:00.11]   Starting:    DTXMania.E2E
+  Passed DTXMania.E2E.TabImportSmokeTests.MusicXmlTab_ShouldAutoPlayInTabModeAndReachClearedResult [20 s]
+  Passed DTXMania.E2E.DefaultSkinFirstRunSmokeTests.FirstRun_ShouldRenderBundledDefaultSkinAndPersistDefaultToken [38 s]
+  Passed DTXMania.E2E.GameplayAutoPlaySmokeTests.GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete [21 s]
+  Passed DTXMania.E2E.GameplayAutoPlaySmokeTests.GameplayTabAutoPlay_ShouldJudgeEveryNoteInEffectiveTabModeAndComplete [25 s]
+  Passed DTXMania.E2E.GameplayAutoPlaySmokeTests.GameplayBack_ShouldReturnToSettledSongSelectWithoutResult [13 s]
+  Passed DTXMania.E2E.GameplayAutoPlaySmokeTests.GameplaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches [55 s]
+  Passed DTXMania.E2E.ChartBackgroundVideoSmokeTests.ChartBackgroundVideo_ShouldPlayThroughPerformanceAndReachResult [16 s]
+  Passed DTXMania.E2E.DrumMappingStageSmokeTests.DrumMapping_BindKeyThenBack_PersistsBindingToConfig [9 s]
+  Passed DTXMania.E2E.DrumMappingStageSmokeTests.DrumMapping_ResetViaKeyboard_WipesCustomBindingOnSave [10 s]
+  Passed DTXMania.E2E.MidiGameplaySmokeTests.SimulatedMidiNote_ShouldRegisterGameplayJudgement [20 s]
+  Passed DTXMania.E2E.CrashReportingSmokeTests.ControlledCallbackCrash_ShouldReachProgramBoundaryExactlyOnce(injectionPoint: "update") [2 s]
+[xUnit.net 00:03:57.74]   Finished:    DTXMania.E2E
+  Passed DTXMania.E2E.CrashReportingSmokeTests.ControlledCallbackCrash_ShouldReachProgramBoundaryExactlyOnce(injectionPoint: "draw") [2 s]
+
+Test Run Successful.
+Total tests: 12
+     Passed: 12
+ Total time: 3.9670 Minutes
+Results File: .superpowers/sdd/2026-11-19-hpa-800-implementation-plan/task-4-final-native-H2wPJPEX/e2e-results/e2e.trx

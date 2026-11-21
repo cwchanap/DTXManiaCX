@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -18,41 +19,11 @@ using TabHud = DTXMania.Game.Lib.UI.Layout.PerformanceUILayout.TabHud;
 namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
-    /// Per-frame Tab HUD values snapshotted by PerformanceStage from the existing
-    /// gameplay owners (HPA-509). <see cref="TabHudDisplay"/> renders the snapshot
-    /// read-only; it never recalculates score, combo, life, progress or the song clock.
-    /// </summary>
-    public readonly struct TabHudFrameState
-    {
-        public int Score { get; init; }
-        public int Combo { get; init; }
-        public float Life { get; init; }
-        public float Progress { get; init; }
-        public double ElapsedMs { get; init; }
-        public double TotalMs { get; init; }
-        public double Achievement { get; init; }
-        public int PerfectCount { get; init; }
-        public int GreatCount { get; init; }
-        public int GoodCount { get; init; }
-        public int PoorCount { get; init; }
-        public int MissCount { get; init; }
-        public int MaxCombo { get; init; }
-        public int FastCount { get; init; }
-        public int SlowCount { get; init; }
-
-        /// <summary>
-        /// Run-gate snapshot: the frozen ShowCombo=false must hide the Tab combo
-        /// exactly like the Lanes combo draw (HPA-509 final review).
-        /// </summary>
-        public bool HideCombo { get; init; }
-    }
-
-    /// <summary>
     /// Compact Tab-mode HUD renderer (HPA-509), styled after the skin's neon panel
     /// language: a title panel and a SCORE panel on top, combo + judgement above the
     /// strip hit marker, a segmented LIFE gauge, a thin progress rail and a bottom
     /// stats panel. Presentation only — every value arrives via
-    /// <see cref="TabHudFrameState"/>; the level-weighted game skill reuses the shared
+    /// <see cref="PerformanceFrameState"/>; the level-weighted game skill reuses the shared
     /// <see cref="SongScore.CalculateGameSkill"/> formula on the same chart values
     /// SkillPanelDisplay draws. Colors come from the theme-resolved
     /// <see cref="SkinPalette"/>; panels use the skin's nine-slice
@@ -67,19 +38,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // shared popup table so the Tab HUD never allocates a word per judgement.
         private static readonly Dictionary<JudgementType, string> JudgementWords = BuildJudgementWords();
 
-        private readonly GraphicsDevice _graphicsDevice;
         private readonly SongChart? _chart;
         private readonly string _title;
         private readonly string _artist;
         private readonly Texture2D? _whiteTexture;
+        private readonly Action<SpriteBatch, Rectangle, Color, float>? _fillRectangle;
+        private readonly Action<SpriteBatch, Rectangle, int, Color, Color>? _drawChamfered;
         private readonly TabModeArt _art;
-        private ManagedFont? _comboFont;
-        private ManagedFont? _scoreFont;
-        private ManagedFont? _titleFont;
-        private ManagedFont? _artistFont;
-        private ManagedFont? _valueFont;
-        private ManagedFont? _captionFont;
-        private ManagedFont? _monoFont;
+        private IFont? _comboFont;
+        private IFont? _scoreFont;
+        private IFont? _titleFont;
+        private IFont? _artistFont;
+        private IFont? _valueFont;
+        private IFont? _captionFont;
+        private IFont? _monoFont;
         private bool _resourcesReady;
         private bool _disposed;
 
@@ -122,12 +94,27 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist,
             Texture2D? whiteTexture = null, SkinPalette? palette = null, TabModeArt? art = null,
             ILogger<TabHudDisplay>? logger = null)
+            : this(chart, title, artist, whiteTexture, palette, art, logger,
+                FontFactory(graphicsDevice),
+                whiteTexture == null ? null : (batch, rect, color, depth) =>
+                    batch.Draw(whiteTexture, rect, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth),
+                whiteTexture == null ? null : (batch, rect, chamfer, fill, border) =>
+                    ChamferedBox.Draw(batch, whiteTexture, rect, chamfer, fill, border, TabHud.DepthPanel, TabHud.DepthPanelBorder))
         {
-            _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
+        }
+
+        internal TabHudDisplay(SongChart? chart, string? title, string? artist,
+            Texture2D? whiteTexture, SkinPalette? palette, TabModeArt? art,
+            ILogger<TabHudDisplay>? logger, Func<string, int, IFont>? createFont,
+            Action<SpriteBatch, Rectangle, Color, float>? fillRectangle,
+            Action<SpriteBatch, Rectangle, int, Color, Color>? drawChamfered)
+        {
             _chart = chart;
             _title = title ?? string.Empty;
             _artist = artist ?? string.Empty;
             _whiteTexture = whiteTexture;
+            _fillRectangle = fillRectangle;
+            _drawChamfered = drawChamfered;
             _logger = logger;
             Palette = palette ?? SkinPalette.Default;
             _art = art ?? TabModeArt.None;
@@ -140,9 +127,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _keyCapsByLane[anchor.Lane] = NotationStripLayout.GetKeyCapRect(anchor);
             }
 
-            // Font acquisition needs a live GraphicsDevice, so it can never run
-            // under headless coverage — excluded like the Draw paths.
-            AcquireDrawResources();
+            if (createFont != null) AcquireDrawResources(createFont);
+        }
+
+        private static Func<string, int, IFont> FontFactory(GraphicsDevice device)
+        {
+            ArgumentNullException.ThrowIfNull(device);
+            return (family, size) => ManagedFont.CreateFont(device, family, size);
         }
 
         /// <summary>Theme-resolved colors shared with the notation strip.</summary>
@@ -156,42 +147,30 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public bool IsReady => _resourcesReady && !_disposed;
 
-        /// <summary>
-        /// Test seam: deterministic tests mark a GPU-less display ready so the
-        /// stage's Tab routing paths can run without a real GraphicsDevice. The
-        /// ctor's failed acquisition leaves the display disposed, so the seam
-        /// restores both sides of the readiness state.
-        /// </summary>
-        internal void MarkResourcesReadyForTesting()
-        {
-            _resourcesReady = true;
-            _disposed = false;
-        }
-
         private bool HasDrawResources =>
-            _whiteTexture != null
+            _fillRectangle != null && _drawChamfered != null
             && _comboFont != null && _scoreFont != null && _valueFont != null
             && _captionFont != null && _monoFont != null
             && _titleFont != null && _artistFont != null;
 
         [ExcludeFromCodeCoverage]
-        private void AcquireDrawResources()
+        private void AcquireDrawResources(Func<string, int, IFont> createFont)
         {
             try
             {
-                _comboFont = ManagedFont.CreateFont(_graphicsDevice, TabHud.DisplayFontFamily, TabHud.ComboFontSizePt);
-                _scoreFont = ManagedFont.CreateFont(_graphicsDevice, TabHud.DisplayFontFamily, TabHud.ScoreFontSizePt);
-                _valueFont = ManagedFont.CreateFont(_graphicsDevice, TabHud.DisplayFontFamily, TabHud.ValueFontSizePt);
-                _captionFont = ManagedFont.CreateFont(_graphicsDevice, TabHud.DisplayFontFamily, TabHud.CaptionFontSizePt);
-                _monoFont = ManagedFont.CreateFont(_graphicsDevice, TabHud.MonoFontFamily, TabHud.MonoFontSizePt);
+                _comboFont = createFont(TabHud.DisplayFontFamily, TabHud.ComboFontSizePt);
+                _scoreFont = createFont(TabHud.DisplayFontFamily, TabHud.ScoreFontSizePt);
+                _valueFont = createFont(TabHud.DisplayFontFamily, TabHud.ValueFontSizePt);
+                _captionFont = createFont(TabHud.DisplayFontFamily, TabHud.CaptionFontSizePt);
+                _monoFont = createFont(TabHud.MonoFontFamily, TabHud.MonoFontSizePt);
 
                 // Orbitron is Latin-only: non-ASCII titles/artists keep the CJK serif.
                 _titleFont = DisplayText.IsAsciiDisplayable(_title)
-                    ? ManagedFont.CreateFont(_graphicsDevice, TabHud.DisplayFontFamily, TabHud.TitleFontSizePt)
-                    : ManagedFont.CreateFont(_graphicsDevice, TabHud.SerifFontFamily, TabHud.SerifTitleFontSizePt);
+                    ? createFont(TabHud.DisplayFontFamily, TabHud.TitleFontSizePt)
+                    : createFont(TabHud.SerifFontFamily, TabHud.SerifTitleFontSizePt);
                 _artistFont = DisplayText.IsAsciiDisplayable(_artist)
-                    ? ManagedFont.CreateFont(_graphicsDevice, TabHud.MonoFontFamily, TabHud.MonoFontSizePt)
-                    : ManagedFont.CreateFont(_graphicsDevice, TabHud.SerifFontFamily, TabHud.SerifSmallFontSizePt);
+                    ? createFont(TabHud.MonoFontFamily, TabHud.MonoFontSizePt)
+                    : createFont(TabHud.SerifFontFamily, TabHud.SerifSmallFontSizePt);
 
                 _resourcesReady = HasDrawResources;
             }
@@ -202,7 +181,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // stays false). The original exception is preserved; direct font
                 // creation never goes through ResourceManager, so this is not
                 // reported by OnResourceLoadFailed.
-                _logger?.LogError(ex, "TabHudDisplay: failed to acquire fonts");
+                try { _logger?.LogError(ex, "TabHudDisplay: failed to acquire fonts"); }
+                catch
+                {
+                    try { Dispose(true); }
+                    catch { }
+                    throw;
+                }
                 Dispose(true);
             }
         }
@@ -212,13 +197,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// resources failed to acquire.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        public void Draw(SpriteBatch spriteBatch, in TabHudFrameState state)
+        public void Draw(SpriteBatch spriteBatch, in PerformanceFrameState state, bool hideCombo)
         {
-            if (_disposed || spriteBatch == null || !HasDrawResources)
+            if (_disposed || (spriteBatch == null && _whiteTexture != null) || !HasDrawResources)
                 return;
 
             DrawHeader(spriteBatch, state.Score);
-            DrawCombo(spriteBatch, state);
+            DrawCombo(spriteBatch, state, hideCombo);
             DrawTransientFeedback(spriteBatch);
             DrawLife(spriteBatch, state.Life);
             DrawProgress(spriteBatch, state.Progress, state.ElapsedMs, state.TotalMs);
@@ -303,7 +288,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         public void DrawKeyFlashes(SpriteBatch spriteBatch)
         {
-            if (_disposed || spriteBatch == null || _whiteTexture == null)
+            if (_disposed || (spriteBatch == null && _whiteTexture != null) || _fillRectangle == null)
                 return;
 
             for (int lane = 0; lane < _flashTimers.Length; lane++)
@@ -398,10 +383,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         [ExcludeFromCodeCoverage]
-        private void DrawCombo(SpriteBatch spriteBatch, in TabHudFrameState state)
+        private void DrawCombo(SpriteBatch spriteBatch, in PerformanceFrameState state, bool hideCombo)
         {
             // Same gate as the Lanes combo draw: ShowCombo=false hides it entirely.
-            if (state.HideCombo || state.Combo <= 0)
+            if (hideCombo || state.Combo <= 0)
                 return;
 
             if (state.Combo != _lastCombo)
@@ -514,7 +499,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         [ExcludeFromCodeCoverage]
-        private void DrawStatsRow(SpriteBatch spriteBatch, in TabHudFrameState state)
+        private void DrawStatsRow(SpriteBatch spriteBatch, in PerformanceFrameState state)
         {
             // Level-weighted game skill: same shared formula and same chart values
             // SkillPanelDisplay.Draw uses — no new skill formula here.
@@ -656,11 +641,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         private void DrawChamfered(SpriteBatch spriteBatch, Rectangle r, int c, Color fill, Color border)
         {
-            ChamferedBox.Draw(spriteBatch, _whiteTexture!, r, c, fill, border, TabHud.DepthPanel, TabHud.DepthPanelBorder);
+            _drawChamfered?.Invoke(spriteBatch, r, c, fill, border);
         }
 
         [ExcludeFromCodeCoverage]
-        private static void DrawText(SpriteBatch spriteBatch, ManagedFont font, string text, Vector2 position, Color color)
+        private static void DrawText(SpriteBatch spriteBatch, IFont font, string text, Vector2 position, Color color)
         {
             font.DrawString(spriteBatch, text, position, color, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, TabHud.DepthText);
         }
@@ -670,7 +655,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// offset around the text on the shadow plane, then the text itself.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        private void DrawGlowing(SpriteBatch spriteBatch, ManagedFont font, string text, Vector2 position, Color color)
+        private void DrawGlowing(SpriteBatch spriteBatch, IFont font, string text, Vector2 position, Color color)
         {
             Color glow = Palette.Accent * TabHud.GlowAlpha;
             float o = TabHud.GlowOffset;
@@ -693,7 +678,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         private static void DrawShadowed(
             SpriteBatch spriteBatch,
-            ManagedFont font,
+            IFont font,
             string text,
             Vector2 position,
             Color color)
@@ -715,7 +700,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         private void FillRectangle(SpriteBatch spriteBatch, Rectangle rect, Color color, float depth)
         {
-            spriteBatch.Draw(_whiteTexture!, rect, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
+            _fillRectangle?.Invoke(spriteBatch, rect, color, depth);
         }
 
         private static Dictionary<JudgementType, string> BuildJudgementWords()
@@ -767,28 +752,34 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed)
                 return;
 
+            _disposed = true;
+            _resourcesReady = false;
             if (disposing)
             {
-                _comboFont?.Dispose();
+                Exception? firstFailure = null;
+                void Release(IFont? font)
+                {
+                    try { font?.Dispose(); }
+                    catch (Exception ex) { firstFailure ??= ex; }
+                }
+                Release(_comboFont);
                 _comboFont = null;
-                _scoreFont?.Dispose();
+                Release(_scoreFont);
                 _scoreFont = null;
-                _titleFont?.Dispose();
+                Release(_titleFont);
                 _titleFont = null;
-                _artistFont?.Dispose();
+                Release(_artistFont);
                 _artistFont = null;
-                _valueFont?.Dispose();
+                Release(_valueFont);
                 _valueFont = null;
-                _captionFont?.Dispose();
+                Release(_captionFont);
                 _captionFont = null;
-                _monoFont?.Dispose();
+                Release(_monoFont);
                 _monoFont = null;
                 // _whiteTexture belongs to the stage (the shared fallback pixel) —
                 // this class borrows it and must not dispose it.
+                if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
             }
-
-            _resourcesReady = false;
-            _disposed = true;
         }
     }
 }

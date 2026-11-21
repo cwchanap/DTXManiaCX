@@ -14,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Renders scrolling notes for the 10-lane GITADORA XG layout
     /// Handles note positioning, scrolling, and visual effects
     /// </summary>
-    public class NoteRenderer : IDisposable
+    public class NoteRenderer : IDisposable, ILanesNoteRenderer
     {
         #region Constants
 
@@ -278,12 +278,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var noteY = JudgementY - yOffset;
 
 
-            // Skip notes that have passed the drop grace period
-            if (noteY > JudgementY + DropGracePeriod)
-                return;
-
-            // Skip notes whose sprite is entirely above the screen
-            if (noteY < -DrumChipsSpriteHeight / 2.0)
+            if (IsNoteOutsideVisibleRange(noteY))
                 return;
 
             // Get lane position and color
@@ -400,7 +395,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var noteY = JudgementY - yOffset;
 
             // Skip notes that have passed the drop grace period or are entirely above screen
-            if (noteY > JudgementY + DropGracePeriod || noteY < -DrumChipsSpriteHeight / 2.0)
+            if (IsNoteOutsideVisibleRange(noteY))
                 return;
 
             // Only draw overlay if we have drum chips texture with valid, non-disposed texture
@@ -524,6 +519,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         #endregion
+
+        internal static bool IsNoteOutsideVisibleRange(double noteY) =>
+            noteY > PerformanceUILayout.JudgelineY + DropGracePeriod || noteY < -DrumChipsSpriteHeight / 2.0;
 
         #region Private Methods
 

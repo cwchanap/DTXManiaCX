@@ -105,7 +105,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly List<JudgementTextPopup> _activePopups;
         private readonly IFont? _font;
         private readonly IResourceManager _resourceManager;
-        private readonly GraphicsDevice _graphicsDevice;
         private readonly Action<IFont, SpriteBatch, string, int, int, Color> _drawText;
         private bool _disposed = false;
 
@@ -125,7 +124,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Constructor
 
         public JudgementTextPopupManager(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
-            : this(graphicsDevice, resourceManager, LoadJudgementFont(graphicsDevice, resourceManager))
+            : this(resourceManager, LoadJudgementFont(graphicsDevice, resourceManager))
+        {
+        }
+
+        internal JudgementTextPopupManager(IResourceManager resourceManager)
+            : this(resourceManager, LoadJudgementFontFromResources(resourceManager))
         {
         }
 
@@ -137,7 +141,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             bool disposed = false,
             Action<IFont, SpriteBatch, string, int, int, Color>? drawText = null)
         {
-            var manager = new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups, drawText);
+            ArgumentNullException.ThrowIfNull(graphicsDevice);
+            var manager = new JudgementTextPopupManager(resourceManager, font, activePopups, drawText);
             if (disposed)
             {
                 manager.Dispose();
@@ -147,13 +152,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         private JudgementTextPopupManager(
-            GraphicsDevice graphicsDevice,
             IResourceManager resourceManager,
             IFont? font,
             List<JudgementTextPopup>? activePopups = null,
             Action<IFont, SpriteBatch, string, int, int, Color>? drawText = null)
         {
-            _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _activePopups = activePopups ?? new List<JudgementTextPopup>();
             _font = font;
@@ -292,6 +295,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private static IFont? LoadJudgementFont(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
         {
             ArgumentNullException.ThrowIfNull(graphicsDevice);
+            return LoadJudgementFontFromResources(resourceManager);
+        }
+
+        private static IFont? LoadJudgementFontFromResources(IResourceManager resourceManager)
+        {
             ArgumentNullException.ThrowIfNull(resourceManager);
 
             try

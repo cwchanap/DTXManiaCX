@@ -534,6 +534,58 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(1, manager.GetJudgementCount(JudgementType.Miss));
         }
 
+        [Fact]
+        public void LateManualMiss_CountsInSkillButNotTimedOutMisses()
+        {
+            using var input = CreateMockInput();
+            var chart = CreateTestChart(1000.0);
+            using var manager = new JudgementManager(input, chart);
+            using var combo = new ComboManager();
+            using var skill = new SkillManager(chart.TotalNotes, combo);
+            manager.JudgementMade += (_, judgement) =>
+            {
+                combo.ProcessJudgement(judgement);
+                skill.ProcessJudgement(judgement);
+            };
+            input.ModularInputManager.KeyBindings.BindButton("Test.Lane0", 0);
+            Assert.True(input.ModularInputManager.InjectButton("Test.Lane0", true));
+            input.ModularInputManager.Update();
+
+            manager.Update(1160.0);
+
+            Assert.Equal(JudgementType.Miss, manager.GetNoteRuntimeData(0)!.JudgementEvent!.Type);
+            Assert.Equal(NoteStatus.Hit, manager.GetNoteRuntimeData(0)!.Status);
+            Assert.Equal(1, skill.MissCount);
+            Assert.Equal(0, manager.GetJudgementCount(JudgementType.Miss));
+        }
+
+        [Fact]
+        public void Update_WhenJudgementMadeHandlerEnqueuesReentrantHit_ShouldDeferToNextUpdateWithoutThrowing()
+        {
+            using var input = CreateMockInput();
+            var chart = new ParsedChart("reentrant.dtx") { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.AddNote(new Note(1, 0, 96, 0x12, "01"));
+            chart.FinalizeChart();
+            using var manager = new JudgementManager(input, new ChartManager(chart));
+            bool enqueuedReentrant = false;
+            manager.JudgementMade += (_, _) =>
+            {
+                if (!enqueuedReentrant)
+                {
+                    enqueuedReentrant = true;
+                    manager.EnqueueLaneHit(1);
+                }
+            };
+
+            manager.EnqueueLaneHit(0);
+            manager.Update(1000.0);
+
+            Assert.Equal(1, manager.GetJudgementCount(JudgementType.Perfect));
+            manager.Update(1000.0);
+            Assert.Equal(2, manager.GetJudgementCount(JudgementType.Perfect));
+        }
+
         #endregion
 
         #region GetStatistics Tests with Different Judgements

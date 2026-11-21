@@ -1,11 +1,13 @@
 #nullable enable
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -27,8 +29,6 @@ using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Utilities;
-// The UI layout namespace also declares a MeasureLine class; notation inputs use the chart-component one.
-using MeasureLine = DTXMania.Game.Lib.Song.Components.MeasureLine;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -45,8 +45,8 @@ namespace DTXMania.Game.Lib.Stage
     /// 4. Stage completion - Results calculation and transition to next stage
     /// 
     /// The stage uses an event-driven architecture where JudgementManager raises
-    /// JudgementMade events that are forwarded to ScoreManager, ComboManager,
-    /// and GaugeManager for processing.
+    /// JudgementMade events that GameplayRules forwards to the gameplay managers,
+    /// followed by stage visual feedback.
     /// </remarks>
     public class PerformanceStage : BaseStage, IStageTelemetryProvider
     {
@@ -56,6 +56,7 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager;
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
+        private IPerformancePlayfield? _playfield;
 
         // Stage data - initialized via ExtractSharedData
         private SongListNode _selectedSong = null!;
@@ -63,32 +64,9 @@ namespace DTXMania.Game.Lib.Stage
 
         // Performance components - initialized in InitializeComponents
         private BackgroundRenderer _backgroundRenderer = null!;
-        private LaneBackgroundRenderer _laneBackgroundRenderer = null!;
-        private JudgementLineRenderer _judgementLineRenderer = null!;
-        private ScoreDisplay _scoreDisplay = null!;
-        private ComboDisplay _comboDisplay = null!;
 
         // Phase 2 components - Chart loading and note scrolling
         private ParsedChart _parsedChart = null!;
-        private ChartManager _chartManager = null!;
-        private AudioLoader _audioLoader = null!;
-        private SongTimer _songTimer = null!;
-        private NoteRenderer _noteRenderer = null!;
-
-        // Phase 3 components - Gameplay managers
-        private JudgementManager _judgementManager = null!;
-        private ScoreManager _scoreManager = null!;
-        private ComboManager _comboManager = null!;
-        private GaugeManager _gaugeManager = null!;
-        private SkillManager? _skillManager;
-        private SkillPanelDisplay? _skillPanelDisplay;
-        private SkillMeterDisplay? _skillMeterDisplay;
-        private TabHudDisplay? _tabHudDisplay;
-        private NxAttackEffectManager _nxAttackEffectManager = null!;
-        private JudgementTextPopupManager _fontJudgementTextPopupManager = null!;
-        private SpriteJudgementTextPopupManager _spriteJudgementTextPopupManager = null!;
-        private HitTimingFeedbackDisplay _hitTimingFeedbackDisplay = null!;
-        private PadRenderer _padRenderer = null!;
 
         // HPA-11 chart background video. The player is game-owned and non-blocking;
         // scheduling keeps one cursor into the chart's sorted VideoEvents plus the
@@ -97,21 +75,20 @@ namespace DTXMania.Game.Lib.Stage
         private int _nextVideoEventIndex;
         private ChartVideoEvent? _activeVideoEvent;
 
-        // BGM management
-        private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
-        private HashSet<string> _bgmPlayFailureReported = new HashSet<string>();
-        private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
-        private readonly List<SoundEffectInstance> _activeBgmInstances = new();
+        // Gameplay audio session (HPA-800): owns the prepared audio set, audio
+        // loader, song timer, chip-sound cache, scheduled/active BGM playback
+        // and the metronome. Bound on the update thread when background audio
+        // preparation completes; null before that and after cleanup.
+        private GameplayAudioSession? _audioSession;
 
-        // Drum chip-sound cache (per-note WAV playback for autoplay + player input)
-        private ChipSoundCache _chipSoundCache = null!;
-        private PreparedGameplayAudioSet? _preparedAudioSet;
+        /// <summary>
+        /// Bound gameplay audio session for this activation. The owned audio
+        /// state and transport live inside it.
+        /// </summary>
+        internal GameplayAudioSession? AudioSession => _audioSession;
+
         private PlaybackModifiers _playbackModifiers = new(100, 0);
         private bool _metronomeEnabled;
-        private ISound? _metronomeBeatSound;
-        private ISound? _metronomeAccentSound;
-        private MetronomePlayer? _metronomePlayer;
-        private HashSet<ISound>? _metronomeFailureReportedSounds;
         private AudioPreparationProgress? _audioPreparationProgress;
         private DateTime _audioPreparationStartedUtc;
         private string? _loadErrorMessage;
@@ -125,22 +102,7 @@ namespace DTXMania.Game.Lib.Stage
         // Performance UI Assets - initialized in InitializeComponents
         private ITexture _backgroundTexture = null!;
         private ITexture _shutterTexture = null!; // Single shutter texture
-        private ITexture _laneBgTexture = null!;
-        private ITexture _laneDividerTexture = null!;
-        private ITexture _laneFlashTexture = null!;
-        private ITexture _judgementLineTexture = null!;
-        private ITexture _gaugeBaseTexture = null!;
-        private ITexture _gaugeFillTexture = null!;
-        private ITexture _progressBaseTexture = null!;
-        private ITexture _progressFillTexture = null!;
-        private ITexture _comboDigitsTexture = null!;
-        private ITexture _scoreDigitsTexture = null!;
-        private ITexture _pauseOverlayTexture = null!;
         private ITexture _dangerOverlayTexture = null!;
-        private ITexture _skillPanelTexture = null!;
-        
-        // Judgement text textures (using sprite sheets)
-        private ITexture _judgeStringsTexture = null!;
         
         // Gameplay state
         private bool _isLoading = true;
@@ -149,84 +111,34 @@ namespace DTXMania.Game.Lib.Stage
         private GameTime _currentGameTime = null!;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
-        private double? _chartEndReachedRealTimeSeconds;
-        // Last-hit telemetry, published on the Update thread (OnLaneHitForPadFeedback) and
-        // read on the Kestrel API thread (PopulateTelemetry). Collapsed into a single
-        // immutable reference so the API thread can never observe a torn combination
-        // (e.g. a stale lane paired with a fresh song time): reference assignment is
-        // atomic on .NET, and the record's init-only fields are fully constructed before
-        // the reference is published. "No hit yet" is represented by a null reference.
-        // Matches the existing non-volatile cross-thread read pattern used by the other
-        // PopulateTelemetry fields (_stageCompleted, _isLoading, ...); freshness is not a
-        // goal here — only internal consistency of the three values.
+        // Input and lifecycle changes are captured together in the published snapshot.
         internal sealed record LastLaneHit(int Lane, string? ButtonId, double SongTimeMs);
         private LastLaneHit? _lastLaneHit;
+        private PublishedTelemetry _publishedTelemetry = new();
         private Texture2D? _fallbackWhiteTexture;
 
         // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
         // _fallbackWhiteTexture above is its borrowed raw texture.
         private ITexture? _fallbackWhiteTextureResource;
-        private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
         // UI state tracking
-        private bool _isPaused = false;
         private bool _isDanger = false;
         private float _currentGaugeValue = 0.5f; // 0.0 to 1.0
         private float _currentProgressValue = 0.0f; // 0.0 to 1.0
 
-        // Stage completion state
-        private bool _stageCompleted = false;
         private bool _inputPaused = false;
-        private PerformanceSummary _performanceSummary = null!;
         
-        // Autoplay functionality. The lane set is copied from config at
-        // activation (frozen for the run); the live ConfigData collection is
-        // never retained. An empty set means fully manual play.
-        private HashSet<int> _autoPlayLanes = new HashSet<int>();
-
-        /// <summary>
-        /// Read accessor for the frozen lane set. Lazily materializes an empty
-        /// set so reflection-created (uninitialized) stage instances — common
-        /// in tests — behave as fully manual play instead of throwing
-        /// NullReferenceException.
-        /// </summary>
-        private HashSet<int> FrozenAutoPlayLanes => _autoPlayLanes ??= new HashSet<int>();
-
-        private bool _autoAddGaugeEnabled = true;
-        private GaugeDamageLevel _gaugeDamageLevel = GaugeDamageLevel.Normal;
-        private int _riskyLimit = RiskyRange.Default;
-        private bool _gaugeFailureEnabled = true;
-        private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
+        private static readonly GameplayRules EmptyRules = new(null);
+        internal GameplayRules? Rules { get; private set; }
+        private IReadOnlySet<int> FrozenAutoPlayLanes =>
+            Rules?.AutoPlayLanes ?? FrozenSet<int>.Empty;
         private PerformanceVisualGates _visualGates;
 
         private readonly record struct PerformanceVisualGates(
-            bool HideLaneBackground,
-            bool HideMeasureLines,
-            bool HideJudgementLine,
             bool HideCombo,
-            bool EnableLaneFlush,
             bool ShowHitTimingFeedback,
             DrumsNoteDisplayStyle RequestedNoteDisplayStyle);
 
-        // HPA-411 Tab mode. The pure notation chart is built once on the activation
-        // worker (when the requested style is Tab) and published together with the
-        // parsed chart BEFORE audio preparation starts (ApplyParsedChart), so the
-        // right playfield is on screen for the whole LOADING phase; the renderer
-        // (which owns the font loads) is constructed exactly once on the update
-        // thread there. The effective style is derived from the _notationStrip
-        // reference alone — non-null means Tab, null means Lanes; a failed attempt
-        // means Lanes for the rest of the song.
-        private NotationStripRenderer? _notationStrip;
-
-        // Skin art borrowed by the strip and the Tab HUD; released on cleanup.
-        private TabModeArt? _tabModeArt;
-
-        // HPA-509: the Tab HUD draws only while both the strip and its own resources
-        // are live. A HUD whose fonts/primitive failed to load rolls the strip back
-        // to Lanes in TryConstructNotationStrip, so a false read here already means
-        // the consistent Lanes stack — never a strip under Lanes widgets.
-        private bool IsTabHudActive => _notationStrip != null && _tabHudDisplay?.IsReady == true;
-        
         // Note: Using global stage transition debouncing from BaseGame
 
         #endregion
@@ -256,11 +168,20 @@ namespace DTXMania.Game.Lib.Stage
             _inputManager = game.InputManager;
         }
 
-        protected virtual IAudioVariantProcessor CreateAudioVariantProcessor()
-            => new FfmpegAudioVariantProcessor();
+        /// <summary>
+        /// Resolves the stage-independent processor factory used when a
+        /// non-default playback profile requires prepared audio variants. The
+        /// virtual is invoked on the update thread before the background
+        /// worker launches; the returned delegate must not capture mutable
+        /// stage state, so the worker can invoke it (construction is I/O-heavy
+        /// and must stay off the update thread, after chart publication).
+        /// </summary>
+        protected virtual Func<IAudioVariantProcessor> CreateAudioVariantProcessorFactory()
+            => () => new FfmpegAudioVariantProcessor();
 
-        protected virtual PlaybackAudioVariantCache CreateAudioVariantCache()
-            => new();
+        /// <inheritdoc cref="CreateAudioVariantProcessorFactory"/>
+        protected virtual Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory()
+            => () => new PlaybackAudioVariantCache();
 
         /// <summary>
         /// Creates the HPA-11 chart background video player. Extracted as a seam so
@@ -271,19 +192,30 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         protected virtual IChartVideoPlayer CreateChartVideoPlayer()
             => new FfmpegChartVideoPlayer(
-                _spriteBatch.GraphicsDevice,
-                message => LogPerformanceError(message));
+                _spriteBatch.GraphicsDevice, message => LogPerformanceError(message));
+
+        protected virtual IChartVideoPlayer? CreateChartVideoPlayerIfAvailable() =>
+            _spriteBatch == null ? null : CreateChartVideoPlayer();
 
         /// <summary>
         /// Creates the chart video player and resets scheduling state. Extracted so
         /// the GPU-dependent creation can be excluded from headless coverage.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        private void InitializeChartVideoPlayer()
+        private bool InitializeChartVideoPlayer(StageBackgroundWorkScope? scope)
         {
-            _chartVideoPlayer = CreateChartVideoPlayer();
+            var player = CreateChartVideoPlayerIfAvailable();
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                // A synchronous factory callback may already have started a different run.
+                player?.Dispose();
+                return false;
+            }
+
+            _chartVideoPlayer = player;
             _nextVideoEventIndex = 0;
             _activeVideoEvent = null;
+            return true;
         }
 
         /// <summary>
@@ -296,15 +228,40 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice)
             => graphicsDevice != null ? new SpriteBatch(graphicsDevice) : null;
 
+        protected virtual IPerformancePlayfield? CreateLanesPlayfield(GraphicsDevice? device, Texture2D? whitePixel)
+        {
+            if (device == null) return null;
+            var labels = _selectedSong?.DifficultyLabels;
+            var label = labels != null && _selectedDifficulty >= 0 && _selectedDifficulty < labels.Length
+                ? labels[_selectedDifficulty] : null;
+            return new LanesPlayfield(device, _resourceManager, whitePixel,
+                _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty), label, _game.ConfigManager.Config);
+        }
+
+        protected virtual IPerformancePlayfield? CreateTabPlayfield(Func<IPerformancePlayfield?> create) =>
+            _spriteBatch != null ? create() : null;
+
+        internal virtual TabHudDisplay? CreateTabHud(GraphicsDevice? device, SongChart? chart,
+            string? title, string? artist, Texture2D? whitePixel, SkinPalette palette, TabModeArt art)
+        {
+            if (device == null) return null;
+            return new TabHudDisplay(device, chart, title, artist, whitePixel, palette, art,
+                _game.LoggerFactory?.CreateLogger<TabHudDisplay>() ?? NullLogger<TabHudDisplay>.Instance);
+        }
+
+        protected virtual ITexture? CreateFallbackWhiteTexture() =>
+            _spriteBatch != null ? _resourceManager.CreateTextureFromColor(Color.White) : null;
+
         #endregion
 
         #region BaseStage Implementation
 
         protected override void OnActivate()
         {
+            var scope = BackgroundWork;
             var config = _game.ConfigManager.Config;
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
             _metronomeEnabled = config.Metronome;
-            ResetMetronomeFailureSuppression();
             _playbackModifiers = new PlaybackModifiers(
                 PlaySpeedRange.SnapAndClamp(config.PlaySpeedPercent),
                 PitchRange.SnapAndClamp(config.PitchSemitones));
@@ -315,16 +272,22 @@ namespace DTXMania.Game.Lib.Stage
             ExtractSharedData();
 
             // Freeze run configuration from config
-            FreezeRunConfiguration();
+            FreezeRunConfiguration(config);
+            PublishTelemetry();
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
 
             // Initialize UI components
-            InitializeComponents();
+            if (!InitializeComponents(scope))
+                return;
 
             // Start chart/audio preparation on the activation's background-work scope;
             // every activation input is snapshotted on this (update) thread before Run.
-            StartGameplayInitialization();
+            _ = StartGameplayInitialization();
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             var configManager = _game?.ConfigManager;
+            if (!ReferenceEquals(scope, BackgroundWork)) return;
             if (configManager != null)
             {
                 _subscribedConfigManager = configManager;
@@ -334,21 +297,40 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
+            var scope = BackgroundWork;
             // BaseStage.Deactivate already retired the activation's background-work
             // scope synchronously before this override, so no result can reach the
             // components during teardown.
-            if (_subscribedConfigManager != null)
+            var configManager = _subscribedConfigManager;
+            _subscribedConfigManager = null;
+            Exception? failure = null;
+            if (configManager != null)
             {
-                _subscribedConfigManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
-                _subscribedConfigManager.FlushPendingSave();
-                _subscribedConfigManager = null;
+                try { configManager.ScrollSpeedChanged -= OnScrollSpeedChanged; }
+                catch (Exception ex) { failure = ex; }
+                if (ReferenceEquals(scope, BackgroundWork))
+                {
+                    try { configManager.FlushPendingSave(); }
+                    catch (Exception ex) { failure ??= ex; }
+                }
             }
-
-            CleanupComponents();
+            if (ReferenceEquals(scope, BackgroundWork))
+            {
+                try { CleanupComponents(); }
+                catch (Exception ex) { failure ??= ex; }
+            }
+            try
+            {
+                if (ReferenceEquals(scope, BackgroundWork))
+                    PublishTelemetry();
+            }
+            catch (Exception ex) { failure ??= ex; }
+            if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         protected override void OnUpdate(double deltaTime)
         {
+            var scope = BackgroundWork;
             // Update total time for precise GameTime tracking
             _totalTime += deltaTime;
 
@@ -360,6 +342,8 @@ namespace DTXMania.Game.Lib.Stage
 
             // Handle input
             HandleInput();
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             // Update UI manager
             _uiManager?.Update(deltaTime);
@@ -372,9 +356,13 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update gameplay state
             UpdateGameplay(deltaTime);
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             // Update song timer
-            _songTimer?.Update(_currentGameTime);
+            _audioSession?.UpdateTimer(_currentGameTime);
+            if (scope != null && ReferenceEquals(scope, BackgroundWork))
+                PublishTelemetry();
         }
 
 
@@ -400,50 +388,15 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
 
             // Draw background (furthest back - highest depth value)
-            DrawBackground();
-
-            // HPA-411 Tab: the notation strip replaces the whole lane playfield — lane
-            // backgrounds, measure lines, pads, falling notes and the judgement line
-            // draw only in Lanes (same song clock and live scroll speed either way).
-            if (_notationStrip != null)
-            {
-                DrawNotationStrip();
-
-                // HPA-509: key flashes belong in the base BackToFront batch, directly
-                // after the strip, at DepthKeyFlash (0.35) so they render behind the
-                // strip labels (0.30) but above the key mask (0.40).
-                _tabHudDisplay?.DrawKeyFlashes(_spriteBatch);
-            }
-            else
-            {
-                // Draw lane backgrounds
-                DrawLaneBackgrounds();
-
-                // Draw scrolling measure boundaries above lanes and behind gameplay objects
-                DrawMeasureLines();
-
-                // Draw pad indicators (above lane backgrounds, below notes)
-                DrawPads();
-
-                // Draw scrolling notes
-                DrawNotes();
-
-                // Draw judgement line
-                DrawJudgementLine();
-            }
-
-            // Draw judgement text popups
-            DrawJudgementTexts();
+            var viewport = _spriteBatch.GraphicsDevice.Viewport;
+            DrawBasePass(new Rectangle(0, 0, viewport.Width, viewport.Height));
 
             _spriteBatch.End();
 
             // Overlay pass: Note overlays with alpha blending (above notes, below UI)
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
 
-            // Draw note overlay animations with alpha blending (on top of base animations)
-            // HPA-411 Tab: falling-note overlays do not apply to the notation strip.
-            if (_notationStrip == null)
-                DrawNoteOverlays();
+            DrawPlayfieldOverlay(_spriteBatch);
 
             _spriteBatch.End();
 
@@ -453,9 +406,6 @@ namespace DTXMania.Game.Lib.Stage
             // Draw UI elements (gauge, score, combo)
             DrawUIElements();
 
-            // Draw ready state or loading indicator
-            DrawGameplayState();
-
             // Draw scroll-speed indicator toast (on top of everything via depth 0.0)
             _scrollSpeedIndicator?.Draw(_spriteBatch);
 
@@ -464,17 +414,43 @@ namespace DTXMania.Game.Lib.Stage
             // Effects pass: Hit effects with additive blending (drawn on top of everything)
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
 
-            // Draw hit effects with additive blending — sparks land at lane positions,
-            // so they apply only in Lanes mode and never over the notation strip.
-            if (_notationStrip == null)
-                DrawHitEffects();
+            DrawPlayfieldAdditive(_spriteBatch);
 
             _spriteBatch.End();
+        }
+
+        internal void DrawPlayfieldBase(SpriteBatch batch)
+        {
+            _playfield?.DrawBase(batch, Rules?.ChartManager,
+                _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
+                CurrentVisualSongTimeMs);
+        }
+
+        internal void DrawBasePass(Rectangle viewport)
+        {
+            DrawBackground(viewport);
+            DrawPlayfieldBase(_spriteBatch);
+        }
+
+        internal void DrawPlayfieldOverlay(SpriteBatch batch)
+        {
+            _playfield?.DrawOverlay(batch, Rules?.ChartManager,
+                _audioSession?.IsPlaying == true || _audioSession?.IsPaused == true,
+                CurrentVisualSongTimeMs);
+        }
+
+        internal void DrawPlayfieldAdditive(SpriteBatch batch)
+        {
+            _playfield?.DrawAdditive(batch);
         }
 
         #endregion
 
         #region Initialization and Cleanup
+
+        private double CurrentVisualSongTimeMs =>
+            _audioSession != null && _currentGameTime != null
+                ? _audioSession.GetCurrentMs(_currentGameTime) : 0.0;
 
         private void ExtractSharedData()
         {
@@ -486,91 +462,107 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void FreezeRunConfiguration()
+        private void FreezeRunConfiguration(ConfigData? config)
         {
-            var config = _game?.ConfigManager?.Config;
-            var laneDisplayMode = config?.LaneDisplayMode ?? DrumsLaneDisplayMode.AllOn;
             var noteDisplayStyle = config?.NoteDisplayStyle ?? DrumsNoteDisplayStyle.Lanes;
             _visualGates = new PerformanceVisualGates(
-                HideLaneBackground: !laneDisplayMode.ShowsLaneBackground(),
-                HideMeasureLines: !laneDisplayMode.ShowsMeasureLines(),
-                HideJudgementLine: !(config?.ShowJudgementLine ?? true),
                 HideCombo: !(config?.ShowCombo ?? true),
-                EnableLaneFlush: config?.EnableLaneFlush ?? false,
                 ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false,
                 RequestedNoteDisplayStyle: noteDisplayStyle);
 
-            // Defensive copy: the run owns its lane set. Later config edits
-            // (UI toggles, mid-song SetAutoPlayLane) must not alter which
-            // lanes this performance automates.
-            _autoPlayLanes = new HashSet<int>(config?.AutoPlayLanes ?? Enumerable.Empty<int>());
-            _autoAddGaugeEnabled = config?.AutoAddGauge ?? true;
-            _gaugeDamageLevel = config?.DamageLevel ?? GaugeDamageLevel.Normal;
-            _riskyLimit = RiskyRange.Clamp(config?.Risky ?? RiskyRange.Default);
-            _gaugeFailureEnabled = !(config?.NoFail ?? false);
-            _autoPlayNoteIndex = 0;
-
+            Rules = new GameplayRules(config);
         }
 
-        private void InitializeComponents()
+        private bool InitializeComponents(StageBackgroundWorkScope? scope)
         {
-            // HPA-796: acquire the cached white pixel BEFORE constructing renderers —
-            // JudgementLineRenderer (and later the Tab HUD) borrow its raw texture.
-            _fallbackWhiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
-            _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture!;
-
-            // Initialize background renderer
-            _backgroundRenderer = new BackgroundRenderer(_resourceManager);
-
-            // Start async background loading
-            _ = _backgroundRenderer.LoadBackgroundAsync();
-
-            // Initialize lane background and judgement line renderers
-            var graphicsDevice = _spriteBatch.GraphicsDevice;
-            _laneBackgroundRenderer = new LaneBackgroundRenderer(_resourceManager);
-            _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice, _fallbackWhiteTexture!);
-
-            // Initialize score and combo displays
-            _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);
-            _comboDisplay = new ComboDisplay(_resourceManager, graphicsDevice);
-
-            // Skill displays (SkillManager itself is constructed in InitializeGameplayManagers
-            // because it needs ComboManager + ChartManager.TotalNotes which arrive later)
-            var skillChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
-            // The difficulty badge name comes from the selected song-select slot (the chart entity has
-            // none once loaded from the DB). This is the same label the song-select panel shows.
-            string? difficultyLabel = null;
-            var labels = _selectedSong?.DifficultyLabels;
-            if (labels != null && _selectedDifficulty >= 0 && _selectedDifficulty < labels.Length)
+            ITexture? pixel = null;
+            BackgroundRenderer? background = null;
+            IPerformancePlayfield? candidate = null;
+            bool pixelTransferred = false, leased = false, ready = false;
+            Exception? firstFailure = null;
+            void Release(Action action)
             {
-                difficultyLabel = labels[_selectedDifficulty];
+                try { action(); }
+                catch (Exception ex) { firstFailure ??= ex; }
             }
-            _skillPanelDisplay = new SkillPanelDisplay(_resourceManager, graphicsDevice, skillChart, difficultyLabel);
-            _skillMeterDisplay = new SkillMeterDisplay(_resourceManager, graphicsDevice);
 
-            // HPA-509: the Tab-mode HUD is built later, inside TryConstructNotationStrip —
-            // only once the strip has actually published, so Lanes songs never pay for
-            // its fonts or borrow the shared white pixel (it exists by then).
+            bool InitializeLanes()
+            {
+                pixel = CreateFallbackWhiteTexture();
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                var whitePixel = pixel?.Texture;
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
 
-            // Initialize Phase 2 components
-            _audioLoader = new AudioLoader(_resourceManager);
-            _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
-            _nxAttackEffectManager = new NxAttackEffectManager(_resourceManager);
-            _fontJudgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
-            _spriteJudgementTextPopupManager = new SpriteJudgementTextPopupManager(
-                _resourceManager,
-                judgementEvent => _fontJudgementTextPopupManager?.SpawnPopup(judgementEvent));
-            _hitTimingFeedbackDisplay = new HitTimingFeedbackDisplay(_resourceManager);
-            _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
+                // The factory may retire the stage while its candidate still borrows the pixel.
+                pixel?.AddReference();
+                leased = pixel != null;
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                _fallbackWhiteTextureResource = pixel;
+                _fallbackWhiteTexture = whitePixel!;
+                pixelTransferred = true;
+                if (_spriteBatch != null)
+                {
+                    background = new BackgroundRenderer(_resourceManager);
+                    if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                    var installed = background;
+                    _backgroundRenderer = installed;
+                    background = null;
+                    _ = installed.LoadBackgroundAsync();
+                    if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                }
+                candidate = CreateLanesPlayfield(_spriteBatch?.GraphicsDevice, whitePixel);
+                if (!ReferenceEquals(scope, BackgroundWork)) return false;
+                _playfield = candidate;
+                candidate = null;
+                return true;
+            }
 
-            // HPA-11: chart background video player; scheduling state resets per activation.
-            InitializeChartVideoPlayer();
+            try
+            {
+                ready = InitializeLanes();
+            }
+            catch (Exception ex)
+            {
+                firstFailure = ex;
+            }
+            if (!ready)
+            {
+                BackgroundRenderer? installedBackground = null;
+                ITexture? installedPixel = null;
+                if (ReferenceEquals(scope, BackgroundWork))
+                {
+                    installedBackground = _backgroundRenderer;
+                    installedPixel = _fallbackWhiteTextureResource;
+                    _backgroundRenderer = null;
+                    _fallbackWhiteTextureResource = null;
+                    _fallbackWhiteTexture = null!;
+                }
+                Release(() => candidate?.Dispose());
+                Release(() => background?.Dispose());
+                Release(() => installedBackground?.Dispose());
+                Release(() => installedPixel?.RemoveReference());
+                if (!pixelTransferred) Release(() => pixel?.RemoveReference());
+            }
+            if (leased) Release(() => pixel!.RemoveReference());
+            if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
+            if (!ready || !ReferenceEquals(scope, BackgroundWork)) return false;
+
+            // The default factory guards the GPU-dependent player when headless.
+            if (!InitializeChartVideoPlayer(scope))
+                return false;
+            if (_spriteBatch == null)
+            {
+                WireUpInputEventHandlers();
+                return true;
+            }
 
             // Initialize UX components
             InitializeReadyFont();
+            if (!ReferenceEquals(scope, BackgroundWork)) return false;
             
             // Load performance UI assets using DTXManiaNX layout
             LoadPerformanceUIAssets();
+            if (!ReferenceEquals(scope, BackgroundWork)) return false;
 
             // HPA-796: the fallback white pixel was already acquired at the top of this
             // method (before the renderers that borrow it); no private 1×1 texture here.
@@ -580,171 +572,86 @@ namespace DTXMania.Game.Lib.Stage
             // chart/audio prepare (and after a failed preparation). CleanupGameplayManagers
             // unsubscribes on teardown, keeping the lifecycle balanced.
             WireUpInputEventHandlers();
-        }
-
-        // HPA-509: the three outcomes of a Tab HUD build. NotAttempted means no
-        // GraphicsDevice existed to try with (headless coverage) and the strip
-        // keeps its publish; Ready keeps the publish; Failed — the HUD threw or
-        // acquired no resources — rolls the strip back so the song plays as a
-        // consistent full-Lanes fallback instead of a strip under Lanes widgets.
-        private enum TabHudBuildResult { NotAttempted, Ready, Failed }
-
-        // HPA-509: build the Tab HUD once the strip has published. Deliberately
-        // outside the strip's own try/catch so a HUD failure reports cleanly; the
-        // caller decides the strip's fate from the result. Needs a live
-        // GraphicsDevice — the attempt itself is unreachable under headless
-        // coverage like the other renderer constructions in InitializeComponents.
-        [ExcludeFromCodeCoverage]
-        private TabHudBuildResult ConstructTabHud(SkinPalette palette, TabModeArt art)
-        {
-            var graphicsDevice = _spriteBatch?.GraphicsDevice;
-            if (graphicsDevice == null)
-            {
-                LogPerformanceError(
-                    "PerformanceStage: no GraphicsDevice for the Tab HUD; the strip stays published for this song.");
-                return TabHudBuildResult.NotAttempted;
-            }
-
-            try
-            {
-                _tabHudDisplay = new TabHudDisplay(
-                    graphicsDevice,
-                    _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
-                    _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
-                    _selectedSong?.DatabaseSong?.DisplayArtist,
-                    _fallbackWhiteTexture,
-                    palette,
-                    art,
-                    logger: _game.LoggerFactory?.CreateLogger<TabHudDisplay>()
-                        ?? NullLogger<TabHudDisplay>.Instance);
-                return _tabHudDisplay.IsReady
-                    ? TabHudBuildResult.Ready
-                    : TabHudBuildResult.Failed;
-            }
-            catch (Exception ex)
-            {
-                LogPerformanceError(
-                    "PerformanceStage: Tab HUD construction failed.",
-                    ex);
-                _tabHudDisplay = null;
-                return TabHudBuildResult.Failed;
-            }
+            return true;
         }
 
         private void CleanupComponents()
         {
+            var scope = BackgroundWork;
+            Exception? firstFailure = null;
+            void Release(Action action)
+            {
+                try { action(); }
+                catch (Exception ex) { firstFailure ??= ex; }
+            }
 
             // Reset state variables to initial values for proper reactivation
             _isLoading = true; // Initial state is loading
             _isReady = false; // Initial state is not ready
-            _stageCompleted = false; // Initial state is not completed
+            Rules?.ResetCompletion();
             _inputPaused = false; // Initial state is input enabled
             _totalTime = 0.0; // Reset total time
             _stageElapsedTime = 0.0; // Reset elapsed time for miss detection
-            _chartEndReachedRealTimeSeconds = null;
             _readyCountdown = 1.0; // Reset ready countdown
-            _autoPlayNoteIndex = 0; // Reset autoplay note index
+            Rules?.ResetAutoPlay();
             // Clear cached last-hit telemetry so a reactivated stage does not inherit the previous
             // song's hit data; PopulateTelemetry only reports fresh values once new hits land.
             _lastLaneHit = null;
 
-            // Cleanup background renderer
-            _backgroundRenderer?.Dispose();
+            // Detach the retiring run before callbacks can synchronously activate another.
+            var background = _backgroundRenderer;
+            var playfield = _playfield;
+            var readyFont = _readyFont;
+            var scrollSpeedFont = _scrollSpeedFont;
+            var backgroundTexture = _backgroundTexture;
+            var shutterTexture = _shutterTexture;
+            var dangerTexture = _dangerOverlayTexture;
+            var pixel = _fallbackWhiteTextureResource;
+            var rules = Rules;
+            var audioSession = _audioSession;
+            var videoPlayer = _chartVideoPlayer;
             _backgroundRenderer = null;
-
-            // Cleanup lane background and judgement line renderers
-            _laneBackgroundRenderer?.Dispose();
-            _laneBackgroundRenderer = null;
-            _judgementLineRenderer?.Dispose();
-            _judgementLineRenderer = null;
-
-            // HPA-411: clear the strip reference BEFORE disposing the renderer — the
-            // reference is the effective-mode flag, so it must read null before Dispose
-            // runs.
-            NotationStripRenderer? notationStrip = _notationStrip;
-            _notationStrip = null;
-            notationStrip?.Dispose();
-            _tabModeArt?.Release();
-            _tabModeArt = null;
-
-            // Cleanup score and combo displays
-            _scoreDisplay?.Dispose();
-            _scoreDisplay = null;
-            _comboDisplay?.Dispose();
-            _comboDisplay = null;
-            _skillPanelDisplay?.Dispose();
-            _skillPanelDisplay = null;
-            _skillMeterDisplay?.Dispose();
-            _skillMeterDisplay = null;
-            _tabHudDisplay?.Dispose();
-            _tabHudDisplay = null;
-
-
-            // Cleanup Phase 2 components
-            _songTimer?.Dispose();
-            _songTimer = null;
-            _audioLoader?.Dispose();
-            _audioLoader = null;
-            _noteRenderer?.Dispose();
-            _noteRenderer = null;
-            _nxAttackEffectManager?.Dispose();
-            _nxAttackEffectManager = null;
-            _spriteJudgementTextPopupManager?.Dispose();
-            _spriteJudgementTextPopupManager = null;
-            _fontJudgementTextPopupManager?.Dispose();
-            _fontJudgementTextPopupManager = null;
-            _hitTimingFeedbackDisplay?.Dispose();
-            _hitTimingFeedbackDisplay = null;
-            _padRenderer?.Dispose();
-            _padRenderer = null;
-
-            // Cleanup UX components
-            _readyFont?.RemoveReference();
-            _readyFont = null;
-            _scrollSpeedFont?.RemoveReference();
+            _playfield = null;
+            _readyFont = null!;
             _scrollSpeedFont = null;
-
-            // Cleanup performance UI assets
-            CleanupPerformanceUIAssets();
-
-            // Cleanup fallback texture — released only after every borrowing child
-            // renderer above was disposed.
-            _fallbackWhiteTextureResource?.RemoveReference();
+            _scrollSpeedIndicator = null;
+            _backgroundTexture = null!;
+            _shutterTexture = null!;
+            _dangerOverlayTexture = null!;
             _fallbackWhiteTextureResource = null;
             _fallbackWhiteTexture = null!;
-
-            foreach (var instance in _activeBgmInstances ?? Enumerable.Empty<SoundEffectInstance>())
-            {
-                try { instance.Stop(); instance.Dispose(); }
-                catch { }
-            }
-            _activeBgmInstances?.Clear();
-            _bgmSounds?.Clear();
-            _bgmPlayFailureReported?.Clear();
-            _scheduledBGMEvents?.Clear();
-
-            // Cleanup gameplay managers
-            CleanupGameplayManagers();
-
-            _metronomePlayer = null;
-            _metronomeBeatSound?.RemoveReference();
-            _metronomeBeatSound = null;
-            _metronomeAccentSound?.RemoveReference();
-            _metronomeAccentSound = null;
-
-            _preparedAudioSet?.Dispose();
-            _preparedAudioSet = null;
-
-            // Clear chart data
-            _parsedChart = null;
-            _chartManager = null;
-
-            // Cleanup HPA-11 chart background video player
-            _chartVideoPlayer?.Dispose();
-            _chartVideoPlayer = null;
+            Rules = null;
+            _audioSession = null;
+            _parsedChart = null!;
+            _chartVideoPlayer = null!;
             _activeVideoEvent = null;
             _nextVideoEventIndex = 0;
 
+            // Remove the shared input subscription before any callback can install a fresh one.
+            if (_inputManager?.ModularInputManager != null)
+                _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
+            if (rules?.JudgementManager is { } judgementManager)
+                judgementManager.JudgementMade -= OnJudgementMade;
+            if (rules?.GaugeManager is { } gaugeManager)
+            {
+                gaugeManager.GaugeChanged -= OnGaugeChanged;
+                gaugeManager.Failed -= OnPlayerFailed;
+            }
+
+            Release(() => background?.Dispose());
+            Release(() => playfield?.Dispose());
+            Release(() => readyFont?.RemoveReference());
+            Release(() => scrollSpeedFont?.RemoveReference());
+            Release(() => backgroundTexture?.RemoveReference());
+            Release(() => shutterTexture?.RemoveReference());
+            Release(() => dangerTexture?.RemoveReference());
+            Release(() => pixel?.RemoveReference());
+            Release(() => CleanupGameplayManagers(rules));
+            Release(() => audioSession?.Dispose());
+            rules?.ClearChart();
+            Release(() => videoPlayer?.Dispose());
+
+            if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
         #endregion
@@ -768,7 +675,7 @@ namespace DTXMania.Game.Lib.Stage
 
 
             // Only process gameplay input when song is actively playing (not during loading or ready countdown)
-            if (_songTimer?.IsPlaying == true && !_inputPaused && !_isLoading && !(_isReady && _readyCountdown > 0))
+            if (_audioSession?.IsPlaying == true && !_inputPaused && !_isLoading && !(_isReady && _readyCountdown > 0))
             {
                 // Input manager is already being updated in OnUpdate(),
                 // so we don't need to do anything special here.
@@ -812,36 +719,36 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ReturnToSongSelect()
         {
-            // 1. Stop the song timer
-            _songTimer?.Stop();
-
-            // 2. Stop audible gameplay audio instances (scheduled BGM tracks and
-            //    chip sounds) immediately. The transition uses a 0.5s fade, so
-            //    without this the backing tracks and chip instances owned by
-            //    ChipSoundCache would keep playing after gameplay has logically
-            //    stopped and bleed into the song-selection stage. Full disposal
-            //    remains in CleanupComponents via OnDeactivate.
+            // 1. Stop audible gameplay audio instances (song timer, scheduled
+            //    BGM tracks and chip sounds) immediately. The transition uses a
+            //    0.5s fade, so without this the backing tracks and chip
+            //    instances owned by the session would keep playing after
+            //    gameplay has logically stopped and bleed into the
+            //    song-selection stage. Full disposal remains in
+            //    CleanupComponents via OnDeactivate.
             StopGameplayAudioInstances();
 
-            // 3. Deactivate judgement manager to stop processing input
-            if (_judgementManager != null)
+            // 2. Deactivate judgement manager to stop processing input
+            if (Rules?.JudgementManager is { } judgementManager)
             {
-                _judgementManager.IsActive = false;
+                judgementManager.IsActive = false;
             }
 
-            // 4. Pause input to block further judgement processing
+            // 3. Pause input to block further judgement processing
             _inputPaused = true;
 
-            // 5. Component cleanup will be handled automatically by OnDeactivate() during stage transition
+            // 4. Component cleanup will be handled automatically by OnDeactivate() during stage transition
             // This prevents premature texture disposal that causes gauge flickering
 
             // Return to song selection stage
+            PublishTelemetry();
             StageManager?.ChangeStage(StageType.SongSelect,
                 new DTXManiaFadeTransition(0.5));
         }
 
         /// <summary>
-        /// Stops all active scheduled-BGM and chip-sound instances immediately.
+        /// Stops the song timer and all active scheduled-BGM and chip-sound
+        /// instances immediately via the gameplay audio session.
         /// Used by both gameplay exit paths (ReturnToSongSelect and FinalizePerformance)
         /// to silence audio before the stage transition begins. The instances are
         /// tracked independently from the song timer (scheduled BGM) and by
@@ -851,24 +758,9 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void StopGameplayAudioInstances()
         {
-            // Stop scheduled BGM instances. These are SoundEffectInstances owned
-            // by this stage (added in TriggerBGMEvent); CleanupComponents later
-            // stops and disposes them, but we must stop them now so they do not
-            // remain audible through the transition fade.
-            if (_activeBgmInstances != null)
-            {
-                foreach (var instance in _activeBgmInstances)
-                {
-                    try { instance.Stop(); }
-                    catch { /* Best effort — teardown will dispose. */ }
-                }
-            }
-
-            // Stop chip sound instances owned by ChipSoundCache. StopAll leaves
-            // the borrowed ISound objects and the instances themselves owned by
-            // the cache; Dispose (called from CleanupGameplayManagers via
-            // CleanupComponents) handles final stop-and-dispose.
-            _chipSoundCache?.StopAll();
+            // Stop the song timer plus all scheduled-BGM and chip-sound
+            // instances owned by the session.
+            _audioSession?.StopAll();
 
             // Cancel the chart background video generation so the last decoded
             // frame does not persist through the transition fade. Full disposal
@@ -878,15 +770,18 @@ namespace DTXMania.Game.Lib.Stage
 
         private void FailLoading(string message, Exception? exception = null)
         {
+            var scope = BackgroundWork;
             _isLoading = false;
             _isReady = false;
             _loadErrorMessage = message;
-            LogPerformanceError(message, exception);
+            PublishTelemetry();
+            if (ReferenceEquals(scope, BackgroundWork))
+                LogPerformanceError(message, exception);
         }
 
         private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
         {
-            _noteRenderer?.SetScrollSpeed(e.NewPercent);
+            _playfield?.OnScrollSpeedChanged(e.NewPercent);
             _scrollSpeedIndicator?.Show(e.NewPercent);
         }
 
@@ -909,7 +804,7 @@ namespace DTXMania.Game.Lib.Stage
         /// await the real terminal (result payload included) instead of inferring
         /// completion from stage state; production callers safely ignore it.
         /// </summary>
-        private Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
+        internal virtual Task<PreparedGameplayAudioSet?> StartGameplayInitialization()
         {
             var scope = BackgroundWork;
 
@@ -955,13 +850,41 @@ namespace DTXMania.Game.Lib.Stage
                 new InlineProgress<AudioPreparationProgress>(
                     scope.Latest<AudioPreparationProgress>(ApplyAudioPreparationProgress));
 
+            // Resolve the stage-independent dependency factories on this
+            // (update) thread before launch: the producing virtuals are stage
+            // members, so the worker must never call them off-thread. What the
+            // worker receives is a pair of delegates it invokes itself, so the
+            // I/O-heavy processor/cache construction stays worker-side — off
+            // the update thread and after chart publication, exactly as before.
+            // Only non-default playback profiles need them; default profiles
+            // keep passing null. A synchronous failure producing the factories
+            // is deferred into a throwing factory so the worker still publishes
+            // the chart first and reports the fault through the normal error
+            // path instead of bypassing publication.
+            Func<IAudioVariantProcessor>? audioVariantProcessorFactory = null;
+            Func<PlaybackAudioVariantCache>? audioVariantCacheFactory = null;
+            if (!playbackModifiers.IsDefault)
+            {
+                try
+                {
+                    audioVariantProcessorFactory = CreateAudioVariantProcessorFactory();
+                    audioVariantCacheFactory = CreateAudioVariantCacheFactory();
+                }
+                catch (Exception exception)
+                {
+                    var failure = ExceptionDispatchInfo.Capture(exception);
+                    audioVariantProcessorFactory = () => { failure.Throw(); return null!; };
+                    audioVariantCacheFactory = () => { failure.Throw(); return null!; };
+                }
+            }
+
             // The chart publication is a FIFO post, so it always applies before this
             // run's terminal callback; a retired scope drops it (nothing owned).
             Action<ParsedChart, NotationChart?> publishChart = (chart, notationChart) =>
                 scope.Post(() => ApplyParsedChart(chart, notationChart));
 
             return scope.Run(
-                cancellationToken => PrepareGameplayCore(
+                cancellationToken => GameplayAudioSession.Prepare(
                     chartSnapshot,
                     fallbackChartPath,
                     requestedNoteDisplayStyle,
@@ -969,6 +892,8 @@ namespace DTXMania.Game.Lib.Stage
                     workerLogger,
                     progress,
                     publishChart,
+                    audioVariantProcessorFactory,
+                    audioVariantCacheFactory,
                     cancellationToken),
                 onSuccess: audioSet => ApplyPreparedAudio(audioSet),
                 onError: exception =>
@@ -986,79 +911,6 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// The worker-local preparation chain: parses the fallback chart, builds the
-        /// Tab notation chart, hands both to <paramref name="publishChart"/> and then
-        /// prepares the audio set. Every input is a snapshot parameter or a
-        /// method-local; the only stage members touched are the virtual audio-variant
-        /// seams (immutable across the run). Logging uses the worker logger resolved
-        /// before Run — never the lazily assigned <see cref="BaseStage.Logger"/>.
-        /// </summary>
-        private PreparedGameplayAudioSet PrepareGameplayCore(
-            ParsedChart? chartSnapshot,
-            string? fallbackChartPath,
-            DrumsNoteDisplayStyle requestedNoteDisplayStyle,
-            PlaybackModifiers playbackModifiers,
-            ILogger workerLogger,
-            IProgress<AudioPreparationProgress> progress,
-            Action<ParsedChart, NotationChart?> publishChart,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            ParsedChart chart = chartSnapshot ??
-                DTXChartParser.ParseAsync(fallbackChartPath!).GetAwaiter().GetResult();
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // HPA-411: build the pure notation chart on the worker when the requested
-            // style is Tab. Fonts are never touched here: the fallback ParseAsync above
-            // can resume on a thread-pool thread, so resource loads are deferred to the
-            // update-thread publication. A build failure is logged locally and
-            // gameplay continues in Lanes.
-            NotationChart? notationChart = null;
-            if (requestedNoteDisplayStyle == DrumsNoteDisplayStyle.Tab)
-            {
-                try
-                {
-                    notationChart = NotationChartBuilder.Build(chart);
-                }
-                catch (Exception ex)
-                {
-                    LogCapturedError(
-                        workerLogger,
-                        "PerformanceStage: Tab notation build failed; staying in Lanes for this song.",
-                        ex);
-                }
-            }
-
-            // Everything the playfield needs is ready: publish it now so the right
-            // playfield is drawn behind LOADING while the (possibly slow) audio
-            // preparation below runs.
-            publishChart(chart, notationChart);
-
-            var noteWavIds = new HashSet<string>(
-                chart.Notes.Select(n => n.Value)
-                    .Where(v => !string.IsNullOrEmpty(v)));
-            var noteWavDefs = chart.WavDefinitions
-                .Where(kvp => noteWavIds.Contains(kvp.Key))
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-            return PreparedGameplayAudioSet.PrepareAsync(
-                chart.BackgroundAudioPath,
-                chart.BGMEvents.Select(bgm => bgm.AudioFilePath),
-                noteWavDefs,
-                playbackModifiers,
-                playbackModifiers.IsDefault ? null : CreateAudioVariantProcessor(),
-                playbackModifiers.IsDefault ? null : CreateAudioVariantCache(),
-                progress,
-                cancellationToken,
-                reportSoundLoadFailure: (path, ex) =>
-                    LogCapturedError(
-                        workerLogger,
-                        $"PerformanceStage: Gameplay audio load failed ({path})",
-                        ex)).GetAwaiter().GetResult();
-        }
-
-        /// <summary>
         /// Update-thread publication of the parsed chart ahead of audio preparation:
         /// the chart, <see cref="ChartManager"/>, gameplay managers, note renderer
         /// tempo/scroll speed and (Tab) the notation strip. A failure fails the load with a chart-setup message; the
@@ -1066,32 +918,80 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ApplyParsedChart(ParsedChart chart, NotationChart? notationChart)
         {
+            var scope = BackgroundWork;
+            if (scope == null) return;
+            var pixelResource = _fallbackWhiteTextureResource;
+            var leased = false;
             try
             {
+                var lanes = _playfield;
+                Func<IPerformancePlayfield?>? createTab = null;
+                if (notationChart != null)
+                {
+                    var whitePixel = _fallbackWhiteTexture;
+                    var automatedLanes = FrozenAutoPlayLanes;
+                    var hideCombo = _visualGates.HideCombo;
+                    var device = _spriteBatch?.GraphicsDevice;
+                    var song = _selectedSong;
+                    var difficulty = _selectedDifficulty;
+                    var title = song?.DisplayTitle ?? song?.Title;
+                    var artist = song?.DatabaseSong?.DisplayArtist;
+                    var resources = _resourceManager;
+                    var measureLines = chart.MeasureLines;
+                    createTab = () => ReferenceEquals(scope, BackgroundWork)
+                        ? TabPlayfield.Create(resources, notationChart, measureLines, whitePixel, automatedLanes, hideCombo,
+                            (palette, art) => ReferenceEquals(scope, BackgroundWork)
+                                ? CreateTabHud(device, song?.GetCurrentDifficultyChart(difficulty),
+                                    title, artist, whitePixel, palette, art)
+                                : null)
+                        : null;
+                }
+
+                // Teardown can run inside any visual callback while its borrowers are still on the stack.
+                pixelResource?.AddReference();
+                leased = pixelResource != null;
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
                 _parsedChart = chart;
-                _chartManager = new ChartManager(chart);
+                Rules!.BindChart(chart);
 
                 // Initialize gameplay managers
                 InitializeGameplayManagers();
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
 
                 // Set BPM and scroll speed in note renderer. The scroll speed is read
                 // at apply time, not snapshotted before Run: PageUp/PageDown stay
                 // active during loading, and the stale snapshot would overwrite the
                 // user's change and diverge from the live config and the toast.
-                _noteRenderer?.SetBpm(chart.Bpm);
-                _noteRenderer?.SetScrollSpeed(
-                    _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default);
+                var scrollSpeed = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
+                lanes?.OnChartPublished(chart.Bpm, scrollSpeed);
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
 
                 // HPA-411: one-shot Tab renderer construction on the update thread
                 // because it owns the Bravura and label font loads. A failure means
                 // Lanes for the rest of the song.
-                if (notationChart != null)
-                    TryConstructNotationStrip(notationChart, chart.MeasureLines);
+                if (createTab != null)
+                    TrySelectTabPlayfield(scope, lanes, createTab, chart.Bpm, scrollSpeed);
             }
             catch (Exception ex)
             {
+                if (!ReferenceEquals(scope, BackgroundWork)) return;
                 FailLoading($"Chart setup failed: {ex.Message}", ex);
             }
+            finally
+            {
+                if (leased)
+                {
+                    try { pixelResource!.RemoveReference(); }
+                    catch (Exception ex)
+                    {
+                        if (ReferenceEquals(scope, BackgroundWork))
+                            LogPerformanceError("PerformanceStage: Chart publication pixel release failed.", ex);
+                    }
+                }
+            }
+            if (ReferenceEquals(scope, BackgroundWork))
+                PublishTelemetry();
         }
 
         /// <summary>
@@ -1112,11 +1012,19 @@ namespace DTXMania.Game.Lib.Stage
                 if (_loadErrorMessage != null || _parsedChart == null)
                     return;
 
-                // Bind the prepared audio: ownership moves to the stage here, so from
-                // this point CleanupComponents (not the finally below) disposes it.
-                _preparedAudioSet = audioSet;
+                // Bind the prepared audio: ownership moves to the session here,
+                // so from this point session disposal via CleanupComponents (not
+                // the finally below) disposes it.
+                var session = new GameplayAudioSession(
+                    _resourceManager,
+                    _game?.LoggerFactory,
+                    Logger,
+                    _playbackModifiers,
+                    _metronomeEnabled,
+                    PlayMetronomeClick);
+                _audioSession = session;
                 ownershipTransferred = true;
-                BindPreparedAudio(_parsedChart);
+                session.Bind(_parsedChart, audioSet);
 
                 _isLoading = false;
                 _isReady = true;
@@ -1129,44 +1037,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (!ownershipTransferred)
                     audioSet.Dispose();
+                PublishTelemetry();
             }
-        }
-
-        /// <summary>
-        /// Binds the stage-owned prepared audio set: background playback, chip-sound
-        /// cache, scheduled BGM, song timer and metronome. Runs on the update thread.
-        /// </summary>
-        private void BindPreparedAudio(ParsedChart chart)
-        {
-            var preparedAudioSet = _preparedAudioSet!;
-            _audioLoader.BindBorrowedBackground(
-                preparedAudioSet.MainBackground,
-                chart.BackgroundAudioPath);
-            _chipSoundCache = new ChipSoundCache(
-                preparedAudioSet.ChipSoundsByWavId,
-                _game.LoggerFactory?.CreateLogger<ChipSoundCache>());
-            BindPreparedBGMSounds();
-
-            // Schedule BGM events for playback
-            _scheduledBGMEvents = chart.BGMEvents
-                .OrderBy(bgm => bgm.TimeMs)
-                .ToList();
-
-            // Create song timer with logging support
-            var songTimer = _audioLoader.CreateSongTimer(
-                _playbackModifiers.PlaySpeedPercent,
-                preparedAudioSet.RuntimePitch,
-                message => LogPerformanceError(message));
-            if (songTimer == null)
-            {
-                LogPerformanceError("PerformanceStage: No audio timer available; using silent GameTime clock");
-                songTimer = new SongTimer(
-                    _playbackModifiers.PlaySpeedPercent,
-                    message => LogPerformanceError(message));
-            }
-            _songTimer = songTimer;
-
-            InitializeMetronome();
         }
 
         /// <summary>
@@ -1177,138 +1049,68 @@ namespace DTXMania.Game.Lib.Stage
         private void ApplyAudioPreparationProgress(AudioPreparationProgress progress)
         {
             _audioPreparationProgress = progress;
+            PublishTelemetry();
         }
 
         /// <summary>
-        /// One-shot HPA-411 Tab renderer construction on the update thread (from the
-        /// initialization success callback) because the renderer owns the Bravura and
-        /// label font loads. Exactly one attempt happens per activation — a failure
-        /// keeps Lanes for this song. A strip that is already published is never
-        /// replaced.
+        /// Select Tab only after its complete visual candidate has been prepared.
         /// </summary>
-        private void TryConstructNotationStrip(
-            NotationChart notationChart,
-            IReadOnlyList<MeasureLine> measureLines)
+        private void TrySelectTabPlayfield(
+            StageBackgroundWorkScope scope, IPerformancePlayfield? lanes,
+            Func<IPerformancePlayfield?> create, double bpm, int scrollSpeed)
         {
-            if (_notationStrip != null)
-                return;
-
-            // The skin art is published with the strip; every path that does not
-            // publish falls through to the release below.
-            var art = TabModeArt.None;
+            IPerformancePlayfield? candidate = null;
             try
             {
-                // One theme read styles both halves of Tab mode (strip + HUD).
-                var theme = _resourceManager?.CurrentTheme;
-                var palette = SkinPalette.Resolve(theme);
-                art = TabModeArt.Load(_resourceManager, theme);
-                var renderer = new NotationStripRenderer(
-                    _resourceManager,
-                    notationChart,
-                    measureLines,
-                    palette,
-                    art);
-                if (renderer.IsReady)
+                candidate = CreateTabPlayfield(create);
+                if (!ReferenceEquals(scope, BackgroundWork))
                 {
-                    _notationStrip = renderer;
-                    if (ConstructTabHud(palette, art) != TabHudBuildResult.Failed)
-                    {
-                        _tabModeArt = art;
-                        return;
-                    }
-
-                    // HPA-509 review: a strip without its HUD draws the
-                    // Lanes widgets back over the strip's hit marker and
-                    // key labels — an unreadable mixed mode. Roll the whole
-                    // decision back to a consistent Lanes fallback (null
-                    // the reference BEFORE disposing, like CleanupComponents).
-                    _notationStrip = null;
-                    renderer.Dispose();
-                    _tabHudDisplay?.Dispose();
-                    _tabHudDisplay = null;
-                    LogPerformanceError(
-                        "PerformanceStage: Tab HUD unavailable; Tab display falls back to Lanes for this song.");
+                    var stale = candidate;
+                    candidate = null;
+                    stale?.Dispose();
+                    return;
                 }
-                else
+                if (candidate == null)
                 {
-                    LogPerformanceError(
-                        "PerformanceStage: Bravura notation fonts unavailable; Tab display falls back to Lanes for this song.");
-                    renderer.Dispose();
+                    LogPerformanceError("PerformanceStage: Tab display unavailable; staying in Lanes for this song.");
+                    return;
+                }
+                candidate.OnChartPublished(bpm, scrollSpeed);
+                if (!ReferenceEquals(scope, BackgroundWork))
+                {
+                    var stale = candidate;
+                    candidate = null;
+                    stale.Dispose();
+                    return;
                 }
             }
             catch (Exception ex)
             {
-                LogPerformanceError(
-                    "PerformanceStage: notation renderer construction failed; staying in Lanes for this song.",
-                    ex);
-            }
-
-            art.Release();
-        }
-
-        private void InitializeMetronome()
-        {
-            if (!_metronomeEnabled || _parsedChart == null || _metronomePlayer != null)
+                try { candidate?.Dispose(); }
+                catch { }
+                if (ReferenceEquals(scope, BackgroundWork))
+                    LogPerformanceError("PerformanceStage: Tab construction failed; staying in Lanes for this song.", ex);
                 return;
-
-            _metronomeBeatSound = TryLoadMetronomeSound(SoundPath.MetronomeBeat);
-            _metronomeAccentSound = TryLoadMetronomeSound(SoundPath.MetronomeAccent);
-
-            var speed = _playbackModifiers.PlaySpeedPercent > 0
-                ? _playbackModifiers.Speed
-                : 1.0;
-            var maxLateChartMs = 100.0 * speed;
-            _metronomePlayer = new MetronomePlayer(
-                _parsedChart.BeatMarkers,
-                maxLateChartMs,
-                PlayMetronomeClick);
-        }
-
-        private ISound? TryLoadMetronomeSound(string path)
-        {
-            try
-            {
-                if (_resourceManager == null)
-                    return null;
-                _resourceManager.TryLoadSound(path, out var sound);
-                return sound;
             }
+
+            _playfield = candidate;
+            try { lanes?.Dispose(); }
             catch (Exception ex)
             {
-                LogPerformanceError($"PerformanceStage: Metronome sound unavailable ({path}): {ex.Message}");
-                return null;
+                if (ReferenceEquals(scope, BackgroundWork))
+                    LogPerformanceError("PerformanceStage: Lanes cleanup failed after Tab selection.", ex);
             }
         }
 
         /// <summary>
-        /// Clears the once-per-run metronome failure suppression so each new
-        /// activation reports a persistently broken sound again instead of
-        /// staying silent for the rest of the process lifetime.
+        /// Metronome click sink passed to the session at bind time. Kept as the
+        /// stage's virtual seam so test subclasses can observe markers; the
+        /// base implementation delegates to the bound session, which owns the
+        /// click sounds and the once-per-run failure suppression.
         /// </summary>
-        private void ResetMetronomeFailureSuppression()
-        {
-            (_metronomeFailureReportedSounds ??= new HashSet<ISound>()).Clear();
-        }
-
         protected virtual void PlayMetronomeClick(BeatMarker marker)
         {
-            var sound = marker.IsMeasureStart
-                ? _metronomeAccentSound
-                : _metronomeBeatSound;
-            try
-            {
-                sound?.SoundEffect?.Play(1.0f, 0.0f, 0.0f);
-            }
-            catch (Exception ex)
-            {
-                // Report once per affected sound per run: a persistently failing
-                // metronome click must not fill the error log on every beat.
-                if (sound != null &&
-                    (_metronomeFailureReportedSounds ??= new HashSet<ISound>()).Add(sound))
-                {
-                    LogPerformanceError($"PerformanceStage: Metronome click playback failed: {ex.Message}", ex);
-                }
-            }
+            _audioSession?.PlayMetronomeClick(marker);
         }
 
         /// <summary>
@@ -1316,6 +1118,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void UpdateGameplay(double deltaTime)
         {
+            var scope = BackgroundWork;
             if (_isLoading)
             {
                 return;
@@ -1335,25 +1138,14 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            // Update note renderer
-            _noteRenderer?.Update(deltaTime);
-
-            // Update NX attack effects
-            _nxAttackEffectManager?.Update(deltaTime);
-
-            // Update judgement text popup managers
-            _spriteJudgementTextPopupManager?.Update(deltaTime);
-            _fontJudgementTextPopupManager?.Update(deltaTime);
-            _hitTimingFeedbackDisplay?.Update(deltaTime);
-
             // Handle BGM event scheduling and gameplay managers
-            if (_songTimer != null && _songTimer.IsPlaying)
+            if (_audioSession != null && _audioSession.IsPlaying)
             {
                 // Only run timing logic when the song is actually playing
-                var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+                var currentTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
                 
                 // Process BGM events during song playback
-                ProcessBGMEvents(currentTimeMs);
+                _audioSession.Advance(currentTimeMs);
 
                 // HPA-11: schedule chart background video events on the same
                 // logical clock (never re-read from GetCurrentMs, never speed-scaled).
@@ -1362,18 +1154,22 @@ namespace DTXMania.Game.Lib.Stage
                 // Dual-clock architecture:
                 // - Raw song clock (currentTimeMs): autoplay, BGM events, note visuals,
                 //   progress, completion — everything that must stay synced with the chart.
-                // - Compensated clock (playerJudgementTimeMs): player input judgement only.
+                // - Compensated clock (playerJudgementTimeMs): player hits and miss scanning.
                 //   Subtracting AudioLatencyOffsetMs aligns hit detection with what the
                 //   player actually hears, compensating for audio buffer/driver output delay.
                 var playerJudgementTimeMs = GetPlayerJudgementTimeMs(currentTimeMs);
 
                 UpdateGameplayManagers(currentTimeMs, playerJudgementTimeMs);
+                if (!ReferenceEquals(scope, BackgroundWork))
+                    return;
                 
                 // Update song progress
                 UpdateSongProgress(currentTimeMs);
                 
                 // Check for stage completion conditions
-                CheckStageCompletion(currentTimeMs);
+                var completion = Rules?.CheckCompletion(currentTimeMs, _parsedChart?.DurationMs, _totalTime);
+                if (completion is { } reason)
+                    FinalizePerformance(reason);
             }
         }
 
@@ -1387,159 +1183,36 @@ namespace DTXMania.Game.Lib.Stage
         /// hit window after a note becomes audible.
         /// </summary>
         private double GetPlayerJudgementTimeMs(double currentAudioClockMs)
-        {
-            var offsetMs = _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0;
-            if (offsetMs <= 0)
-                return currentAudioClockMs;
-
-            // Normal activation always freezes a valid profile. The fallback
-            // preserves the legacy 1.0x behavior for reflection-created tests
-            // and compatibility callers that bypass OnActivate.
-            var speed = _playbackModifiers.PlaySpeedPercent > 0
-                ? _playbackModifiers.Speed
-                : 1.0;
-            var logicalOffsetMs = offsetMs * speed;
-            return Math.Max(0.0, currentAudioClockMs - logicalOffsetMs);
-        }
+            => GameplayRules.GetPlayerJudgementTimeMs(
+                currentAudioClockMs,
+                _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0,
+                _playbackModifiers);
 
         /// <summary>
         /// Starts playing the song
         /// </summary>
         private void StartSong()
         {
-            if (_songTimer != null && _currentGameTime != null)
+            if (_audioSession != null && _currentGameTime != null)
             {
                 // Start the song timer - this provides the master clock for notes and BGM events
-                _chartEndReachedRealTimeSeconds = null;
-                _songTimer.SetPosition(0.0, _currentGameTime);
-                bool playbackStarted = _songTimer.Play(_currentGameTime);
-                
+                Rules?.ResetSongEndBuffer();
+                bool playbackStarted = _audioSession.Start(_currentGameTime, _parsedChart);
+
                 if (!playbackStarted)
                 {
                     LogPerformanceError("PerformanceStage: Failed to start song playback - audio may be unavailable");
                     // Continue anyway - the game can still run without audio
                 }
-                
+
                 _isReady = false;
 
                 // Activate the judgement manager now that the song is playing
-                if (_judgementManager != null)
+                if (Rules?.JudgementManager is { } judgementManager)
                 {
-                    _judgementManager.IsActive = true;
-                }
-
-                // Choose playback strategy based on BGM events
-                if (_scheduledBGMEvents.Count > 0)
-                {
-                    // New approach: Use BGM events for timed playback, silence the background audio
-                    _songTimer.Volume = 0.0f; // Mute the background audio since we'll use BGM events
-                }
-                else
-                {
-                    // Legacy approach: Play background audio immediately (no BGM events).
-                    // Honor the chart's per-WAV #VOLUME/#PAN for the master background track
-                    // when a background WAV id is defined; otherwise default to full volume.
-                    var backgroundWavId = _parsedChart?.BackgroundWavId;
-                    if (!string.IsNullOrEmpty(backgroundWavId))
-                    {
-                        _songTimer.Volume = _parsedChart.GetVolume(backgroundWavId);
-                        _songTimer.Pan = _parsedChart.GetPan(backgroundWavId);
-                    }
-                    else
-                    {
-                        _songTimer.Volume = 1.0f; // Ensure background audio is audible
-                    }
+                    judgementManager.IsActive = true;
                 }
             }
-        }
-
-        private void DrawMeasureLines()
-        {
-            if (_visualGates.HideMeasureLines)
-                return;
-
-            if (_noteRenderer == null ||
-                _chartManager == null ||
-                _songTimer == null ||
-                _currentGameTime == null)
-            {
-                return;
-            }
-
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
-                return;
-
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
-            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0
-                ? _noteRenderer.EffectiveLookAheadMs
-                : PerformanceUILayout.NoteDefaultLookAheadMs;
-            var activeLines = _chartManager.GetActiveMeasureLines(
-                currentTimeMs,
-                lookAheadMs,
-                _noteRenderer.MeasureLinePastGraceMs);
-
-            _noteRenderer.DrawMeasureLines(
-                _spriteBatch,
-                activeLines,
-                currentTimeMs);
-        }
-
-        /// <summary>
-        /// Draws scrolling notes.
-        /// </summary>
-        private void DrawNotes()
-        {
-            if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
-                return;
-
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
-                return;
-
-            // Get current song time and active notes
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
-            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
-            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
-
-            // Draw the notes
-            _noteRenderer.DrawNotes(_spriteBatch, activeNotes, currentTimeMs);
-        }
-
-        /// <summary>
-        /// Draws note overlay animations in effects pass.
-        /// </summary>
-        private void DrawNoteOverlays()
-        {
-            if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
-                return;
-
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
-                return;
-
-            // Get current song time using precise GameTime-based timing
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
-
-            // Get active notes using the same look-ahead time as scroll calculation
-            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
-            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
-
-            // Draw the note overlays with additive blending
-            _noteRenderer.DrawNoteOverlays(_spriteBatch, activeNotes, currentTimeMs);
-        }
-
-        /// <summary>
-        /// Draws the HPA-411 notation strip in the base BackToFront batch with the same
-        /// logical song clock as the falling notes and the live scroll-speed percentage.
-        /// The strip is the entire Tab playfield, so it stays on screen whenever it
-        /// exists — loading, the READY countdown, pause and the exit fade — at the
-        /// clock's current logical position (0 before transport starts).
-        /// </summary>
-        private void DrawNotationStrip()
-        {
-            var currentTimeMs = (_songTimer != null && _currentGameTime != null)
-                ? _songTimer.GetCurrentMs(_currentGameTime)
-                : 0.0;
-            var speedPercent = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
-            _notationStrip?.Draw(_spriteBatch, currentTimeMs, speedPercent);
         }
 
         /// <summary>
@@ -1580,30 +1253,66 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Initializes the font for ready state display
         /// </summary>
-        private void InitializeReadyFont()
+        protected ScrollSpeedIndicator InitializeReadyFont()
         {
+            var scope = BackgroundWork;
+            IFont? readyFont = null;
+            IFont? scrollFont = null;
+            bool transferred = false;
             try
             {
                 // Themed skins may style the centered LOADING.../READY... text
                 // with a Latin display family; NX keeps the serif.
                 var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
                 var stateFamily = ResolveStateFontFamily(theme);
-                _readyFont = stateFamily.Length > 0
-                    ? _resourceManager.LoadFont(stateFamily, ResolveStateFontSize(theme))
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                var stateSize = stateFamily.Length > 0 ? ResolveStateFontSize(theme) : 24;
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                readyFont = stateFamily.Length > 0
+                    ? _resourceManager.LoadFont(stateFamily, stateSize)
                     : _resourceManager.LoadFont("NotoSerifJP", 24);
-                _scrollSpeedFont = _resourceManager.LoadFont("NotoSerifJP", 14);
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(_scrollSpeedFont);
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                scrollFont = _resourceManager.LoadFont("NotoSerifJP", 14);
+                if (!ReferenceEquals(scope, BackgroundWork)) return new ScrollSpeedIndicator(null);
+                var indicator = new ScrollSpeedIndicator(scrollFont);
+                _readyFont = readyFont;
+                _scrollSpeedFont = scrollFont;
+                _scrollSpeedIndicator = indicator;
+                transferred = true;
+                return indicator;
             }
             catch (Exception ex)
             {
                 // Font initialization failed, fallback will be used; keep the
                 // Release-visible diagnostic (logger is Console-backed).
-                Logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
-                _readyFont?.RemoveReference();
-                _readyFont = null;
-                _scrollSpeedFont?.RemoveReference();
-                _scrollSpeedFont = null;
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
+                if (ReferenceEquals(scope, BackgroundWork))
+                    Logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
+                var fallback = new ScrollSpeedIndicator(null);
+                if (ReferenceEquals(scope, BackgroundWork))
+                {
+                    _readyFont = null!;
+                    _scrollSpeedFont = null;
+                    _scrollSpeedIndicator = fallback;
+                }
+                return fallback;
+            }
+            finally
+            {
+                if (!transferred)
+                {
+                    try { readyFont?.RemoveReference(); }
+                    catch (Exception ex)
+                    {
+                        if (ReferenceEquals(scope, BackgroundWork))
+                            Logger.LogError(ex, "InitializeReadyFont failed to release readyFont during cleanup");
+                    }
+                    try { scrollFont?.RemoveReference(); }
+                    catch (Exception ex)
+                    {
+                        if (ReferenceEquals(scope, BackgroundWork))
+                            Logger.LogError(ex, "InitializeReadyFont failed to release scrollFont during cleanup");
+                    }
+                }
             }
         }
         
@@ -1612,105 +1321,34 @@ namespace DTXMania.Game.Lib.Stage
         /// TryLoadTexture swallows per-asset failures and returns null, so a missing
         /// skin asset degrades gracefully without aborting the whole load.
         /// </summary>
-        private void LoadPerformanceUIAssets()
+        internal void LoadPerformanceUIAssets()
         {
+            var scope = BackgroundWork;
             // Load background texture using TexturePath constant
-            _backgroundTexture = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
+            var background = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                background?.RemoveReference();
+                return;
+            }
+            _backgroundTexture = background;
 
             // Load shutter texture using TexturePath constant
-            _shutterTexture = TryLoadTexture(TexturePath.Shutter);
+            var shutter = TryLoadTexture(TexturePath.Shutter);
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                shutter?.RemoveReference();
+                return;
+            }
+            _shutterTexture = shutter;
 
-            // Load lane strip textures (7_Paret.png) using TexturePath constant
-            _laneBgTexture = TryLoadTexture(TexturePath.LaneStrips);
-
-            // Load lane covers (7_lanes_Cover_cls.png) using TexturePath constant
-            _laneDividerTexture = TryLoadTexture(TexturePath.LaneCovers);
-
-            // Load lane flush texture (will be used for effects) using TexturePath constant
-            _laneFlashTexture = TryLoadTexture(TexturePath.LaneFlushPrefix + "default.png");
-
-            // Load hit-bar (judgement line) using TexturePath constant
-            _judgementLineTexture = TryLoadTexture(TexturePath.HitBar);
-
-            // Load gauge textures using TexturePath constants
-            _gaugeBaseTexture = TryLoadTexture(TexturePath.GaugeFrame);
-            _gaugeFillTexture = TryLoadTexture(TexturePath.GaugeFill);
-
-            // Load progress bar textures using TexturePath constants
-            _progressBaseTexture = TryLoadTexture(TexturePath.ProgressFrame);
-            _progressFillTexture = TryLoadTexture(TexturePath.ProgressFill);
-
-            // Load digit textures using TexturePath constants
-            _comboDigitsTexture = TryLoadTexture(TexturePath.ComboDisplay);
-            _scoreDigitsTexture = TryLoadTexture(TexturePath.ScoreNumbers);
-
-            // Load judgement text sprite sheet using TexturePath constant
-            _judgeStringsTexture = TryLoadTexture(TexturePath.JudgeStrings);
-
-            // Load overlay textures using TexturePath constants
-            _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
-            _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
-
-            // Load skill panel texture. Themed skins may point this at a
-            // performance-specific sheet (the shared NX art bakes labels laid
-            // out for the result screen). A themed override that is empty or
-            // points at a missing file would otherwise leave the panel drawn
-            // as a single pixel (LoadTexture's 1x1 fallback) or null, so the
-            // loader retries with the NX default asset on either failure mode.
-            _skillPanelTexture = LoadSkillPanelTexture(
-                _resourceManager?.CurrentTheme ?? SkinTheme.Empty);
-        }
-
-        /// <summary>
-        /// Loads the performance skill-panel texture, retrying with the NX
-        /// default asset when the themed override is empty, missing, or
-        /// resolves to LoadTexture's 1x1 fallback. Returns null only when the
-        /// default asset also fails to load.
-        /// </summary>
-        private ITexture LoadSkillPanelTexture(ISkinTheme theme)
-        {
-            var overridePath = ResolveSkillPanelTexturePath(theme);
-            var texture = TryLoadTexture(overridePath);
-            if (texture != null && texture.Width > 1 && texture.Height > 1)
-                return texture;
-
-            // Override was empty, missing, or the 1x1 fallback. Dispose the
-            // fallback and retry with the NX default asset path. The fallback
-            // is uncached (CreateFallbackTexture does not add it to the
-            // ResourceManager cache) and RemoveReference() deliberately does
-            // not auto-dispose, so disposing here is the only way to release
-            // the underlying GPU Texture2D — otherwise every Performance-stage
-            // activation with a missing/invalid themed override leaks a 1x1
-            // texture.
-            texture?.Dispose();
-            var defaultPath = TexturePath.SkillPanel;
-            if (string.Equals(overridePath, defaultPath, StringComparison.Ordinal))
-                return null; // already tried the default; nothing left to retry
-
-            // The second attempt may also fail (missing default asset in a
-            // broken installation). Validate it the same way: a 1x1 result is
-            // CreateFallbackTexture's uncached fallback, which would leak
-            // because CleanupPerformanceUIAssets only calls RemoveReference
-            // (which does not dispose). Dispose and return null so the panel
-            // is simply not drawn rather than leaking a GPU texture on every
-            // activation.
-            var defaultTexture = TryLoadTexture(defaultPath);
-            if (defaultTexture != null && defaultTexture.Width > 1 && defaultTexture.Height > 1)
-                return defaultTexture;
-            defaultTexture?.Dispose();
-            return null;
-        }
-
-        /// <summary>
-        /// Skill-panel art for the performance stage: "Performance.SkillPanelTexture"
-        /// → NX 7_SkillPanel.png (shared with the result screen). An empty or
-        /// whitespace themed value is coerced to the NX default so a malformed
-        /// `Performance.SkillPanelTexture=` line cannot blank the panel.
-        /// </summary>
-        internal static string ResolveSkillPanelTexturePath(ISkinTheme theme)
-        {
-            var path = theme.GetString("Performance.SkillPanelTexture", TexturePath.SkillPanel);
-            return string.IsNullOrWhiteSpace(path) ? TexturePath.SkillPanel : path;
+            var danger = TryLoadTexture(TexturePath.Danger);
+            if (!ReferenceEquals(scope, BackgroundWork))
+            {
+                danger?.RemoveReference();
+                return;
+            }
+            _dangerOverlayTexture = danger;
         }
 
         /// <summary>
@@ -1731,15 +1369,18 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private ITexture TryLoadTexture(string path)
         {
+            ITexture? texture = null;
             try
             {
                 if (_resourceManager == null)
                     return null;
-                _resourceManager.TryLoadTexture(path, out var texture);
-                return texture;
+                _resourceManager.TryLoadTexture(path, out texture);
+                return texture!;
             }
             catch
             {
+                try { texture?.RemoveReference(); }
+                catch { }
                 return null;
             }
         }
@@ -1747,58 +1388,6 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Cleans up all performance UI assets
         /// </summary>
-        private void CleanupPerformanceUIAssets()
-        {
-            // Clean up textures using reference counting
-            _backgroundTexture?.RemoveReference();
-            _backgroundTexture = null;
-            
-            _shutterTexture?.RemoveReference();
-            _shutterTexture = null;
-            
-            _laneBgTexture?.RemoveReference();
-            _laneBgTexture = null;
-            
-            _laneDividerTexture?.RemoveReference();
-            _laneDividerTexture = null;
-            
-            _laneFlashTexture?.RemoveReference();
-            _laneFlashTexture = null;
-            
-            _judgementLineTexture?.RemoveReference();
-            _judgementLineTexture = null;
-            
-            _gaugeBaseTexture?.RemoveReference();
-            _gaugeBaseTexture = null;
-            
-            _gaugeFillTexture?.RemoveReference();
-            _gaugeFillTexture = null;
-            
-            _progressBaseTexture?.RemoveReference();
-            _progressBaseTexture = null;
-            
-            _progressFillTexture?.RemoveReference();
-            _progressFillTexture = null;
-            
-            _comboDigitsTexture?.RemoveReference();
-            _comboDigitsTexture = null;
-            
-            _scoreDigitsTexture?.RemoveReference();
-            _scoreDigitsTexture = null;
-            
-            _judgeStringsTexture?.RemoveReference();
-            _judgeStringsTexture = null;
-            
-            _pauseOverlayTexture?.RemoveReference();
-            _pauseOverlayTexture = null;
-            
-            _dangerOverlayTexture?.RemoveReference();
-            _dangerOverlayTexture = null;
-            
-            _skillPanelTexture?.RemoveReference();
-            _skillPanelTexture = null;
-        }
-
         /// <summary>
         /// Draws centered text on screen
         /// </summary>
@@ -1839,101 +1428,6 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         #region BGM Management
-
-        /// <summary>
-        /// Loads all BGM sounds referenced by BGM events
-        /// </summary>
-        private async Task LoadBGMSoundsAsync()
-        {
-            if (_parsedChart?.BGMEvents == null)
-                return;
-
-            foreach (var bgmEvent in _parsedChart.BGMEvents)
-            {
-                if (string.IsNullOrEmpty(bgmEvent.AudioFilePath) || _bgmSounds.ContainsKey(bgmEvent.WavId))
-                    continue;
-
-                try
-                {
-                    if (File.Exists(bgmEvent.AudioFilePath))
-                    {
-                        var sound = new ManagedSound(bgmEvent.AudioFilePath);
-                        _bgmSounds[bgmEvent.WavId] = sound;
-                    }
-                }
-                catch (Exception)
-                {
-                }
-            }
-        }
-
-        private void BindPreparedBGMSounds()
-        {
-            _bgmSounds.Clear();
-            _bgmPlayFailureReported?.Clear();
-            if (_preparedAudioSet == null || _parsedChart?.BGMEvents == null)
-                return;
-
-            foreach (var bgmEvent in _parsedChart.BGMEvents)
-            {
-                if (string.IsNullOrWhiteSpace(bgmEvent.AudioFilePath))
-                    continue;
-
-                var sourcePath = Path.GetFullPath(bgmEvent.AudioFilePath);
-                if (_preparedAudioSet.ScheduledBgmBySourcePath.TryGetValue(
-                    sourcePath,
-                    out var sound))
-                {
-                    _bgmSounds[bgmEvent.WavId] = sound;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Processes BGM events that should be triggered at the current time
-        /// </summary>
-        /// <param name="currentTimeMs">Current song time in milliseconds</param>
-        private void ProcessBGMEvents(double currentTimeMs)
-        {
-            var dueEvents = _scheduledBGMEvents
-                .Where(bgm => currentTimeMs >= bgm.TimeMs)
-                .OrderBy(bgm => bgm.TimeMs)
-                .ToArray();
-
-            // Trigger from earliest to latest. Iterating backward here reverses
-            // simultaneous/overdue BGM events after a slow frame.
-            foreach (var bgmEvent in dueEvents)
-            {
-                TriggerBGMEvent(bgmEvent);
-                _scheduledBGMEvents.Remove(bgmEvent);
-            }
-
-            // Reap finished instances so their native audio resources are released
-            // during gameplay rather than lingering until stage teardown. Mirrors
-            // ChipSoundCache.CleanupStoppedInstances.
-            CleanupStoppedBgmInstances();
-        }
-
-        /// <summary>
-        /// Removes and disposes BGM instances that have finished playing, retaining
-        /// active instances for the teardown stop-and-dispose pass.
-        /// </summary>
-        private void CleanupStoppedBgmInstances()
-        {
-            if (_activeBgmInstances == null || _activeBgmInstances.Count == 0)
-                return;
-
-            for (int i = _activeBgmInstances.Count - 1; i >= 0; i--)
-            {
-                var instance = _activeBgmInstances[i];
-                if (instance.State == SoundState.Stopped)
-                {
-                    try { instance.Dispose(); }
-                    catch { }
-                    _activeBgmInstances.RemoveAt(i);
-                }
-            }
-        }
 
         /// <summary>
         /// Processes chart background video events that should be triggered at the
@@ -1985,41 +1479,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        /// <summary>
-        /// Triggers a BGM event by playing its associated sound
-        /// </summary>
-        /// <param name="bgmEvent">BGM event to trigger</param>
-        private void TriggerBGMEvent(BGMEvent bgmEvent)
-        {
-            if (_bgmSounds.TryGetValue(bgmEvent.WavId, out var sound))
-            {
-                try
-                {
-                    // Honor the chart's per-WAV #VOLUME/#PAN for backing-track audio;
-                    // defaults to full volume, centered when undefined.
-                    // NOTE: ConfigData.MasterVolume is not yet combined here — this is
-                    // the integration point once master-volume routing is wired into Lib/.
-                    float volume = _parsedChart?.GetVolume(bgmEvent.WavId) ?? 1.0f;
-                    float pan = _parsedChart?.GetPan(bgmEvent.WavId) ?? 0.0f;
-                    var instance = sound.Play(
-                        volume,
-                        _preparedAudioSet?.RuntimePitch ?? 0.0f,
-                        pan);
-                    if (instance != null)
-                        _activeBgmInstances.Add(instance);
-                }
-                catch (Exception ex)
-                {
-                    // Per-WAV dedupe: BGM events fire on the hot path, so a persistent
-                    // failure must not flood the log (mirrors ChipSoundCache).
-                    if ((_bgmPlayFailureReported ??= new HashSet<string>()).Add(bgmEvent.WavId))
-                    {
-                        Logger.LogWarning(ex, "BGM playback failed for WAV id '{WavId}'", bgmEvent.WavId);
-                    }
-                }
-            }
-        }
-
         #endregion
 
         #region Phase 3 - Gameplay Managers
@@ -2029,32 +1488,18 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void InitializeGameplayManagers()
         {
-            if (_chartManager == null || _inputManager == null)
+            if (Rules?.ChartManager == null || _inputManager == null)
                 return;
 
             // Initialize managers
-            _judgementManager = new JudgementManager(_inputManager, _chartManager);
-            // Start with judgement manager inactive - it will be activated when song starts
-            _judgementManager.IsActive = false;
-            // Lane-scoped input filtering: automated lanes ignore physical input
-            // while manual lanes keep full player control (the seam copies the
-            // frozen set, so it stays run-owned). Unlike DTXManiaNX, which lets
-            // player and autoplay coexist, automated lanes drop player hits.
-            _judgementManager.SetIgnoredPlayerInputLanes(FrozenAutoPlayLanes);
+            Rules!.InitializeJudgement(_inputManager);
 
-            _scoreManager = new ScoreManager(_chartManager.TotalNotes);
-            _comboManager = new ComboManager();
-            _gaugeManager = new GaugeManager(
-                GaugeManager.StartingLife,
-                _gaugeDamageLevel,
-                _riskyLimit,
-                _gaugeFailureEnabled);
-            _skillManager = new SkillManager(_chartManager.TotalNotes, _comboManager);
+            Rules.InitializeScoreAndCombo();
+            Rules.InitializeGaugeAndSkill();
 
             // Initialize UI state values
             _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
             _currentProgressValue = 0.0f;
-            _isPaused = false;
             _isDanger = false;
 
             // Wire up event handlers for UI binding
@@ -2069,18 +1514,20 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void WireUpEventHandlers()
         {
-            if (_judgementManager == null || _scoreManager == null || _comboManager == null || _gaugeManager == null)
+            var judgementManager = Rules?.JudgementManager;
+            var scoreManager = Rules?.ScoreManager;
+            var comboManager = Rules?.ComboManager;
+            var gaugeManager = Rules?.GaugeManager;
+            var skillManager = Rules?.SkillManager;
+            if (judgementManager == null || scoreManager == null || comboManager == null
+                || gaugeManager == null || skillManager == null)
                 return;
 
-            // Subscribe to judgement events and forward to all managers
-            _judgementManager.JudgementMade += OnJudgementMade;
+            // Rules subscribe first; the stage handles visual feedback afterwards.
+            judgementManager.JudgementMade += OnJudgementMade;
 
-            // Subscribe to manager events for UI updates
-            _scoreManager.ScoreChanged += OnScoreChanged;
-            _comboManager.ComboChanged += OnComboChanged;
-            _gaugeManager.GaugeChanged += OnGaugeChanged;
-            _gaugeManager.Failed += OnPlayerFailed;
-            _skillManager.SkillChanged += OnSkillChanged;
+            gaugeManager.GaugeChanged += OnGaugeChanged;
+            gaugeManager.Failed += OnPlayerFailed;
         }
 
         /// <summary>
@@ -2106,29 +1553,24 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Suppress physical pad feedback only on automated lanes; manual
             // lanes keep their immediate key-down animation. Autoplay's own
-            // hit animation is driven from ProcessAutoPlay.
+            // hit animation is driven from PlayAutoNote.
             if (FrozenAutoPlayLanes.Contains(e.Lane)) return;
 
             // Trigger immediate pad press effect on input (regardless of judgement). Visual pad
             // feedback is intentionally allowed during loading/countdown so the player sees their
             // input registered, even before the song clock starts.
-            _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
-
-            // HPA-509 Tab: manual input refreshes the lane's key flash immediately,
-            // even without a judged note (judgement later overwrites the same slot).
-            if (_notationStrip != null)
-                _tabHudDisplay?.TriggerKeyFlash(e.Lane);
+            _playfield?.OnLaneInput(e.Lane);
 
             // Only record gameplay telemetry and chip sounds while the chart is actively playing.
             // During loading, the ready countdown, or after stop, the song clock is not advancing,
             // so telemetry must not capture these non-gameplay hits.
-            if (_songTimer?.IsPlaying != true)
+            if (_audioSession?.IsPlaying != true)
                 return;
 
             // v1 intentionally frame-samples the logical clock when the queued input
             // is handled. Do not combine LaneHitEventArgs.Timestamp (DateTime-based)
             // with GameTime; that would create a mixed-clock judgement path.
-            var logicalSongTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var logicalSongTimeMs = _audioSession.GetCurrentMs(_currentGameTime);
 
             // Publish all three values as one immutable reference so the API thread reads
             // a consistent snapshot (lane + button + logical time from the same hit).
@@ -2143,39 +1585,19 @@ namespace DTXMania.Game.Lib.Stage
             // window (PoorWindow < AudioLatencyOffsetMs) and fail to play its chip.
             var chipLookupTimeMs =
                 GetPlayerJudgementTimeMs(logicalSongTimeMs);
-            var nearest = FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
+            var nearest = Rules?.FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
             if (nearest != null)
-                PlayChipForNote(nearest);
+                _audioSession?.PlayChip(nearest);
         }
 
         /// <summary>
-        /// Handles judgement events and forwards them to all managers
+        /// Handles visual feedback after gameplay rules process a judgement
         /// </summary>
         private void OnJudgementMade(object? sender, DTXMania.Game.Lib.Song.Entities.JudgementEvent e)
         {
-            // Forward judgement to all managers. Gauge follows the frozen
-            // AutoAddGauge policy only for automated-lane judgements;
-            // manual-lane judgements always reach the gauge.
-            _scoreManager?.ProcessJudgement(e);
-            _comboManager?.ProcessJudgement(e);
-            if (!FrozenAutoPlayLanes.Contains(e.Lane) || _autoAddGaugeEnabled)
-                _gaugeManager?.ProcessJudgement(e);
-            _skillManager?.ProcessJudgement(e);
-            _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
-
-            // Spawn hit effect for successful hits (non-Miss)
-            if (e.IsHit())
-            {
-                _nxAttackEffectManager?.Spawn(e.Lane, e.Type);
-
-                // Trigger pad press effect
-                _padRenderer?.TriggerPadPress(e.Lane, true);
-
-                // Lane flush flashes the lane rectangles, which the notation strip
-                // replaces entirely — triggering it in Tab mode is dead state churn.
-                if (_visualGates.EnableLaneFlush && _notationStrip == null)
-                    _noteRenderer?.TriggerLaneFlash(e.Lane);
-            }
+            // The event invocation may have captured this handler before synchronous teardown.
+            if (sender is JudgementManager && !ReferenceEquals(sender, Rules?.JudgementManager))
+                return;
 
             // HPA-509: per-hit fast/slow visibility, computed once and shared by the
             // Lanes timing spawn and the Tab popup's fast/slow line. The cumulative
@@ -2184,63 +1606,8 @@ namespace DTXMania.Game.Lib.Stage
                 && e.IsHit()
                 && !FrozenAutoPlayLanes.Contains(e.Lane);
 
-            // The Lanes-vs-Tab split keys on the HUD's readiness, not the strip alone:
-            // a Tab HUD that failed to load rolls the strip back to Lanes, so the
-            // legacy popup path stays consistent with what is on screen (HPA-509 review).
-            if (!IsTabHudActive)
-            {
-                // Lanes: spawn judgement text popup for all judgements (unchanged).
-                _spriteJudgementTextPopupManager?.SpawnPopup(e);
-
-                if (showPerHitTiming)
-                {
-                    _hitTimingFeedbackDisplay?.Spawn(e);
-                }
-            }
-            else
-            {
-                // HPA-509 Tab: the legacy popups draw at Lanes positions, so their
-                // spawns are gated (DrawJudgementTexts stays untouched and finds no
-                // transients) and the Tab HUD's own newest-wins slot is fed instead.
-                // Every judgement also refreshes the lane's key cap: its lane color for
-                // hits, danger for Miss, so instrument identity survives rapid popup
-                // replaces.
-                _tabHudDisplay?.TriggerKeyFlash(e.Lane, isMiss: !e.IsHit());
-
-                // Partial autoplay: an automated lane's judgement must not replace
-                // the player's popup — its word carries no timing and would wipe the
-                // player's fast/slow line within milliseconds (HPA-509 review). The
-                // lane still flashes above; under full autoplay every judgement feeds
-                // the popup, matching what the Lanes HUD shows.
-                bool automatedPartialLane = FrozenAutoPlayLanes.Contains(e.Lane)
-                    && FrozenAutoPlayLanes.Count < PerformanceUILayout.LaneCount;
-                if (!automatedPartialLane)
-                    _tabHudDisplay?.NotifyJudgement(e.Type, showPerHitTiming, e.DeltaMs);
-            }
-        }
-
-        /// <summary>
-        /// Handles score changes and updates UI
-        /// </summary>
-        private void OnScoreChanged(object? sender, ScoreChangedEventArgs e)
-        {
-            // Update score display
-            if (_scoreDisplay != null)
-            {
-                _scoreDisplay.Score = e.CurrentScore;
-            }
-        }
-
-        /// <summary>
-        /// Handles combo changes and updates UI
-        /// </summary>
-        private void OnComboChanged(object? sender, ComboChangedEventArgs e)
-        {
-            // Update combo display
-            if (_comboDisplay != null)
-            {
-                _comboDisplay.Combo = e.CurrentCombo;
-            }
+            var frame = (Rules ?? EmptyRules).BuildFrameState(CurrentVisualSongTimeMs, _currentProgressValue);
+            _playfield?.OnJudgement(e, frame, showPerHitTiming);
         }
 
         /// <summary>
@@ -2259,30 +1626,11 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Handles skill changes and updates both display components.
-        /// </summary>
-        private void OnSkillChanged(object? sender, SkillChangedEventArgs e)
-        {
-            if (_skillPanelDisplay != null)
-            {
-                _skillPanelDisplay.Skill = e.CurrentSkill;
-                _skillPanelDisplay.ShowMax = e.IsMax;
-            }
-            if (_skillMeterDisplay != null)
-            {
-                _skillMeterDisplay.Skill = e.CurrentSkill;
-            }
-        }
-
-        /// <summary>
         /// Handles player failure
         /// </summary>
         private void OnPlayerFailed(object? sender, FailureEventArgs e)
         {
-            if (!_stageCompleted)
-            {
-                FinalizePerformance(CompletionReason.PlayerFailed);
-            }
+            FinalizePerformance(CompletionReason.PlayerFailed);
         }
 
         /// <summary>
@@ -2292,20 +1640,27 @@ namespace DTXMania.Game.Lib.Stage
             double logicalSongTimeMs,
             double pendingHitTimeMs)
         {
-            // Process autoplay when any lane is automated
-            if (FrozenAutoPlayLanes.Count > 0)
-            {
-                ProcessAutoPlay(logicalSongTimeMs);
-            }
+            var scope = BackgroundWork;
+            var rules = Rules;
+            if (rules != null && rules.AutoPlayLanes.Count > 0)
+                rules.ProcessAutoPlay(logicalSongTimeMs, note =>
+                {
+                    if (ReferenceEquals(rules, Rules))
+                        PlayAutoNote(note);
+                });
 
-            _metronomePlayer?.Update(logicalSongTimeMs);
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
+            _audioSession?.UpdateMetronome(logicalSongTimeMs);
+            if (!ReferenceEquals(scope, BackgroundWork))
+                return;
 
             // Pending hits and timeout misses both use the latency-compensated
             // logical time. Miss scanning must share the compensated clock so a
             // note is not marked missed before the player hears it: using raw
             // time would shrink the reaction window by AudioLatencyOffsetMs
             // whenever the user configures a manual latency offset.
-            _judgementManager?.Update(pendingHitTimeMs, pendingHitTimeMs);
+            Rules?.UpdateJudgement(pendingHitTimeMs);
         }
         
         /// <summary>
@@ -2320,178 +1675,22 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Processes autoplay functionality by automatically hitting notes at perfect timing
+        /// Applies stage-owned feedback after rules resolve an autoplay note.
         /// </summary>
-        private void ProcessAutoPlay(double currentSongTimeMs)
+        private void PlayAutoNote(Note note)
         {
-            if (_chartManager == null || _judgementManager == null)
-                return;
-
-            var allNotes = _chartManager.AllNotes;
-
-            // Auto-hits notes at their exact time. Unlike player input, autoplay
-            // should NEVER skip a pending note. The window only prevents triggering
-            // notes that are in the future — any past-due note is auto-hit regardless
-            // of how late the frame arrived (GC pause, hitch, low FPS, etc.).
-            // One cursor serves all lanes: due notes on manual lanes are skipped
-            // (left for normal judgement/miss handling) but still advance the
-            // cursor so a manual note can never stall automated ones behind it.
-            while (_autoPlayNoteIndex < allNotes.Count)
-            {
-                var note = allNotes[_autoPlayNoteIndex];
-                
-                // Check timing difference
-                var timeDifference = currentSongTimeMs - note.TimeMs;
-                
-                if (timeDifference < 0)
-                {
-                    // This note is in the future, stop processing (do not increment index)
-                    break;
-                }
-
-                // Note is at or past its time — always advance the cursor, but
-                // only resolve notes on automated lanes.
-                if (FrozenAutoPlayLanes.Contains(note.LaneIndex))
-                {
-                    var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
-                    if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
-                    {
-                        // Resolve directly by note ID, bypassing hit detection window.
-                        // This ensures deterministic hits even when currentSongTimeMs is
-                        // far past the note time (e.g., after GC pause or frame hitch).
-                        _judgementManager.ResolveAutoHit(note.Id);
-
-                        // Trigger pad press effect for autoplay
-                        _padRenderer?.TriggerPadPress(note.LaneIndex, true);
-
-                        // Play the per-note drum chip sound (silent if no cache or no WAV)
-                        PlayChipForNote(note);
-                    }
-                }
-
-                _autoPlayNoteIndex++;
-            }
-        }
-
-        /// <summary>
-        /// Plays the drum chip sound associated with a note's WAV id, if loaded.
-        /// No-op when cache is unavailable or note has no associated WAV.
-        /// </summary>
-        private void PlayChipForNote(Note note)
-        {
-            if (note == null || string.IsNullOrEmpty(note.Value))
-                return;
-
-            // Honor the chart's per-WAV #VOLUME/#PAN; defaults to full volume, centered.
-            // NOTE: ConfigData.MasterVolume is not yet combined here — this is the
-            // integration point once master-volume routing is wired into Lib/.
-            float volume = _parsedChart?.GetVolume(note.Value) ?? 1.0f;
-            float pan = _parsedChart?.GetPan(note.Value) ?? 0.0f;
-            _chipSoundCache?.Play(
-                note.Value,
-                volume,
-                _preparedAudioSet?.RuntimePitch ?? 0.0f,
-                pan);
-        }
-
-        /// <summary>
-        /// Finds the nearest unhit note in a lane within the hit detection window.
-        /// Used by player-input chip playback to mirror what JudgementManager would
-        /// resolve. Returns null if no candidate exists.
-        /// </summary>
-        private Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs)
-        {
-            if (_chartManager == null || _judgementManager == null)
-                return null;
-
-            // Use the Poor window (150ms) so chip sounds only play for non-Miss judgements.
-            // The full HitDetectionWindowMs (200ms) includes Miss-range hits (151-200ms)
-            // where the player hears a chip sound but receives a Miss judgement.
-            double windowMs = TimingConstants.PoorWindowMs;
-
-            var allNotes = _chartManager.AllNotes;
-            int startIndex = _chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
-
-            Note? nearest = null;
-            double nearestDistance = double.MaxValue;
-
-            for (int i = startIndex; i < allNotes.Count; i++)
-            {
-                var note = allNotes[i];
-                if (note.TimeMs - currentSongTimeMs > windowMs)
-                    break;
-                if (note.LaneIndex != laneIndex)
-                    continue;
-
-                var data = _judgementManager.GetNoteRuntimeData(note.Id);
-                if (data == null || data.Status != NoteStatus.Pending)
-                    continue;
-
-                var distance = Math.Abs(currentSongTimeMs - note.TimeMs);
-                if (distance > windowMs)
-                    continue;
-                if (distance < nearestDistance)
-                {
-                    nearestDistance = distance;
-                    nearest = note;
-                }
-            }
-
-            return nearest;
+            _playfield?.OnAutoHit(note.LaneIndex);
+            _audioSession?.PlayChip(note);
         }
 
         /// <summary>
         /// Cleans up gameplay managers
         /// </summary>
-        private void CleanupGameplayManagers()
+        private void CleanupGameplayManagers(GameplayRules? rules)
         {
-            // Unsubscribe from events
-            if (_judgementManager != null)
-            {
-                _judgementManager.JudgementMade -= OnJudgementMade;
-            }
-
-            if (_scoreManager != null)
-            {
-                _scoreManager.ScoreChanged -= OnScoreChanged;
-            }
-
-            if (_comboManager != null)
-            {
-                _comboManager.ComboChanged -= OnComboChanged;
-            }
-
-            if (_gaugeManager != null)
-            {
-                _gaugeManager.GaugeChanged -= OnGaugeChanged;
-                _gaugeManager.Failed -= OnPlayerFailed;
-            }
-
-            if (_skillManager != null)
-            {
-                _skillManager.SkillChanged -= OnSkillChanged;
-            }
-
-            // Unsubscribe from input events
-            if (_inputManager?.ModularInputManager != null)
-            {
-                _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
-            }
-
-            // Dispose managers
-            _judgementManager?.Dispose();
-            _judgementManager = null;
-            _scoreManager?.Dispose();
-            _scoreManager = null;
-            _comboManager?.Dispose();
-            _comboManager = null;
-            _gaugeManager?.Dispose();
-            _gaugeManager = null;
-            _skillManager?.Dispose();
-            _skillManager = null;
-
-            _chipSoundCache?.Dispose();
-            _chipSoundCache = null!;
+            rules?.ClearJudgement();
+            rules?.ClearScoreAndCombo();
+            rules?.ClearGaugeAndSkill();
         }
 
         #endregion
@@ -2503,27 +1702,8 @@ namespace DTXMania.Game.Lib.Stage
             // Update background renderer
             _backgroundRenderer?.Update(deltaTime);
 
-            // Update lane background and judgement line renderers
-            _laneBackgroundRenderer?.Update(deltaTime);
-            _judgementLineRenderer?.Update(deltaTime);
+            _playfield?.Update(deltaTime, !_isLoading && !(_isReady && _readyCountdown > 0));
 
-            // Update score and combo displays
-            _scoreDisplay?.Update(deltaTime);
-            _comboDisplay?.Update(deltaTime);
-            _skillPanelDisplay?.Update(deltaTime);
-            _skillMeterDisplay?.Update(deltaTime);
-
-            // HPA-509 Tab: advance the popup slot and key flash decay on every
-            // frame — UpdateGameplay returns early during loading and the READY
-            // countdown, which would leave a triggered flash lit at full alpha.
-            _tabHudDisplay?.Update(deltaTime);
-
-            // Same gating: pad presses fire during loading/countdown (see
-            // OnLaneHitForPadFeedback), so the 90 ms decay must tick here or a
-            // press would stay lit until gameplay starts.
-            _padRenderer?.Update(deltaTime);
-
-            // Update gauge display
         }
 
         #endregion
@@ -2539,7 +1719,7 @@ namespace DTXMania.Game.Lib.Stage
         internal (Rectangle Bounds, float LayerDepth) ResolveChartVideoDrawLayout()
             => (PerformanceUILayout.Background.Bounds, ChartVideoLayerDepth);
 
-        private void DrawBackground()
+        private void DrawBackground(Rectangle viewport)
         {
             if (_backgroundTexture != null)
             {
@@ -2550,9 +1730,7 @@ namespace DTXMania.Game.Lib.Stage
             else
             {
                 // Fallback to BackgroundRenderer with consistent depth
-                var viewport = _spriteBatch.GraphicsDevice.Viewport;
-                var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
-                _backgroundRenderer?.Draw(_spriteBatch, backgroundRect, 1.0f);
+                DrawFallbackBackground(viewport);
             }
 
             // Chart background video above the static background, below the lanes.
@@ -2562,180 +1740,35 @@ namespace DTXMania.Game.Lib.Stage
             _chartVideoPlayer?.Draw(_spriteBatch, videoBounds, videoDepth);
         }
 
-        private void DrawLaneBackgrounds()
-        {
-            if (_visualGates.HideLaneBackground)
-                return;
-
-            // Use actual 7_paret.png texture with maximum visibility
-            if (_laneBgTexture != null)
-            {
-                int actualLaneCount = Math.Min(PerformanceUILayout.LaneCount, PerformanceUILayout.LaneStrips.SourceRects.Length);
-                
-                for (int i = 0; i < actualLaneCount; i++)
-                {
-                    var sourceRect = PerformanceUILayout.LaneStrips.SourceRects[i];
-                    var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
-                    
-                    // Normal lane rendering
-                    Color laneColor = Color.White;
-                    
-                    // Draw at background depth
-                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.8f);
-                }
-            }
-            
-            // Use LaneBackgroundRenderer as fallback only when lane background texture is not available
-            if (_laneBgTexture == null)
-            {
-                _laneBackgroundRenderer?.Draw(_spriteBatch);
-            }
-            
-            // Draw lane covers if available (7_lanes_Cover_cls.png)
-            if (_laneDividerTexture != null)
-            {
-                // Draw lane covers for unused/hidden lanes at same depth as lanes
-                // This would be controlled by game settings to hide specific lanes
-                // For now, we'll skip drawing covers to show all lanes
-            }
-            
-            // Draw lane flash overlay if available (effects layer)
-            if (_laneFlashTexture != null)
-            {
-                // Lane flash effects would be drawn per-lane based on hit state
-                // This would be implemented in the effects manager
-            }
-        }
-
-        private void DrawJudgementLine()
-        {
-            if (_visualGates.HideJudgementLine)
-                return;
-
-            if (_judgementLineTexture != null)
-            {
-                // NX stretches the 8px hit-bar strip across the full drum lane panel.
-                var hitBarRect = PerformanceUILayout.HitBar.Bounds;
-                var sourceRect = PerformanceUILayout.HitBar.GetSourceRect(_judgementLineTexture.Width, _judgementLineTexture.Height);
-                _judgementLineTexture.Draw(_spriteBatch, hitBarRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
-            }
-            else
-            {
-                // Fallback to JudgementLineRenderer
-                _judgementLineRenderer?.Draw(_spriteBatch);
-            }
-        }
+        internal virtual void DrawFallbackBackground(Rectangle viewport) =>
+            _backgroundRenderer?.Draw(_spriteBatch, viewport, 1.0f);
 
         [ExcludeFromCodeCoverage]
-        private void DrawPads()
+        private void DrawUIElements() => DrawUiPass(_uiManager);
+
+        internal void DrawUiPass(UIManager? uiManager)
         {
-            if (_padRenderer == null)
-                return;
-
-            _padRenderer.Draw(_spriteBatch);
-        }
-
-        [ExcludeFromCodeCoverage]
-        private void DrawHitEffects()
-        {
-            // Draw hit effects using NxAttackEffectManager
-            _nxAttackEffectManager?.Draw(_spriteBatch);
-        }
-
-        [ExcludeFromCodeCoverage]
-        private void DrawJudgementTexts()
-        {
-            // Draw judgement text popups using sprite sheets with font fallback
-            _spriteJudgementTextPopupManager?.Draw(_spriteBatch);
-            _fontJudgementTextPopupManager?.Draw(_spriteBatch);
-            _hitTimingFeedbackDisplay?.Draw(_spriteBatch);
-        }
-
-        [ExcludeFromCodeCoverage]
-        private void DrawUIElements()
-        {
-            // HPA-411 Tab: the skill panel covers the strip's hit marker and key labels,
-            // and the progress bar/skill meter obscure the notation look-ahead, so all
-            // four draws are skipped while Tab is effective. Their underlying
-            // metric/state updates keep running. HPA-509 Tab: the legacy-position
-            // gauge/score/combo draws are skipped for the same reason — the Tab HUD
-            // renders those values in its own regions instead. Only the legacy-position
-            // draws are gated; the managers keep updating either way.
-            // The decision keys on the HUD's readiness, which now implies the strip:
-            // a HUD that failed to load rolls the strip back in
-            // TryConstructNotationStrip, so an inactive Tab HUD means consistent
-            // Lanes — including judgement popups via OnJudgementMade (HPA-509 review).
-            bool tabHudActive = IsTabHudActive;
-
             // Draw shutters first (overlay elements)
             DrawShutters();
 
-            if (!tabHudActive)
-            {
-                // Draw skill panel
-                DrawSkillPanel();
+            DrawPlayfieldHud(_spriteBatch);
 
-                // Draw progress bar
-                DrawProgressBar();
-
-                _skillPanelDisplay?.Draw(_spriteBatch);
-                _skillMeterDisplay?.Draw(_spriteBatch);
-            }
-
-            if (tabHudActive)
-            {
-                // HPA-509: compact Tab HUD (header/combo/LIFE/progress/stats).
-                _tabHudDisplay?.Draw(_spriteBatch, BuildTabHudFrameState());
-            }
-            else
-            {
-                // Draw gauge elements
-                DrawGaugeElements();
-
-                // Draw existing UI components as fallback
-                // Legacy gauge display removed - using asset-based gauge only
-
-                _scoreDisplay?.Draw(_spriteBatch);
-                if (!_visualGates.HideCombo)
-                    _comboDisplay?.Draw(_spriteBatch);
-            }
-
-            _uiManager?.Draw(_spriteBatch, 0);
+            uiManager?.Draw(_spriteBatch, 0);
 
             // Draw overlays last (topmost)
             DrawOverlays();
+
+            // Draw ready state or loading indicator after the stage UI.
+            DrawGameplayState();
         }
 
-        /// <summary>
-        /// Snapshot the live Tab HUD values from the existing gameplay owners
-        /// (HPA-509). Read-only: score/combo/counts come from the displays that
-        /// update them, life/progress from the stage's already-clamped fields, time
-        /// from the existing song clock, achievement from SkillPanelDisplay. The
-        /// level-weighted game skill is derived inside TabHudDisplay via the shared
-        /// SongScore formula — no value is recalculated or duplicated here.
-        /// </summary>
-        private TabHudFrameState BuildTabHudFrameState() => new TabHudFrameState
+        internal void DrawPlayfieldHud(SpriteBatch batch)
         {
-            Score = _scoreDisplay?.Score ?? 0,
-            Combo = _comboDisplay?.Combo ?? 0,
-            Life = _currentGaugeValue,
-            Progress = _currentProgressValue,
-            ElapsedMs = (_songTimer != null && _currentGameTime != null)
-                ? _songTimer.GetCurrentMs(_currentGameTime)
-                : 0.0,
-            TotalMs = _parsedChart?.DurationMs ?? 0.0,
-            Achievement = _skillPanelDisplay?.Skill ?? 0.0,
-            PerfectCount = _skillPanelDisplay?.PerfectCount ?? 0,
-            GreatCount = _skillPanelDisplay?.GreatCount ?? 0,
-            GoodCount = _skillPanelDisplay?.GoodCount ?? 0,
-            PoorCount = _skillPanelDisplay?.PoorCount ?? 0,
-            MissCount = _skillPanelDisplay?.MissCount ?? 0,
-            MaxCombo = _skillPanelDisplay?.MaxCombo ?? 0,
-            FastCount = _skillPanelDisplay?.FastCount ?? 0,
-            SlowCount = _skillPanelDisplay?.SlowCount ?? 0,
-            HideCombo = _visualGates.HideCombo,
-        };
-        
+            _playfield?.DrawHud(batch, CurrentFrame);
+        }
+
+        internal PerformanceFrameState CurrentFrame => Volatile.Read(ref _publishedTelemetry).Frame;
+
         /// <summary>
         /// Draws shutter animation using DTXManiaNX layout
         /// </summary>
@@ -2752,110 +1785,27 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
-        /// <summary>
-        /// Draws life gauge with base and fill using DTXManiaNX layout
-        /// </summary>
-        private void DrawGaugeElements()
+        internal virtual void DrawFallbackRectangle(Rectangle destinationRectangle, Color color, float layerDepth)
         {
-            if (_gaugeBaseTexture != null)
+            if (_fallbackWhiteTextureResource != null)
             {
-                // Draw gauge frame at DTXManiaNX position (294, 626) at UI depth
-                var framePos = PerformanceUILayout.Gauge.FramePosition;
-                var frameRect = new Rectangle((int)framePos.X, (int)framePos.Y, _gaugeBaseTexture.Width, _gaugeBaseTexture.Height);
-                _gaugeBaseTexture.Draw(_spriteBatch, frameRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.19f);
-            }
-            
-            if (_gaugeFillTexture != null && _currentGaugeValue > 0)
-            {
-                // Draw gauge fill at origin position with life percentage width at UI depth
-                var fillOrigin = PerformanceUILayout.Gauge.FillOrigin;
-                var fillHeight = PerformanceUILayout.Gauge.FillHeight;
-                var maxWidth = _gaugeFillTexture.Width; // Use actual texture width instead of hardcoded value
-                var fillWidth = (int)(maxWidth * _currentGaugeValue);
-                
-                var sourceRect = new Rectangle(0, 0, fillWidth, fillHeight);
-                var destRect = new Rectangle((int)fillOrigin.X, (int)fillOrigin.Y, fillWidth, fillHeight);
-                
-                _gaugeFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.18f);
-            }
-        }
-        
-        /// <summary>
-        /// Draws song progress bar using DTXManiaNX layout (right side)
-        /// </summary>
-        private void DrawProgressBar()
-        {
-            if (_progressBaseTexture != null)
-            {
-                // Draw progress frame (853, 0, 60, 540) at UI depth
-                var frameRect = PerformanceUILayout.Progress.FrameBounds;
-                // Draw progress frame (853, 0, 60, 540) at UI depth
-                var progressRect = new Rectangle(frameRect.X, frameRect.Y, _progressBaseTexture.Width, _progressBaseTexture.Height);
-                _progressBaseTexture.Draw(_spriteBatch, progressRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
-            }
-            
-            // Draw progress fill using generated colored segments
-            if (_currentProgressValue > 0)
-            {
-                var barRect = PerformanceUILayout.Progress.BarBounds;
-                var fillHeight = (int)(barRect.Height * _currentProgressValue);
-                
-                // Use fallback white texture to draw colored progress fill at UI depth
-                if (_fallbackRectangleDrawer != null || _fallbackWhiteTexture != null)
-                {
-                    var fillRect = new Rectangle(barRect.X, barRect.Bottom - fillHeight, barRect.Width, fillHeight);
-                    DrawFallbackRectangle(fillRect, Color.LightBlue, 0.2f);
-                }
-            }
-        }
-
-        private void DrawFallbackRectangle(Rectangle destinationRectangle, Color color, float layerDepth)
-        {
-            if (_fallbackRectangleDrawer != null)
-            {
-                _fallbackRectangleDrawer(destinationRectangle, color, layerDepth);
-                return;
-            }
-
-            if (_fallbackWhiteTexture != null)
-            {
-                DrawFallbackTexture(_fallbackWhiteTexture, destinationRectangle, color, layerDepth);
+                DrawFallbackTexture(_fallbackWhiteTextureResource, destinationRectangle, color, layerDepth);
             }
         }
 
         [ExcludeFromCodeCoverage]
-        internal virtual void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
+        internal virtual void DrawFallbackTexture(ITexture texture, Rectangle destinationRectangle, Color color, float layerDepth)
         {
-            _spriteBatch.Draw(texture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
+            var rawTexture = texture.Texture;
+            if (rawTexture != null)
+                _spriteBatch.Draw(rawTexture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
         }
         
         /// <summary>
-        /// Draws skill panel using DTXManiaNX layout
-        /// </summary>
-        private void DrawSkillPanel()
-        {
-            if (_skillPanelTexture != null)
-            {
-                // Draw skill panel at DTXManiaNX position (22, 250) at UI depth
-                var panelPos = PerformanceUILayout.SkillPanel.PanelPosition;
-                var panelRect = new Rectangle((int)panelPos.X, (int)panelPos.Y, _skillPanelTexture.Width, _skillPanelTexture.Height);
-                _skillPanelTexture.Draw(_spriteBatch, panelRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
-            }
-        }
-        
-        /// <summary>
-        /// Draws pause and danger overlays when appropriate
+        /// Draws the danger overlay when appropriate.
         /// </summary>
         private void DrawOverlays()
         {
-            if (_isPaused && _pauseOverlayTexture != null)
-            {
-                // Draw pause overlay fullscreen at topmost depth
-                // Draw pause overlay fullscreen at topmost depth
-                var pauseRect = new Rectangle(0, 0, _pauseOverlayTexture.Width, _pauseOverlayTexture.Height);
-                _pauseOverlayTexture.Draw(_spriteBatch, pauseRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
-            }
-            
             if (_isDanger && _dangerOverlayTexture != null)
             {
                 // Draw danger tint overlay with pulsing effect at topmost depth
@@ -2875,61 +1825,22 @@ namespace DTXMania.Game.Lib.Stage
         #region Stage Completion
 
         /// <summary>
-        /// Checks for stage completion based on fail or song end conditions
-        /// </summary>
-        private void CheckStageCompletion(double currentTimeMs)
-        {
-            if (_stageCompleted || _parsedChart == null)
-                return;
-
-            if (currentTimeMs < _parsedChart.DurationMs)
-            {
-                // Seeking or resetting logical time below chart end restarts the
-                // real-time result delay on the next end crossing.
-                _chartEndReachedRealTimeSeconds = null;
-            }
-            else
-            {
-                _chartEndReachedRealTimeSeconds ??= _totalTime;
-                var realBufferElapsedSeconds =
-                    _totalTime - _chartEndReachedRealTimeSeconds.Value;
-                if (realBufferElapsedSeconds >=
-                    GameConstants.Performance.SongEndBufferSeconds)
-                {
-                    FinalizePerformance(CompletionReason.SongComplete);
-                    return;
-                }
-            }
-
-            if (_gaugeManager?.HasFailed == true)
-            {
-                FinalizePerformance(CompletionReason.PlayerFailed);
-            }
-        }
-
-        /// <summary>
         /// Finalizes the performance, pauses input, stops the song timer, and prepares the performance summary
         /// </summary>
         private void FinalizePerformance(CompletionReason reason)
         {
-            if (_stageCompleted)
+            if (Rules?.TryComplete() != true)
                 return;
-
-            // Mark the stage as completed
-            _stageCompleted = true;
 
             // Pause input handling and deactivate judgement manager
             _inputPaused = true;
-            if (_judgementManager != null)
+            if (Rules?.JudgementManager is { } judgementManager)
             {
-                _judgementManager.IsActive = false;
+                judgementManager.IsActive = false;
             }
 
-            // Stop the song timer
-            _songTimer?.Stop();
-
-            // Stop audible gameplay audio instances (scheduled BGM tracks and
-            // chip sounds) immediately. The transition to ResultStage is
+            // Stop audible gameplay audio instances (song timer, scheduled BGM
+            // tracks and chip sounds) immediately. The transition to ResultStage is
             // instant, but scheduled BGM tracks are SoundEffectInstances tracked
             // independently from the song timer; without this they would keep
             // playing after gameplay has logically ended and bleed into the
@@ -2938,48 +1849,14 @@ namespace DTXMania.Game.Lib.Stage
 
             // Build the performance summary
             var summaryChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
-            int summaryLevel = summaryChart?.DrumLevel ?? 0;
-            int summaryLevelDec = summaryChart?.DrumLevelDec ?? 0;
-            double summaryPlayingSkill = _skillManager?.CurrentSkill ?? 0.0;
-            double summaryGameSkill = SongScore.CalculateGameSkill(
-                summaryPlayingSkill, summaryLevel, summaryLevelDec);
-
-            _performanceSummary = new PerformanceSummary
-            {
-                RunId = Guid.NewGuid(),
-                UsedAutoPlay = FrozenAutoPlayLanes.Count > 0,
-                PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent,
-                PitchSemitones = _playbackModifiers.PitchSemitones,
-                Score = _scoreManager?.CurrentScore ?? 0,
-                MaxCombo = _comboManager?.MaxCombo ?? 0,
-                ClearFlag = reason == CompletionReason.SongComplete,
-                PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
-                GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
-                GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
-                PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
-                MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
-                TotalNotes = _chartManager?.TotalNotes ?? 0,
-                FinalLife = _gaugeManager?.CurrentLife ?? 0.0f,
-                CompletionReason = reason,
-                PlayingSkill = summaryPlayingSkill,
-                GameSkill = summaryGameSkill,
-                ChartLevel = summaryLevel,
-                ChartLevelDec = summaryLevelDec
-            };
-
+            var summary = Rules!.BuildSummary(reason, _playbackModifiers,
+                summaryChart?.DrumLevel ?? 0, summaryChart?.DrumLevelDec ?? 0);
 
             // Pass the summary to ResultStage
-            TransitionToResultStage();
-        }
-
-        /// <summary>
-        /// Handles the transition to the ResultStage
-        /// </summary>
-        private void TransitionToResultStage()
-        {
             // No debounce needed here since this is an automatic transition based on game completion
+            PublishTelemetry();
             StageManager?.ChangeStage(StageType.Result, new InstantTransition(),
-                new PerformanceResult(_performanceSummary, _selectedSong, _selectedDifficulty));
+                new PerformanceResult(summary, _selectedSong, _selectedDifficulty));
         }
 
         #endregion
@@ -2987,73 +1864,94 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Telemetry
 
+        private sealed record PublishedTelemetry
+        {
+            internal string? SelectedSongTitle { get; init; }
+            internal int SelectedDifficulty { get; init; }
+            internal bool PerformanceReady { get; init; }
+            internal int PlaySpeedPercent { get; init; } = 100;
+            internal int PitchSemitones { get; init; }
+            internal bool PlaybackProfileFrozen { get; init; } = true;
+            internal int AudioPreparationCompleted { get; init; }
+            internal int AudioPreparationTotal { get; init; }
+            internal int AudioPreparationCacheHits { get; init; }
+            internal long PreparedAudioBytes { get; init; }
+            internal bool AutoPlayEnabled { get; init; }
+            internal bool StageCompleted { get; init; }
+            internal bool ClockReadable { get; init; }
+            internal PerformanceFrameState Frame { get; init; }
+            internal string NoteDisplayStyle { get; init; } = nameof(DrumsNoteDisplayStyle.Lanes);
+            internal LastLaneHit? LastHit { get; init; }
+        }
+
+        // Called only by the update/lifecycle thread; the API thread never touches live objects.
+        private void PublishTelemetry()
+        {
+            var scope = BackgroundWork;
+            var audioSession = _audioSession;
+            var currentGameTime = _currentGameTime;
+            var chartManager = Rules?.ChartManager;
+            var progress = _audioPreparationProgress;
+            var readable = audioSession != null && (audioSession.IsPlaying || audioSession.IsPaused);
+            var rawMs = audioSession != null && currentGameTime != null
+                ? audioSession.GetCurrentMs(currentGameTime) : 0.0;
+            var snapshot = new PublishedTelemetry
+            {
+                SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
+                SelectedDifficulty = _selectedDifficulty,
+                PerformanceReady = !_isLoading && chartManager != null && audioSession != null
+                    && Rules?.IsCompleted != true && (_isReady || readable),
+                PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent,
+                PitchSemitones = _playbackModifiers.PitchSemitones,
+                AudioPreparationCompleted = progress?.CompletedCount ?? 0,
+                AudioPreparationTotal = progress?.TotalCount ?? 0,
+                AudioPreparationCacheHits = progress?.CacheHitCount ?? 0,
+                PreparedAudioBytes = audioSession?.PreparedSet?.DecodedPcmBytes
+                    ?? progress?.DecodedByteEstimate ?? 0L,
+                AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount,
+                StageCompleted = Rules?.IsCompleted == true,
+                ClockReadable = readable,
+                // Lanes and the pre-refactor Tab HUD retain the last gameplay progress after Stop.
+                Frame = (Rules ?? EmptyRules).BuildFrameState(rawMs, chartManager != null ? _currentProgressValue : 0f),
+                NoteDisplayStyle = (_playfield?.Mode ?? DrumsNoteDisplayStyle.Lanes).ToString(),
+                LastHit = _lastLaneHit
+            };
+            if (ReferenceEquals(scope, BackgroundWork))
+                Volatile.Write(ref _publishedTelemetry, snapshot);
+        }
+
         public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
         {
             ArgumentNullException.ThrowIfNull(telemetry);
-
-            telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
-            telemetry.SelectedDifficulty = _selectedDifficulty;
-            // Snapshot _songTimer and _currentGameTime into locals before checking/calling.
-            // PopulateTelemetry runs on the Kestrel API thread while the game thread can null
-            // these fields during stage cleanup (line 448). Reading the field multiple times
-            // (null check, then IsPlaying, then GetCurrentMs) opens a window where the game
-            // thread nulls it between reads and throws NullReferenceException. A single local
-            // read collapses that window. Matches the _lastLaneHit snapshot pattern below.
-            var songTimer = _songTimer;
-            var currentGameTime = _currentGameTime;
-            var songTimerPlaying = songTimer != null && songTimer.IsPlaying;
-            var songTimerPaused = songTimer != null && songTimer.IsPaused;
-            var songTimerHasReadablePosition =
-                songTimerPlaying || songTimerPaused;
-            telemetry.PerformanceReady = !_isLoading
-                && _chartManager != null
-                && songTimer != null
-                && !_stageCompleted
-                && (_isReady || songTimerHasReadablePosition);
-            telemetry.PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent;
-            telemetry.PitchSemitones = _playbackModifiers.PitchSemitones;
-            telemetry.PlaybackProfileFrozen = true;
-            var audioPreparationProgress = _audioPreparationProgress;
-            var preparedAudioSet = _preparedAudioSet;
-            telemetry.AudioPreparationCompleted =
-                audioPreparationProgress?.CompletedCount ?? 0;
-            telemetry.AudioPreparationTotal =
-                audioPreparationProgress?.TotalCount ?? 0;
-            telemetry.AudioPreparationCacheHits =
-                audioPreparationProgress?.CacheHitCount ?? 0;
-            telemetry.PreparedAudioBytes =
-                preparedAudioSet?.DecodedPcmBytes
-                ?? audioPreparationProgress?.DecodedByteEstimate
-                ?? 0L;
-            // Full autoplay only: partial automation reports as manual play.
-            telemetry.AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount;
-            telemetry.StageCompleted = _stageCompleted;
-            telemetry.CurrentSongTimeMs =
-                songTimerHasReadablePosition && currentGameTime != null
-                ? songTimer!.GetCurrentMs(currentGameTime)
-                : 0.0;
-            telemetry.Score = _scoreManager?.CurrentScore ?? 0;
-            telemetry.CurrentCombo = _comboManager?.CurrentCombo ?? 0;
-            telemetry.MaxCombo = _comboManager?.MaxCombo ?? 0;
-            telemetry.Gauge = _gaugeManager?.CurrentLife ?? 0.0f;
-            telemetry.HasFailed = _gaugeManager?.HasFailed ?? false;
-            telemetry.TotalNotes = _chartManager?.TotalNotes ?? 0;
-            telemetry.PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
-            telemetry.GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
-            telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
-            telemetry.PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
-            telemetry.MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
-            // HPA-411 effective style: the strip reference is nulled before disposal and
-            // only retained after IsReady, so a live reference means Tab is actually active.
-            telemetry.NoteDisplayStyle = (_notationStrip != null
-                ? DrumsNoteDisplayStyle.Tab
-                : DrumsNoteDisplayStyle.Lanes).ToString();
-            // Snapshot the reference once (atomic read) then read its immutable fields, so
-            // the API thread can never observe a torn combination across two different hits.
-            var lastHit = _lastLaneHit;
-            telemetry.LastLaneHitLane = lastHit?.Lane;
-            telemetry.LastLaneHitButtonId = lastHit?.ButtonId;
-            telemetry.LastLaneHitSongTimeMs = lastHit?.SongTimeMs;
+            var snapshot = Volatile.Read(ref _publishedTelemetry);
+            telemetry.SelectedSongTitle = snapshot.SelectedSongTitle;
+            telemetry.SelectedDifficulty = snapshot.SelectedDifficulty;
+            telemetry.PerformanceReady = snapshot.PerformanceReady;
+            telemetry.PlaySpeedPercent = snapshot.PlaySpeedPercent;
+            telemetry.PitchSemitones = snapshot.PitchSemitones;
+            telemetry.PlaybackProfileFrozen = snapshot.PlaybackProfileFrozen;
+            telemetry.AudioPreparationCompleted = snapshot.AudioPreparationCompleted;
+            telemetry.AudioPreparationTotal = snapshot.AudioPreparationTotal;
+            telemetry.AudioPreparationCacheHits = snapshot.AudioPreparationCacheHits;
+            telemetry.PreparedAudioBytes = snapshot.PreparedAudioBytes;
+            telemetry.AutoPlayEnabled = snapshot.AutoPlayEnabled;
+            telemetry.StageCompleted = snapshot.StageCompleted;
+            telemetry.CurrentSongTimeMs = snapshot.ClockReadable ? snapshot.Frame.ElapsedMs : 0.0;
+            telemetry.Score = snapshot.Frame.Score;
+            telemetry.CurrentCombo = snapshot.Frame.Combo;
+            telemetry.MaxCombo = snapshot.Frame.MaxCombo;
+            telemetry.Gauge = snapshot.Frame.Gauge;
+            telemetry.HasFailed = snapshot.Frame.HasFailed;
+            telemetry.TotalNotes = snapshot.Frame.TotalNotes;
+            telemetry.PerfectCount = snapshot.Frame.StatusPerfectCount;
+            telemetry.GreatCount = snapshot.Frame.StatusGreatCount;
+            telemetry.GoodCount = snapshot.Frame.StatusGoodCount;
+            telemetry.PoorCount = snapshot.Frame.StatusPoorCount;
+            telemetry.MissCount = snapshot.Frame.StatusMissCount;
+            telemetry.NoteDisplayStyle = snapshot.NoteDisplayStyle;
+            telemetry.LastLaneHitLane = snapshot.LastHit?.Lane;
+            telemetry.LastLaneHitButtonId = snapshot.LastHit?.ButtonId;
+            telemetry.LastLaneHitSongTimeMs = snapshot.LastHit?.SongTimeMs;
         }
 
         #endregion
@@ -3062,13 +1960,31 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && !_disposed)
+            var shouldDispose = disposing && !_disposed;
+            Exception? failure = null;
+            try
             {
-                _spriteBatch?.Dispose();
-                _uiManager?.Dispose();
+                base.Dispose(disposing);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
             }
 
-            base.Dispose(disposing);
+            if (shouldDispose)
+            {
+                var spriteBatch = _spriteBatch;
+                var uiManager = _uiManager;
+                _spriteBatch = null!;
+                _uiManager = null!;
+                try { spriteBatch?.Dispose(); }
+                catch (Exception ex) { failure ??= ex; }
+                try { uiManager?.Dispose(); }
+                catch (Exception ex) { failure ??= ex; }
+            }
+
+            if (failure != null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         #endregion
@@ -3084,24 +2000,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Routed through the stage logger (Console-backed in production) so
             // the error stays visible in all build configurations.
-            LogCapturedError(Logger, message, exception);
-        }
-
-        /// <summary>
-        /// Logs through a logger captured before the background work started
-        /// (HPA-799): worker code must not touch the lazily assigned stage logger,
-        /// so its reporting uses the captured snapshot instead.
-        /// </summary>
-        private static void LogCapturedError(ILogger logger, string message, Exception? exception = null)
-        {
-            if (exception != null)
-            {
-                logger.LogError(exception, "{Message}", message);
-            }
-            else
-            {
-                logger.LogError("{Message}", message);
-            }
+            GameplayAudioSession.LogCapturedError(Logger, message, exception);
         }
 
         #endregion

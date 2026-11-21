@@ -1,12 +1,10 @@
-using System.Collections.Generic;
-using System.Runtime.Serialization;
+using System;
+using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
-using DTXMania.Game.Lib.Song;
-using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
-using DTXMania.Test.TestData;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -16,26 +14,7 @@ namespace DTXMania.Test.Stage.Performance
     public class PerformanceStageFontLifecycleTests
     {
         [Fact]
-        public void OnDeactivate_ShouldReleaseReadyFontAndScrollSpeedFont()
-        {
-            var stage = CreateStage();
-            var mockReadyFont = new Mock<IFont>();
-            var mockScrollSpeedFont = new Mock<IFont>();
-            ReflectionHelpers.SetPrivateField(stage, "_readyFont", mockReadyFont.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_scrollSpeedFont", mockScrollSpeedFont.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-            ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
-
-            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
-            mockScrollSpeedFont.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_readyFont"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_scrollSpeedFont"));
-        }
-
-        [Fact]
-        public void InitializeReadyFont_WhenSucceeds_ShouldSetFontsAndCreateIndicator()
+        public void InitializeReadyFontWhenSucceeds_ShouldCreateIndicatorAndReleaseBothFontsOnDeactivate()
         {
             var mockResourceManager = new Mock<IResourceManager>();
             var mockReadyFont = new Mock<IFont>();
@@ -47,19 +26,17 @@ namespace DTXMania.Test.Stage.Performance
                 .Setup(x => x.LoadFont("NotoSerifJP", 14))
                 .Returns(mockScrollSpeedFont.Object);
 
-            var stage = CreateStage();
-            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "InitializeReadyFont");
-
-            Assert.Same(mockReadyFont.Object, ReflectionHelpers.GetPrivateField<IFont>(stage, "_readyFont"));
-            Assert.Same(mockScrollSpeedFont.Object, ReflectionHelpers.GetPrivateField<IFont>(stage, "_scrollSpeedFont"));
-            var indicator = ReflectionHelpers.GetPrivateField<ScrollSpeedIndicator>(stage, "_scrollSpeedIndicator");
+            using var stage = CreateStage(mockResourceManager.Object);
+            stage.Activate();
+            var indicator = stage.InitializeFonts();
             Assert.NotNull(indicator);
+            stage.Deactivate();
+            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
+            mockScrollSpeedFont.Verify(x => x.RemoveReference(), Times.Once);
         }
 
         [Fact]
-        public void InitializeReadyFont_WhenScrollSpeedFontFails_ShouldReleaseReadyFontAndUseFallbackIndicator()
+        public void InitializeReadyFontWhenScrollSpeedFontFails_ShouldReleaseReadyFontAndUseFallbackIndicator()
         {
             var mockResourceManager = new Mock<IResourceManager>();
             var mockReadyFont = new Mock<IFont>();
@@ -70,26 +47,54 @@ namespace DTXMania.Test.Stage.Performance
                 .Setup(x => x.LoadFont("NotoSerifJP", 14))
                 .Throws(new Exception("Font load failed"));
 
-            var stage = CreateStage();
-            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "InitializeReadyFont");
-
+            using var stage = CreateStage(mockResourceManager.Object);
+            stage.Activate();
+            var indicator = stage.InitializeFonts();
             mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_readyFont"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_scrollSpeedFont"));
-            var indicator = ReflectionHelpers.GetPrivateField<ScrollSpeedIndicator>(stage, "_scrollSpeedIndicator");
             Assert.NotNull(indicator);
+            stage.Deactivate();
+            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
         }
 
-        private static PerformanceStage CreateStage()
+        [Fact]
+        public void InitializeReadyFontWhenCleanupReleaseThrows_ShouldSwallowCleanupFailureAndReturnFallbackIndicator()
         {
-#pragma warning disable SYSLIB0050
-            var stage = (PerformanceStage)FormatterServices.GetUninitializedObject(typeof(PerformanceStage));
-#pragma warning restore SYSLIB0050
-            ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
-            ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
-            return stage;
+            var mockResourceManager = new Mock<IResourceManager>();
+            var mockReadyFont = new Mock<IFont>();
+            mockReadyFont.Setup(x => x.RemoveReference()).Throws(new InvalidOperationException("font release failed"));
+            mockResourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", 24))
+                .Returns(mockReadyFont.Object);
+            mockResourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", 14))
+                .Throws(new InvalidOperationException("scroll font load failed"));
+
+            using var stage = CreateStage(mockResourceManager.Object);
+            stage.Activate();
+            var indicator = stage.InitializeFonts();
+            Assert.NotNull(indicator);
+            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
+            stage.Deactivate();
+            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
+        }
+
+        private static HeadlessStage CreateStage(IResourceManager resources)
+        {
+            var config = new Mock<IConfigManager>();
+            config.SetupGet(x => x.Config).Returns(new ConfigData());
+            var game = new Mock<IStageGame>();
+            game.SetupGet(x => x.ConfigManager).Returns(config.Object);
+            game.SetupGet(x => x.ResourceManager).Returns(resources);
+            return new HeadlessStage(game.Object);
+        }
+
+        private sealed class HeadlessStage : PerformanceStage
+        {
+            public HeadlessStage(IStageGame game) : base(game) { }
+            protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
+            protected override Func<PlaybackAudioVariantCache> CreateAudioVariantCacheFactory() =>
+                () => throw new InvalidOperationException("Font lifecycle tests do not prepare audio.");
+            public ScrollSpeedIndicator InitializeFonts() => InitializeReadyFont();
         }
     }
 }

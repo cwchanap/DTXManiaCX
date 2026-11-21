@@ -26,6 +26,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly ChartManager _chartManager;
         private readonly Dictionary<int, NoteRuntimeData> _noteRuntimeData;
         private readonly List<LaneHitEventArgs> _pendingLaneHits;
+        private readonly int[] _statusCounts = new int[5];
         private HashSet<int> _ignoredPlayerInputLanes = new();
         private bool _disposed = false;
         
@@ -123,6 +124,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 ProcessPendingLaneHits(pendingHitTimeMs);
             }
+            if (_disposed)
+                return;
 
             // Check for missed notes (timeout scanner) - always run regardless of IsActive
             // Miss detection must run even during ready countdown to prevent notes getting stuck
@@ -197,6 +200,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return count;
         }
 
+        internal int GetStatusCount(JudgementType type) => _statusCounts[(int)type];
+
         #endregion
 
         #region Direct Hit Enqueue
@@ -256,6 +261,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             noteData.Status = NoteStatus.Hit;
             noteData.JudgementEvent = judgementEvent;
+            _statusCounts[(int)JudgementType.Perfect]++;
 
             JudgementMade?.Invoke(this, judgementEvent);
             return true;
@@ -308,13 +314,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         private void ProcessPendingLaneHits(double currentSongTimeMs)
         {
+            LaneHitEventArgs[] pending;
             lock (_pendingLaneHits)
             {
-                foreach (LaneHitEventArgs laneHitEvent in _pendingLaneHits)
-                {
-                    ProcessLaneInput(laneHitEvent, currentSongTimeMs);
-                }
+                if (_pendingLaneHits.Count == 0)
+                    return;
+                pending = _pendingLaneHits.ToArray();
                 _pendingLaneHits.Clear();
+            }
+
+            foreach (LaneHitEventArgs laneHitEvent in pending)
+            {
+                if (_disposed)
+                    break;
+                ProcessLaneInput(laneHitEvent, currentSongTimeMs);
+                if (_disposed)
+                    break;
             }
         }
 
@@ -351,6 +366,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // Mark note as hit and store judgement
                 nearestNote.Status = NoteStatus.Hit;
                 nearestNote.JudgementEvent = judgementEvent;
+                // A late manual Miss is a Hit status, not a missed note.
+                if (judgementType != JudgementType.Miss)
+                    _statusCounts[(int)judgementType]++;
 
                 // Raise judgement event
                 JudgementMade?.Invoke(this, judgementEvent);
@@ -471,9 +489,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                     noteData.Status = NoteStatus.Missed;
                     noteData.JudgementEvent = missEvent;
+                    _statusCounts[(int)JudgementType.Miss]++;
 
                     // Raise judgement event
                     JudgementMade?.Invoke(this, missEvent);
+                    if (_disposed)
+                        return;
                     
                     // Advance the index only when note is missed (fully processed)
                     _missDetectionIndex++;
@@ -524,6 +545,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 }
                 
                 _noteRuntimeData.Clear();
+                Array.Clear(_statusCounts);
                 _disposed = true;
             }
         }

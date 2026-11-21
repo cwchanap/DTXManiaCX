@@ -10,7 +10,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Score display component for PerformanceStage
     /// Displays the current score with DTXMania-style formatting
     /// </summary>
-    public class ScoreDisplay : IDisposable
+    public class ScoreDisplay : IDisposable, ILanesScoreDisplay
     {
         #region Private Fields
 

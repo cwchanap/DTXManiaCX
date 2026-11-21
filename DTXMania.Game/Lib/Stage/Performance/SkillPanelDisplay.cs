@@ -17,7 +17,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Renders the left-side performance status panel: difficulty level,
     /// current skill percentage, and (optionally) the MAX badge sprite.
     /// </summary>
-    public class SkillPanelDisplay : IDisposable
+    public class SkillPanelDisplay : IDisposable, ILanesSkillPanel
     {
         #region Private Fields
 
@@ -32,42 +32,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private ITexture? _ratePercentTexture;
         private ITexture? _difficultyPanelTexture;
         private bool _disposed;
-
-        #endregion
-
-        #region Properties
-
-        /// <summary>
-        /// Current skill percentage (0.0 - 100.0) rendered as the large number.
-        /// </summary>
-        public double Skill { get; set; }
-
-        /// <summary>
-        /// Whether the MAX badge sprite should be drawn over the skill number.
-        /// </summary>
-        public bool ShowMax { get; set; }
-
-        public int PerfectCount { get; private set; }
-        public int GreatCount { get; private set; }
-        public int GoodCount { get; private set; }
-        public int PoorCount { get; private set; }
-        public int MissCount { get; private set; }
-
-        // HPA-509: cumulative fast/slow totals for the Tab stats row. Successful judged
-        // hits only (never Miss), classified by the shared rounded ProjectDelta so
-        // sub-millisecond deltas rendered as 0 stay neutral — AutoPlay contributes
-        // rounded-zero offsets and therefore increments neither. Always visible;
-        // independent of the per-hit timing feedback preference.
-        public int FastCount { get; private set; }
-        public int SlowCount { get; private set; }
-
-        public int MaxCombo { get; private set; }
-        public int ProcessedJudgementCount => GetProcessedJudgementCount(
-            PerfectCount,
-            GreatCount,
-            GoodCount,
-            PoorCount,
-            MissCount);
 
         #endregion
 
@@ -120,48 +84,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="deltaTime">Time elapsed since last update</param>
         public void Update(double deltaTime) { /* no animation yet */ }
 
-        public void ProcessJudgement(JudgementEvent judgementEvent, int maxCombo)
-        {
-            if (judgementEvent == null)
-                return;
-
-            switch (judgementEvent.Type)
-            {
-                case JudgementType.Perfect:
-                    PerfectCount++;
-                    break;
-                case JudgementType.Great:
-                    GreatCount++;
-                    break;
-                case JudgementType.Good:
-                    GoodCount++;
-                    break;
-                case JudgementType.Poor:
-                    PoorCount++;
-                    break;
-                case JudgementType.Miss:
-                    MissCount++;
-                    break;
-            }
-
-            if (judgementEvent.IsHit())
-            {
-                var projection = PerformanceUILayout.HitTimingFeedback.ProjectDelta(judgementEvent.DeltaMs);
-                if (projection.RoundedMilliseconds < 0)
-                    FastCount++;
-                else if (projection.RoundedMilliseconds > 0)
-                    SlowCount++;
-            }
-
-            MaxCombo = Math.Max(MaxCombo, maxCombo);
-        }
-
         /// <summary>
         /// Draw the skill panel contents.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         [ExcludeFromCodeCoverage]
-        public void Draw(SpriteBatch spriteBatch)
+        public void Draw(SpriteBatch spriteBatch, in PerformanceFrameState state)
         {
             if (_disposed || spriteBatch == null) return;
 
@@ -190,7 +118,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 DrawFallbackText(spriteBatch, levelText, PerformanceUILayout.SkillPanel.LevelNumber.StartPosition);
             }
 
-            string skillText = FormatSkillText(Skill);
+            string skillText = FormatSkillText(state.Achievement);
             if (_largeRateNumbersTexture != null)
             {
                 DrawLargeRateText(spriteBatch, skillText, PerformanceUILayout.SkillPanel.SkillPercent.NumbersPosition);
@@ -212,7 +140,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Game skill ("曲別SKILL"): the level-weighted skill value NX draws near the bottom of
             // the panel via tCalculateGameSkillFromPlayingSkill. Without this the panel's SKILL slot
             // shows no number. Reuses the large rate-number sprite, mirroring NX t大文字表示.
-            string gameSkillText = FormatSkillText(SongScore.CalculateGameSkill(Skill, level, levelDec));
+            string gameSkillText = FormatSkillText(SongScore.CalculateGameSkill(state.Achievement, level, levelDec));
             if (_largeRateNumbersTexture != null)
             {
                 DrawLargeRateText(spriteBatch, gameSkillText, PerformanceUILayout.SkillPanel.GameSkill.NumbersPosition);
@@ -222,9 +150,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 DrawFallbackText(spriteBatch, gameSkillText, PerformanceUILayout.SkillPanel.GameSkill.NumbersPosition);
             }
 
-            DrawJudgementCounts(spriteBatch);
+            DrawJudgementCounts(spriteBatch, state);
 
-            if (ShowMax && _maxBadgeTexture != null)
+            if (state.IsMaxSkill && _maxBadgeTexture != null)
             {
                 _maxBadgeTexture.Draw(spriteBatch,
                     PerformanceUILayout.SkillPanel.SkillPercent.MaxBadgePosition);
@@ -350,22 +278,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        private void DrawJudgementCounts(SpriteBatch spriteBatch)
+        private void DrawJudgementCounts(SpriteBatch spriteBatch, in PerformanceFrameState state)
         {
-            var total = ProcessedJudgementCount;
-            DrawSmallRateText(spriteBatch, FormatJudgementCount(PerfectCount), PerformanceUILayout.SkillPanel.JudgementCounts.PerfectCountPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementCount(GreatCount), PerformanceUILayout.SkillPanel.JudgementCounts.GreatCountPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementCount(GoodCount), PerformanceUILayout.SkillPanel.JudgementCounts.GoodCountPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementCount(PoorCount), PerformanceUILayout.SkillPanel.JudgementCounts.PoorCountPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementCount(MissCount), PerformanceUILayout.SkillPanel.JudgementCounts.MissCountPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementCount(MaxCombo), PerformanceUILayout.SkillPanel.JudgementCounts.MaxComboCountPos);
+            var total = GetProcessedJudgementCount(state.PerfectCount, state.GreatCount, state.GoodCount, state.PoorCount, state.MissCount);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(state.PerfectCount), PerformanceUILayout.SkillPanel.JudgementCounts.PerfectCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(state.GreatCount), PerformanceUILayout.SkillPanel.JudgementCounts.GreatCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(state.GoodCount), PerformanceUILayout.SkillPanel.JudgementCounts.GoodCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(state.PoorCount), PerformanceUILayout.SkillPanel.JudgementCounts.PoorCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(state.MissCount), PerformanceUILayout.SkillPanel.JudgementCounts.MissCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(state.MaxCombo), PerformanceUILayout.SkillPanel.JudgementCounts.MaxComboCountPos);
 
-            DrawSmallRateText(spriteBatch, FormatJudgementPercent(PerfectCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.PerfectPercentPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementPercent(GreatCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.GreatPercentPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementPercent(GoodCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.GoodPercentPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementPercent(PoorCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.PoorPercentPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementPercent(MissCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.MissPercentPos);
-            DrawSmallRateText(spriteBatch, FormatJudgementPercent(MaxCombo, total), PerformanceUILayout.SkillPanel.JudgementCounts.MaxComboPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(state.PerfectCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.PerfectPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(state.GreatCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.GreatPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(state.GoodCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.GoodPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(state.PoorCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.PoorPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(state.MissCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.MissPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(state.MaxCombo, total), PerformanceUILayout.SkillPanel.JudgementCounts.MaxComboPercentPos);
         }
 
         private void DrawSmallRateText(SpriteBatch spriteBatch, string text, Vector2 position)
