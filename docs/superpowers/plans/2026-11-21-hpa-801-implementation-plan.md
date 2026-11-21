@@ -61,7 +61,7 @@ Execute/observe the **real game process through MCP** on **one supported platfor
 
 Recommended commands (use the current runner's supported OS and launch setup):
 
-`dotnet build DTXMania.Game/DTXMania.Game.csproj` (or its actual platform-specific game project)  
+`dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj` (or `DTXMania.Game.Windows.csproj` on Windows)  
 `dotnet test DTXMania.Test/DTXMania.Test.csproj`  
 `dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E"`
 
