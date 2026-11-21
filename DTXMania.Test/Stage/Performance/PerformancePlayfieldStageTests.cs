@@ -728,7 +728,7 @@ public class PerformancePlayfieldStageTests
         Assert.Equal(0, finalPixel.Object.ReferenceCount);
     }
 
-    [Theory]
+    [AudioTheory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ConfigTeardownFailures_CleanRealPlayfieldAndPreparedAudio(bool unsubscribeFails)
@@ -1338,7 +1338,7 @@ public class PerformancePlayfieldStageTests
         }
     }
 
-    [Theory]
+    [AudioTheory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ChartPublication_WhenRetired_DropsQueuedAudioAndPreservesFreshTerminal(bool reactivate)

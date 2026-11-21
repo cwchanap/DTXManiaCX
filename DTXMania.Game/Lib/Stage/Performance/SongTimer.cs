@@ -113,13 +113,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Starts audio transport and the logical gameplay clock.
+        /// Starts audio transport and the logical gameplay clock. When the
+        /// audio transport fails to start, the logical clock still runs on its
+        /// GameTime fallback so the song can advance and complete without
+        /// audible background audio; the transport failure is reported via
+        /// the return value (false) and the logger.
         /// </summary>
         public bool Play(GameTime gameTime)
         {
             if (_disposed)
                 return false;
 
+            bool transportStarted = true;
             if (_soundInstance != null)
             {
                 try
@@ -130,12 +135,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 {
                     _logger?.Invoke(
                         $"SongTimer.Play() failed: {ex.GetType().Name} - {ex.Message}");
-                    return false;
+                    transportStarted = false;
                 }
             }
 
             _playbackClock.Start(gameTime);
-            return true;
+            return transportStarted;
         }
 
         /// <summary>
@@ -147,7 +152,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             _playbackClock.Pause(gameTime);
-            _soundInstance?.Pause();
+            try { _soundInstance?.Pause(); }
+            catch (Exception ex)
+            {
+                _logger?.Invoke(
+                    $"SongTimer.Pause() failed: {ex.GetType().Name} - {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -158,7 +168,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || !_playbackClock.IsPaused)
                 return;
 
-            _soundInstance?.Resume();
+            try { _soundInstance?.Resume(); }
+            catch (Exception ex)
+            {
+                _logger?.Invoke(
+                    $"SongTimer.Resume() failed: {ex.GetType().Name} - {ex.Message}");
+            }
             _playbackClock.Resume(gameTime);
         }
 
@@ -170,7 +185,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed)
                 return;
 
-            _soundInstance?.Stop();
+            try { _soundInstance?.Stop(); }
+            catch (Exception ex)
+            {
+                _logger?.Invoke(
+                    $"SongTimer.Stop() failed: {ex.GetType().Name} - {ex.Message}");
+            }
             _playbackClock.Stop();
         }
 

@@ -231,7 +231,31 @@ namespace DTXMania.Game.Lib.Stage
             if (_previousStage != null)
             {
                 _logger.LogDebug("Deactivating previous stage: {StageType}", _previousStage.Type);
-                _previousStage.Deactivate();
+                try
+                {
+                    _previousStage.Deactivate();
+                }
+                catch (Exception ex)
+                {
+                    // A failed teardown must not strand the transition: evict the
+                    // stage so it is recreated on next use, attempt Dispose as a
+                    // last cleanup (its Deactivate retry happens inside), and
+                    // still activate the target stage.
+                    _logger.LogError(ex,
+                        "Stage {StageType} failed to deactivate during transition; evicting and completing the transition",
+                        _previousStage.Type);
+                    _stages.Remove(_previousStage.Type);
+                    try
+                    {
+                        _previousStage.Dispose();
+                    }
+                    catch (Exception disposeEx)
+                    {
+                        _logger.LogError(disposeEx,
+                            "Evicted stage {StageType} also failed to dispose",
+                            _previousStage.Type);
+                    }
+                }
             }
 
             // Activate new stage
@@ -332,21 +356,42 @@ namespace DTXMania.Game.Lib.Stage
                         currentStageType, isCurrentlyTransitioning, currentTransitionType);
                     _logger.LogDebug("Disposing {StageCount} total stages", _stages.Count);
 
-                    // Deactivate current stage before disposal
+                    // Deactivate current stage before disposal. A failed
+                    // teardown must not skip the remaining stage disposals or
+                    // leave _disposed unset.
                     if (_currentStage != null)
                     {
                         _logger.LogDebug("Deactivating current stage before disposal: {StageType}", _currentStage.Type);
-                        _currentStage.Deactivate();
+                        try
+                        {
+                            _currentStage.Deactivate();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex,
+                                "Stage {StageType} failed to deactivate during StageManager disposal",
+                                _currentStage.Type);
+                        }
                         _currentStage = null;
                     }
 
-                    // Dispose all stages
+                    // Dispose all stages; isolate each failure so every stage
+                    // gets a disposal attempt.
                     foreach (var stage in _stages.Values)
                     {
                         if (stage != null)
                         {
                             _logger.LogDebug("Disposing stage: {StageType}", stage.Type);
-                            stage.Dispose();
+                            try
+                            {
+                                stage.Dispose();
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex,
+                                    "Stage {StageType} failed to dispose",
+                                    stage.Type);
+                            }
                         }
                     }
                     _stages.Clear();

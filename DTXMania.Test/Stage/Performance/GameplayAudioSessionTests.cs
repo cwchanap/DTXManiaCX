@@ -131,17 +131,18 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WhenMainBackgroundPlaybackFails_ReturnsFalse()
+    public void Start_WhenMainBackgroundPlaybackFails_ReturnsFalseAndRunsSilentClock()
     {
-        // Play() throws on the uninitialized instance, so SongTimer reports the
-        // transport failure and the logical playback clock never starts.
+        // Play() throws on the uninitialized instance: SongTimer reports the
+        // transport failure but the logical clock still runs on its GameTime
+        // fallback so the song can advance and complete without audio.
         var session = CreateSession();
         session.Bind(CreateChart(), CreatePreparedSetWithMainBackground(CreateSoundEffectInstance()));
 
         var started = session.Start(new GameTime(TimeSpan.Zero, TimeSpan.Zero), null);
 
         Assert.False(started);
-        Assert.False(session.IsPlaying);
+        Assert.True(session.IsPlaying);
     }
 
     [Fact]

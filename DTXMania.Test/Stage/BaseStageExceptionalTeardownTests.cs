@@ -13,7 +13,7 @@ public class BaseStageExceptionalTeardownTests
     [Theory]
     [InlineData(StageType.Title)]
     [InlineData(StageType.Result)]
-    public void NormalTeardown_ReleasesBackgroundOnce(StageType type)
+    public void NormalTeardown_ShouldReleaseBackgroundOnce(StageType type)
     {
         var background = new Mock<ITexture>();
         var stage = CreateStage(type, background.Object);
@@ -30,7 +30,7 @@ public class BaseStageExceptionalTeardownTests
     [Theory]
     [InlineData(StageType.Title)]
     [InlineData(StageType.Result)]
-    public void ThrowingHook_ReleasesBackgroundPreservesFirstFailureAndAllowsRetry(StageType type)
+    public void ThrowingHook_ShouldReleaseBackgroundPreserveFirstFailureAndAllowRetry(StageType type)
     {
         var background = new Mock<ITexture>();
         var first = new InvalidOperationException("stage teardown");
@@ -43,7 +43,7 @@ public class BaseStageExceptionalTeardownTests
         var caught = Assert.Throws<InvalidOperationException>(stage.Deactivate);
 
         Assert.Same(first, caught);
-        Assert.Contains(nameof(ThrowingHook_ReleasesBackgroundPreservesFirstFailureAndAllowsRetry), caught.StackTrace);
+        Assert.Contains(nameof(ThrowingHook_ShouldReleaseBackgroundPreserveFirstFailureAndAllowRetry), caught.StackTrace);
         Assert.True(stage.IsActive);
         background.Verify(x => x.RemoveReference(), Times.Once);
         stage.Deactivate();
@@ -55,7 +55,7 @@ public class BaseStageExceptionalTeardownTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void HookReactivation_KeepsFreshBackgroundAndRethrowsOldFailure(bool throws)
+    public void HookReactivation_ShouldKeepFreshBackgroundAndRethrowOldFailure(bool throws)
     {
         var old = new Mock<ITexture>();
         var fresh = new Mock<ITexture>();
@@ -82,7 +82,7 @@ public class BaseStageExceptionalTeardownTests
     }
 
     [Fact]
-    public void BackgroundReleaseReactivation_PreservesFreshRunAndOldHookFailure()
+    public void BackgroundReleaseReactivation_ShouldPreserveFreshRunAndOldHookFailure()
     {
         var old = new Mock<ITexture>();
         var fresh = new Mock<ITexture>();
@@ -107,7 +107,7 @@ public class BaseStageExceptionalTeardownTests
     }
 
     [Fact]
-    public void BackgroundWorkRetirementReactivation_DoesNotTearDownFreshRun()
+    public void BackgroundWorkRetirementReactivation_ShouldNotTearDownFreshRun()
     {
         var old = new Mock<ITexture>();
         var fresh = new Mock<ITexture>();

@@ -393,7 +393,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(250.0, session.GetCurrentMs(new GameTime(TimeSpan.FromSeconds(1.5), TimeSpan.Zero)));
     }
 
-    [Fact]
+    [AudioFact]
     public void StartGameplayInitialization_WhenAudioBindingThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
     {
         var directory = CreateTempDirectory();
@@ -435,7 +435,7 @@ public class PerformanceStageDeterministicTests
         }
     }
 
-    [Fact]
+    [AudioFact]
     public async Task StartGameplayInitialization_WhenChartSetupThrowsBeforeAudioBinding_ShouldFailWithChartSetupErrorAndDisposePreparedAudio()
     {
         // A playfield publication failure precedes audio binding; the queued real
@@ -551,7 +551,7 @@ public class PerformanceStageDeterministicTests
         Assert.Same(stage.Failure, error.Exception);
     }
 
-    [Fact]
+    [AudioFact]
     public async Task StartGameplayInitialization_WhenResultQueuedBeforeDeactivation_ShouldDropItAndDisposeThePreparedSetExactlyOnce()
     {
         // The worker finished and its terminal sat in the scope queue when the stage
@@ -593,7 +593,7 @@ public class PerformanceStageDeterministicTests
         }
     }
 
-    [Fact]
+    [AudioFact]
     public async Task StartGameplayInitialization_WhenPreparationIsCanceledMidFlight_ShouldLeaveLoadingStateUntouched()
     {
         // Retirement cancels the scope token while the worker is parked inside the
@@ -793,7 +793,7 @@ public class PerformanceStageDeterministicTests
         }
     }
 
-    [Fact]
+    [AudioFact]
     public void Activation_WhenRetiredAudioFinishesLate_ShouldDropRealWavAndPreserveFreshRun()
     {
         var directory = CreateTempDirectory();
@@ -2687,7 +2687,7 @@ public class PerformanceStageDeterministicTests
         accentSound.Verify(x => x.RemoveReference(), Times.Once);
     }
 
-    [Fact]
+    [AudioFact]
     public async Task NaturalAudioPreparation_BindsRealSoundsAndSchedulesBgmBeforeAutoplayJudgement()
     {
         var directory = CreateTempDirectory();
@@ -2750,7 +2750,7 @@ public class PerformanceStageDeterministicTests
         }
     }
 
-    [Fact]
+    [AudioFact]
     public async Task AutoPlay_JudgementPrecedesChipFeedback()
     {
         var directory = CreateTempDirectory();
@@ -2808,7 +2808,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(new[] { "0:Perfect:0", "metronome", "1:Perfect:0" }, order);
     }
 
-    [Fact]
+    [AudioFact]
     public async Task GameplayFrame_LiveLatencyAndFrozenSpeedApplyToManualChipHitAndMiss()
     {
         var directory = CreateTempDirectory();
@@ -2889,7 +2889,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(NoteStatus.Hit, stage.Rules!.JudgementManager!.GetNoteRuntimeData(second.Notes[0].Id)!.Status);
     }
 
-    [Theory]
+    [AudioTheory]
     [InlineData("manual", 990, 1000, 0, true)]
     [InlineData("far", 1000, 3000, 0, false)]
     [InlineData("latency", 1200, 1000, 200, true)]
@@ -3146,7 +3146,7 @@ public class PerformanceStageDeterministicTests
         stage.Deactivate();
     }
 
-    [Fact]
+    [AudioFact]
     public void Deactivation_WithScheduledAudio_ShouldDisposeAndResetForReactivation()
     {
         var directory = CreateTempDirectory();
@@ -3190,7 +3190,7 @@ public class PerformanceStageDeterministicTests
         }
     }
 
-    [Fact]
+    [AudioFact]
     public async Task ReturnToSongSelect_ShouldPauseInputStopTimerAndChangeStage()
     {
         var directory = CreateTempDirectory();
@@ -5525,7 +5525,7 @@ public class PerformanceStageDeterministicTests
         stage.Deactivate();
     }
 
-    [Fact]
+    [AudioFact]
     public void StartSong_WhenNoBgmEvents_ShouldSetVolumeToOne()
     {
         AssertStartSongAudio(new ParsedChart("startsong-default.dtx"), 1.0f, 0.0f);
