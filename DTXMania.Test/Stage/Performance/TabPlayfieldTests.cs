@@ -96,7 +96,7 @@ public class TabPlayfieldTests
     }
 
     [Fact]
-    public void Feedback_FullAutoplay_ShouldReplacePopupWithoutTiming()
+    public void FeedbackFullAutoplay_ShouldReplacePopupWithoutTiming()
     {
         using var hud = CreateHud();
         using var field = Create(Resources(), hud, Enumerable.Range(0, PerformanceUILayout.LaneCount).ToHashSet())!;
@@ -109,7 +109,7 @@ public class TabPlayfieldTests
     }
 
     [Fact]
-    public void Feedback_ManualHitWithTimingHidden_ShouldStillShowPopup()
+    public void FeedbackManualHitWithTimingHidden_ShouldStillShowPopup()
     {
         var hud = CreateHud();
         using var field = Create(Resources(), hud)!;
@@ -121,7 +121,7 @@ public class TabPlayfieldTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Construction_WhenStripOrHudUnready_ShouldReleasePartialResources(bool completeStrip)
+    public void ConstructionWhenStripOrHudUnready_ShouldReleasePartialResources(bool completeStrip)
     {
         var resources = Resources(completeStrip);
         var font = resources.Object.LoadFont("Bravura-Notation", 60);
@@ -136,7 +136,7 @@ public class TabPlayfieldTests
     }
 
     [Fact]
-    public void Construction_WhenHudFactoryThrows_ShouldReleaseStripAndPreserveFailure()
+    public void ConstructionWhenHudFactoryThrows_ShouldReleaseStripAndPreserveFailure()
     {
         var resources = Resources();
         var font = resources.Object.LoadFont("Bravura-Notation", 60);
@@ -148,7 +148,7 @@ public class TabPlayfieldTests
     }
 
     [Fact]
-    public void Dispose_WhenStripReleaseThrows_ShouldStillDisposeHudAndReleaseArt()
+    public void DisposeWhenStripReleaseThrows_ShouldStillDisposeHudAndReleaseArt()
     {
         var resources = new Mock<IResourceManager>();
         var theme = SkinTheme.Parse(new[] { "Tab.StripTexture=Graphics/tab.png" });
@@ -180,7 +180,7 @@ public class TabPlayfieldTests
     }
 
     [Fact]
-    public void HudFontFailure_WhenEarlierFontDisposeThrows_ShouldStillDisposeRemainingFonts()
+    public void HudFontFailureWhenEarlierFontDisposeThrows_ShouldStillDisposeRemainingFonts()
     {
         var first = new Mock<IFont>();
         var second = new Mock<IFont>();

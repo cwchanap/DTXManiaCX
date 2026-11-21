@@ -314,15 +314,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         private void ProcessPendingLaneHits(double currentSongTimeMs)
         {
+            LaneHitEventArgs[] pending;
             lock (_pendingLaneHits)
             {
-                foreach (LaneHitEventArgs laneHitEvent in _pendingLaneHits)
-                {
-                    ProcessLaneInput(laneHitEvent, currentSongTimeMs);
-                    if (_disposed)
-                        break;
-                }
+                if (_pendingLaneHits.Count == 0)
+                    return;
+                pending = _pendingLaneHits.ToArray();
                 _pendingLaneHits.Clear();
+            }
+
+            foreach (LaneHitEventArgs laneHitEvent in pending)
+            {
+                if (_disposed)
+                    break;
+                ProcessLaneInput(laneHitEvent, currentSongTimeMs);
+                if (_disposed)
+                    break;
             }
         }
 

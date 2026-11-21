@@ -543,7 +543,13 @@ namespace DTXMania.Game.Lib.Config
                     break;
                 case "ScrollSpeed":
                     if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var scrollSpeed))
-                        Config.ScrollSpeed = ScrollSpeedRange.SnapAndClamp(scrollSpeed);
+                    {
+                        var snapped = ScrollSpeedRange.SnapAndClamp(scrollSpeed);
+                        var old = Config.ScrollSpeed;
+                        Config.ScrollSpeed = snapped;
+                        if (snapped != old)
+                            RaiseEvent(ScrollSpeedChanged, new ScrollSpeedChangedEventArgs(old, snapped));
+                    }
                     break;
                 case "PlaySpeedPercent":
                     if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var playSpeedPercent))
@@ -875,7 +881,10 @@ namespace DTXMania.Game.Lib.Config
 
         public void ResetToDefaults()
         {
+            var oldScrollSpeed = Config.ScrollSpeed;
             Config = new ConfigData();
+            if (Config.ScrollSpeed != oldScrollSpeed)
+                RaiseEvent(ScrollSpeedChanged, new ScrollSpeedChangedEventArgs(oldScrollSpeed, Config.ScrollSpeed));
         }
 
         public event EventHandler<ScrollSpeedChangedEventArgs>? ScrollSpeedChanged;

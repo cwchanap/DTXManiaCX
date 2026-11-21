@@ -129,6 +129,23 @@ public class BaseStageExceptionalTeardownTests
         fresh.Verify(x => x.RemoveReference(), Times.Once);
     }
 
+    [Fact]
+    public void DisposeWhenDeactivateThrows_ShouldMarkDisposedAndSkipRetryOnSecondDispose()
+    {
+        var background = new Mock<ITexture>();
+        var failure = new InvalidOperationException("teardown failed");
+        var stage = CreateStage(StageType.Title, background.Object);
+        stage.DeactivateAction = () => throw failure;
+        stage.Activate();
+
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(stage.Dispose));
+
+        Assert.Equal(1, stage.DeactivateCalls);
+        background.Verify(x => x.RemoveReference(), Times.Once);
+        stage.Dispose();
+        Assert.Equal(1, stage.DeactivateCalls);
+    }
+
     private delegate void TextureCallback(string path, out ITexture texture);
 
     private static TestStage CreateStage(StageType type, params ITexture[] textures)

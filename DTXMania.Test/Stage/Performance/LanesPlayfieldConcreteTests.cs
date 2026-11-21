@@ -110,7 +110,7 @@ public class LanesPlayfieldConcreteTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void ConstructorFailure_WhenSkillTextureValidationThrows_ShouldReleaseTextureAndPrefix(bool cached)
+    public void ConstructorFailureWhenSkillTextureValidationThrows_ShouldReleaseTextureAndPrefix(bool cached)
     {
         var resources = CreateResources(out var pixel);
         var visuals = new RecordingVisuals(resources.Object);
@@ -353,6 +353,53 @@ public class LanesPlayfieldConcreteTests
         timingTexture.Verify(t => t.RemoveReference(), Times.Once);
         spriteTexture.Verify(t => t.RemoveReference(), Times.Once);
         Assert.Equal(paths, releasedPaths);
+    }
+
+    [Fact]
+    public void LoadSkillPanelTextureWhenInvalidTextureIsCached_ShouldRemoveReferenceInsteadOfDisposing()
+    {
+        var resources = new Mock<IResourceManager>();
+        var thinCached = new Mock<ITexture>();
+        thinCached.SetupGet(t => t.Width).Returns(1);
+        thinCached.SetupGet(t => t.Height).Returns(10);
+        var value = thinCached.Object;
+        resources.Setup(r => r.TryLoadTexture(TexturePath.SkillPanel, out value)).Returns(true);
+
+        var result = LanesPlayfield.LoadSkillPanelTexture(resources.Object, SkinTheme.Empty);
+
+        Assert.Null(result);
+        thinCached.Verify(t => t.RemoveReference(), Times.Once);
+        thinCached.Verify(t => t.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void DisposeWhenOwnedTextureIsUncachedFallback_ShouldDisposeInsteadOfRemovingReference()
+    {
+        var resources = CreateResources(out var pixel);
+        var fallback = new Mock<ITexture>();
+        var value = fallback.Object;
+        resources.Setup(r => r.TryLoadTexture(TexturePath.LaneStrips, out value)).Returns(false);
+        var visuals = new RecordingVisuals(resources.Object);
+        var field = new LanesPlayfield(resources.Object, new ConfigData(), visuals);
+
+        field.Dispose();
+
+        fallback.Verify(t => t.Dispose(), Times.Once);
+        fallback.Verify(t => t.RemoveReference(), Times.Never);
+        pixel.Verify(t => t.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void LanesVisualFactoryWhenWhitePixelIsNull_ShouldReturnNoOpJudgementLine()
+    {
+        var device = (GraphicsDevice)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(GraphicsDevice));
+        var factory = new LanesVisualFactory(device, new Mock<IResourceManager>().Object, null, null, null);
+
+        using var line = factory.CreateLine();
+
+        Assert.Same(NullJudgementLine.Instance, line);
+        line.Update(0.016);
+        line.Draw(null!);
     }
 
     private static Mock<IResourceManager> CreateResources(out Mock<ITexture> pixel)

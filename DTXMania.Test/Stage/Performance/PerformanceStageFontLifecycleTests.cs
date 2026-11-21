@@ -14,7 +14,7 @@ namespace DTXMania.Test.Stage.Performance
     public class PerformanceStageFontLifecycleTests
     {
         [Fact]
-        public void InitializeReadyFont_WhenSucceeds_ShouldCreateIndicatorAndReleaseBothFontsOnDeactivate()
+        public void InitializeReadyFontWhenSucceeds_ShouldCreateIndicatorAndReleaseBothFontsOnDeactivate()
         {
             var mockResourceManager = new Mock<IResourceManager>();
             var mockReadyFont = new Mock<IFont>();
@@ -36,7 +36,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void InitializeReadyFont_WhenScrollSpeedFontFails_ShouldReleaseReadyFontAndUseFallbackIndicator()
+        public void InitializeReadyFontWhenScrollSpeedFontFails_ShouldReleaseReadyFontAndUseFallbackIndicator()
         {
             var mockResourceManager = new Mock<IResourceManager>();
             var mockReadyFont = new Mock<IFont>();
@@ -52,6 +52,28 @@ namespace DTXMania.Test.Stage.Performance
             var indicator = stage.InitializeFonts();
             mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
             Assert.NotNull(indicator);
+            stage.Deactivate();
+            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
+        public void InitializeReadyFontWhenCleanupReleaseThrows_ShouldSwallowCleanupFailureAndReturnFallbackIndicator()
+        {
+            var mockResourceManager = new Mock<IResourceManager>();
+            var mockReadyFont = new Mock<IFont>();
+            mockReadyFont.Setup(x => x.RemoveReference()).Throws(new InvalidOperationException("font release failed"));
+            mockResourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", 24))
+                .Returns(mockReadyFont.Object);
+            mockResourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", 14))
+                .Throws(new InvalidOperationException("scroll font load failed"));
+
+            using var stage = CreateStage(mockResourceManager.Object);
+            stage.Activate();
+            var indicator = stage.InitializeFonts();
+            Assert.NotNull(indicator);
+            mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
             stage.Deactivate();
             mockReadyFont.Verify(x => x.RemoveReference(), Times.Once);
         }

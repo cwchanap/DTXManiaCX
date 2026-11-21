@@ -37,7 +37,7 @@ namespace DTXMania.Test.Stage.Performance;
 public class PerformanceStageDeterministicTests
 {
     [Fact]
-    public async Task HeadlessPerformanceStage_NonDefaultProfile_UsesIsolatedActualCacheFactory()
+    public async Task HeadlessPerformanceStageNonDefaultProfile_ShouldUseIsolatedActualCacheFactory()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
             new StageTestLogger(), new ConfigData { PlaySpeedPercent = 75 }));
@@ -73,7 +73,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task CacheCleanup_WhenStageCanceledDuringCacheOperation_LeavesRootForLateWrite()
+    public async Task CacheCleanupWhenStageCanceledDuringCacheOperation_ShouldLeaveRootForLateWrite()
     {
         var directory = CreateTempDirectory();
         using var stage = new GatedVariantStage(CreateHeadlessGame(
@@ -126,7 +126,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ExtractSharedData_WhenPayloadMissing_ShouldLeaveStageDataUnchanged()
+    public void ExtractSharedDataWhenPayloadMissing_ShouldLeaveStageDataUnchanged()
     {
         var logger = new StageTestLogger();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(logger, new ConfigData()));
@@ -154,7 +154,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ExtractSharedData_WhenSongPlayRequestExists_ShouldAssignAllFields()
+    public void ExtractSharedDataWhenSongPlayRequestExists_ShouldAssignAllFields()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var selectedSong = new SongListNode { Title = "Song" };
@@ -173,7 +173,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenManagersExist_ShouldExposePerformanceState()
+    public void PopulateTelemetryWhenManagersExist_ShouldExposePerformanceState()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.UnionWith(Enumerable.Range(0, PerformanceUILayout.LaneCount));
@@ -202,7 +202,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenAutoPlayIsPartial_ShouldReportAutoPlayDisabled()
+    public void PopulateTelemetryWhenAutoPlayIsPartial_ShouldReportAutoPlayDisabled()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.UnionWith(new[] { 0, 1 });
@@ -222,7 +222,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenNotationStripReady_ShouldReportTabStyle()
+    public void PopulateTelemetryWhenNotationStripReady_ShouldReportTabStyle()
     {
         using var input = new MockInputManagerCompat();
         var resources = CreateNotationResourceManager(completeBravura: true);
@@ -240,7 +240,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenNotationStripMissing_ShouldReportLanesStyle()
+    public void PopulateTelemetryWhenNotationStripMissing_ShouldReportLanesStyle()
     {
         using var input = new MockInputManagerCompat();
         var resources = CreateNotationResourceManager(completeBravura: false);
@@ -258,7 +258,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task PopulateTelemetry_WhenSongTimerMissing_ShouldReportPerformanceNotReady()
+    public async Task PopulateTelemetryWhenSongTimerMissing_ShouldReportPerformanceNotReady()
     {
         var directory = CreateTempDirectory();
         using var stage = new GatedVariantStage(CreateHeadlessGame(
@@ -286,7 +286,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task PopulateTelemetry_WhenAudioPreparationInProgress_ShouldExposeFrozenProfileAndMetrics()
+    public async Task PopulateTelemetryWhenAudioPreparationInProgress_ShouldExposeFrozenProfileAndMetrics()
     {
         var directory = CreateTempDirectory();
         var config = new ConfigData { PlaySpeedPercent = 75, PitchSemitones = -3 };
@@ -340,7 +340,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenAudioPreparationHasNotReported_ShouldExposeZeroMetrics()
+    public void PopulateTelemetryWhenAudioPreparationHasNotReported_ShouldExposeZeroMetrics()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("initial.dtx")));
@@ -357,7 +357,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenChartManagerMissing_ShouldReportPerformanceNotReady()
+    public void PopulateTelemetryWhenChartManagerMissing_ShouldReportPerformanceNotReady()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
@@ -371,7 +371,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
+    public void StartGameplayInitializationWhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { PlaySpeedPercent = 50 };
@@ -394,7 +394,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public void StartGameplayInitialization_WhenAudioBindingThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
+    public void StartGameplayInitializationWhenAudioBindingThrowsAfterPreparation_ShouldFailLoadingAndKeepStageOwnedAudioForCleanup()
     {
         var directory = CreateTempDirectory();
         var logger = new StageTestLogger();
@@ -436,7 +436,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public async Task StartGameplayInitialization_WhenChartSetupThrowsBeforeAudioBinding_ShouldFailWithChartSetupErrorAndDisposePreparedAudio()
+    public async Task StartGameplayInitializationWhenChartSetupThrowsBeforeAudioBinding_ShouldFailWithChartSetupErrorAndDisposePreparedAudio()
     {
         // A playfield publication failure precedes audio binding; the queued real
         // audio must be disposed rather than retained by a failed activation.
@@ -486,7 +486,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenAudioPreparationFails_ShouldFailLoadingAndLogOriginalException()
+    public void StartGameplayInitializationWhenAudioPreparationFails_ShouldFailLoadingAndLogOriginalException()
     {
         // A worker fault reaches the scope's onError callback on the update thread,
         // which surfaces the failure via FailLoading. The original exception instance
@@ -521,7 +521,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenFactoryResolutionThrows_ShouldPublishChartBeforeFailing()
+    public void StartGameplayInitializationWhenFactoryResolutionThrows_ShouldPublishChartBeforeFailing()
     {
         var logger = new StageTestLogger();
         var game = CreateHeadlessGame(logger, new ConfigData { PlaySpeedPercent = 50, PitchSemitones = 3 });
@@ -549,10 +549,11 @@ public class PerformanceStageDeterministicTests
         Assert.Null(stage.AudioSession);
         var error = Assert.Single(logger.Errors, entry => entry.Message.Contains("Audio preparation failed"));
         Assert.Same(stage.Failure, error.Exception);
+        Assert.Contains("CreateAudioVariantProcessorFactory", error.Exception!.StackTrace);
     }
 
     [AudioFact]
-    public async Task StartGameplayInitialization_WhenResultQueuedBeforeDeactivation_ShouldDropItAndDisposeThePreparedSetExactlyOnce()
+    public async Task StartGameplayInitializationWhenResultQueuedBeforeDeactivation_ShouldDropItAndDisposeThePreparedSetExactlyOnce()
     {
         // The worker finished and its terminal sat in the scope queue when the stage
         // deactivated: BaseStage.Deactivate retires the scope synchronously BEFORE
@@ -594,7 +595,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public async Task StartGameplayInitialization_WhenPreparationIsCanceledMidFlight_ShouldLeaveLoadingStateUntouched()
+    public async Task StartGameplayInitializationWhenPreparationIsCanceledMidFlight_ShouldLeaveLoadingStateUntouched()
     {
         // Retirement cancels the scope token while the worker is parked inside the
         // audio preparation. The canceled preparation must neither fail the stage nor
@@ -750,7 +751,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenWorkerReportsSoundLoadFailure_ShouldLogThroughTheLoggerResolvedBeforeRun()
+    public void StartGameplayInitializationWhenWorkerReportsSoundLoadFailure_ShouldLogThroughTheLoggerResolvedBeforeRun()
     {
         // The worker must not resolve BaseStage.Logger: the property lazily assigns
         // _logger and reads _game.LoggerFactory, which would mutate stage state from
@@ -794,7 +795,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public void Activation_WhenRetiredAudioFinishesLate_ShouldDropRealWavAndPreserveFreshRun()
+    public void ActivationWhenRetiredAudioFinishesLate_ShouldDropRealWavAndPreserveFreshRun()
     {
         var directory = CreateTempDirectory();
         var logger = new BlockingLoadFailureLogger(gates: 2);
@@ -905,7 +906,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenScrollSpeedChangesDuringPreparation_ShouldApplyCurrentConfigSpeedNotTheSnapshot()
+    public void StartGameplayInitializationWhenScrollSpeedChangesDuringPreparation_ShouldApplyCurrentConfigSpeedNotTheSnapshot()
     {
         var directory = CreateTempDirectory();
         var config = new ConfigData { ScrollSpeed = 100, PlaySpeedPercent = 50 };
@@ -939,7 +940,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void WireUpInputEventHandlers_WhenCalledRepeatedly_ShouldSubscribeExactlyOnce()
+    public void WireUpInputEventHandlersWhenCalledRepeatedly_ShouldSubscribeExactlyOnce()
     {
         using var input = new MockInputManagerCompat();
         var playfield = new Mock<IPerformancePlayfield>();
@@ -971,7 +972,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenPreparationFails_ShouldKeepPadFeedbackWired()
+    public void StartGameplayInitializationWhenPreparationFails_ShouldKeepPadFeedbackWired()
     {
         var logger = new StageTestLogger();
         using var inputManager = new MockInputManagerCompat();
@@ -995,7 +996,7 @@ public class PerformanceStageDeterministicTests
     #endregion
 
     [Fact]
-    public void LoadPerformanceUIAssets_WhenResourceManagerReturnsNull_ShouldLeaveAllTexturesNull()
+    public void LoadPerformanceUIAssetsWhenResourceManagerReturnsNull_ShouldLeaveAllTexturesNull()
     {
         // Each per-asset load is best-effort via TryLoadTexture; a missing skin must not
         // abort the whole load. This exercises every TryLoadTexture call site in the method.
@@ -1016,7 +1017,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void LoadSkillPanelTexture_WhenThemedOverrideIs1x1Fallback_ShouldDisposeFallbackAndRetryWithDefault()
+    public void LoadSkillPanelTextureWhenThemedOverrideIs1x1Fallback_ShouldDisposeFallbackAndRetryWithDefault()
     {
         // Regression test for a GPU texture leak: when a custom/partial skin
         // omits Performance.SkillPanelTexture (or points it at a missing file),
@@ -1057,7 +1058,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void LoadSkillPanelTexture_WhenThemedOverrideEqualsDefaultPath_ShouldDisposeFallbackAndReturnNull()
+    public void LoadSkillPanelTextureWhenThemedOverrideEqualsDefaultPath_ShouldDisposeFallbackAndReturnNull()
     {
         // When the resolved override path is already the NX default and that
         // load fails (1x1 fallback), there is nothing left to retry. The
@@ -1088,7 +1089,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void LoadSkillPanelTexture_WhenDefaultAssetAlsoIs1x1Fallback_ShouldDisposeAndReturnNull()
+    public void LoadSkillPanelTextureWhenDefaultAssetAlsoIs1x1Fallback_ShouldDisposeAndReturnNull()
     {
         // Regression test for a second GPU texture leak: when both the themed
         // override and the NX default asset resolve to CreateFallbackTexture's
@@ -1132,7 +1133,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void FreezeRunConfiguration_WhenConfigChanges_ShouldKeepFrozenVisualGates()
+    public void FreezeRunConfigurationWhenConfigChanges_ShouldKeepFrozenVisualGates()
     {
         var config = new ConfigData
         {
@@ -1190,7 +1191,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void VisualGates_BeforeFreeze_ShouldDefaultRequestedNoteDisplayStyleToLanes()
+    public void VisualGatesBeforeFreeze_ShouldDefaultRequestedNoteDisplayStyleToLanes()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
             new StageTestLogger(), new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab }));
@@ -1202,7 +1203,7 @@ public class PerformanceStageDeterministicTests
     #region HPA-411 Tab mode integration
 
     [Fact]
-    public void FreezeRunConfiguration_WhenTabRequested_ShouldFreezeStyleWhileEffectiveModeStaysLanesUntilStripPublish()
+    public void FreezeRunConfigurationWhenTabRequested_ShouldFreezeStyleWhileEffectiveModeStaysLanesUntilStripPublish()
     {
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
         using var input = new MockInputManagerCompat();
@@ -1219,7 +1220,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenLanesRequested_ShouldKeepLanesWithoutNotation()
+    public void StartGameplayInitializationWhenLanesRequested_ShouldKeepLanesWithoutNotation()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
@@ -1233,7 +1234,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenTabRequestedAndAudioStillPreparing_ShouldPublishChartAndNotationStripBeforeReady()
+    public void StartGameplayInitializationWhenTabRequestedAndAudioStillPreparing_ShouldPublishChartAndNotationStripBeforeReady()
     {
         // Tab playfield (chart, ChartManager and NotationStripRenderer) must publish
         // ahead of audio preparation so LOADING renders over Tab instead of Lanes.
@@ -1291,7 +1292,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenTabAudioIsPreparing_ShouldForwardCurrentAndLiveScrollSpeed()
+    public void StartGameplayInitializationWhenTabAudioIsPreparing_ShouldForwardCurrentAndLiveScrollSpeed()
     {
         var directory = CreateTempDirectory();
         using var input = new MockInputManagerCompat();
@@ -1336,7 +1337,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenAudioPreparationThrowsOperationCanceledWithoutRetirement_ShouldFailLoading()
+    public void StartGameplayInitializationWhenAudioPreparationThrowsOperationCanceledWithoutRetirement_ShouldFailLoading()
     {
         // A non-retirement OperationCanceledException (e.g. a killed decoder/ffmpeg
         // process) must route to onError so _isLoading clears and the error screen shows,
@@ -1370,7 +1371,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WhenNotationBuildFails_ShouldStayInLanesAndRemainReady()
+    public void StartGameplayInitializationWhenNotationBuildFails_ShouldStayInLanesAndRemainReady()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
@@ -1388,7 +1389,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TryConstructNotationStrip_WhenBravuraIsIncomplete_ShouldFallBackToLanesForTheSong()
+    public void TryConstructNotationStripWhenBravuraIsIncomplete_ShouldFallBackToLanesForTheSong()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
@@ -1403,7 +1404,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TryConstructNotationStrip_WhenTabHudCannotAcquireResources_ShouldRollStripBackToLanes()
+    public void TryConstructNotationStripWhenTabHudCannotAcquireResources_ShouldRollStripBackToLanes()
     {
         using var hud = TabPlayfieldTests.CreateUnreadyHud();
         var resources = TabPlayfieldTests.Resources();
@@ -1779,7 +1780,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartGameplayInitialization_WithHiddenCombo_ShouldFreezeTabComboGate()
+    public void StartGameplayInitializationWithHiddenCombo_ShouldFreezeTabComboGate()
     {
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowCombo = false };
         using var input = new MockInputManagerCompat();
@@ -1828,7 +1829,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(75f, 0.75f, false)]
     [InlineData(15f, 0.15f, true)]
-    public void GaugeChanges_ArePublishedToFrameAndTelemetry(float life, float normalized, bool danger)
+    public void GaugeChanges_ShouldBePublishedToFrameAndTelemetry(float life, float normalized, bool danger)
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -1848,7 +1849,7 @@ public class PerformanceStageDeterministicTests
     [InlineData(0.0, 0.0f)]
     [InlineData(0.5, 0.25f)]
     [InlineData(2.5, 1.0f)]
-    public void UpdateSongProgress_WhenChartDurationExists_ShouldClampProgress(double elapsedSeconds, float expectedProgress)
+    public void UpdateSongProgressWhenChartDurationExists_ShouldClampProgress(double elapsedSeconds, float expectedProgress)
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -1861,7 +1862,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void UpdateSongProgress_ZeroDurationAndAfterDeactivationRemainZero()
+    public void UpdateSongProgressZeroDurationAndAfterDeactivation_ShouldRemainZero()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -1878,7 +1879,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(DrumsNoteDisplayStyle.Tab)]
     [InlineData(DrumsNoteDisplayStyle.Lanes)]
-    public void Frame_BackFadeRetainsProgressWhileClockAndTelemetryReset(DrumsNoteDisplayStyle style)
+    public void FrameBackFade_ShouldRetainProgressWhileClockAndTelemetryReset(DrumsNoteDisplayStyle style)
     {
         using var input = new SwitchableBackInputManager();
         var game = CreateHeadlessGame(new StageTestLogger(),
@@ -1935,7 +1936,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Frame_AndTelemetrySeeSameCompletedPublicationDuringJudgement()
+    public void FrameAndTelemetry_ShouldSeeSameCompletedPublicationDuringJudgement()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -1970,7 +1971,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task Telemetry_ConcurrentPollDuringJudgementSeesLastCompletePublication()
+    public async Task TelemetryConcurrentPollDuringJudgement_ShouldSeeLastCompletePublication()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -2022,7 +2023,7 @@ public class PerformanceStageDeterministicTests
     [InlineData(0)] // Poor hit
     [InlineData(1)] // timeout Miss
     [InlineData(2)] // late manual Miss (Hit status)
-    public async Task Telemetry_FailurePublishesStatusBeforeReentrantTransitionAndReactivation(int failureKind)
+    public async Task TelemetryFailure_ShouldPublishStatusBeforeReentrantTransitionAndReactivation(int failureKind)
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -2133,7 +2134,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task Telemetry_ConcurrentPollingAcrossAudioCancellationHitsAndReactivation()
+    public async Task TelemetryConcurrentPolling_ShouldStayConsistentAcrossAudioCancellationHitsAndReactivation()
     {
         var directory = CreateTempDirectory();
         var config = new ConfigData { PlaySpeedPercent = 50 };
@@ -2227,7 +2228,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task Telemetry_ConcurrentPollWhileTabResourcesAreBeingDisposed()
+    public async Task TelemetryConcurrentPoll_ShouldStayConsistentWhileTabResourcesAreBeingDisposed()
     {
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -2272,7 +2273,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Telemetry_StatusCountsMatchChartScansAndExcludeLateManualMiss()
+    public void TelemetryStatusCounts_ShouldMatchChartScansAndExcludeLateManualMiss()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -2331,7 +2332,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ChartPublication_InitializesGameplayAndIgnoresCountdownInput()
+    public void ChartPublication_ShouldInitializeGameplayAndIgnoreCountdownInput()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -2372,7 +2373,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ChartPublication_FiltersPhysicalInputOnlyForFrozenAutomatedLanes()
+    public void ChartPublication_ShouldFilterPhysicalInputOnlyForFrozenAutomatedLanes()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -2450,7 +2451,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Deactivation_ClearsGameplayStateAndReactivationStartsFresh()
+    public void Deactivation_ShouldClearGameplayStateAndReactivationShouldStartFresh()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -2556,7 +2557,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessBGMEvents_WhenCurrentTimeIsBeforeEventTime_ShouldNotTriggerEarly()
+    public void ProcessBGMEventsWhenCurrentTimeIsBeforeEventTime_ShouldNotTriggerEarly()
     {
         var session = CreateBgmSession(
             ("01", 1000.0, null),
@@ -2571,7 +2572,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessBGMEvents_WhenCurrentTimeReachesEventTime_ShouldTriggerAndRemoveElapsedEvents()
+    public void ProcessBGMEventsWhenCurrentTimeReachesEventTime_ShouldTriggerAndRemoveElapsedEvents()
     {
         var session = CreateBgmSession(
             ("01", 1000.0, null),
@@ -2585,7 +2586,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessBGMEvents_WhenSeveralEventsAreDue_ShouldTriggerChronologically()
+    public void ProcessBGMEventsWhenSeveralEventsAreDue_ShouldTriggerChronologically()
     {
         var played = new List<string>();
         var sounds = new Dictionary<string, ISound>();
@@ -2688,7 +2689,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public async Task NaturalAudioPreparation_BindsRealSoundsAndSchedulesBgmBeforeAutoplayJudgement()
+    public async Task NaturalAudioPreparation_ShouldBindRealSoundsAndScheduleBgmBeforeAutoplayJudgement()
     {
         var directory = CreateTempDirectory();
         var config = new ConfigData();
@@ -2751,7 +2752,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public async Task AutoPlay_JudgementPrecedesChipFeedback()
+    public async Task AutoPlay_ShouldOrderJudgementBeforeChipFeedback()
     {
         var directory = CreateTempDirectory();
         var config = new ConfigData();
@@ -2782,7 +2783,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void GameplayFrame_AutoplayThenMetronomeThenCompensatedManualJudgement()
+    public void GameplayFrame_ShouldOrderAutoplayThenMetronomeThenCompensatedManualJudgement()
     {
         var config = new ConfigData { Metronome = true, AudioLatencyOffsetMs = 250 };
         config.AutoPlayLanes.Add(0);
@@ -2809,7 +2810,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public async Task GameplayFrame_LiveLatencyAndFrozenSpeedApplyToManualChipHitAndMiss()
+    public async Task GameplayFrameLiveLatencyAndFrozenSpeed_ShouldApplyToManualChipHitAndMiss()
     {
         var directory = CreateTempDirectory();
         var config = new ConfigData();
@@ -2852,12 +2853,16 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void AutoPlay_ReentrantDeactivationCleansUpAndNextActivationStartsFresh()
+    public void AutoPlayReentrantDeactivation_ShouldCleanUpAndStartNextActivationFresh()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(0);
         using var input = new MockInputManagerCompat();
-        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input));
+        var playfield = new Mock<IPerformancePlayfield>();
+        using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), config, input))
+        {
+            Playfield = playfield.Object
+        };
         var first = new ParsedChart("auto-teardown.dtx") { DurationMs = 10000 };
         first.Notes.Add(new Note { LaneIndex = 0, TimeMs = 100 });
         first.Notes.Add(new Note { LaneIndex = 0, TimeMs = 200 });
@@ -2873,6 +2878,8 @@ public class PerformanceStageDeterministicTests
         stage.Update(1.1);
         stage.Update(0.5);
         Assert.Equal(1, count);
+        playfield.Verify(p => p.OnAutoHit(It.IsAny<int>()), Times.Never);
+        Assert.Null(stage.Rules);
         Assert.Null(oldRules.JudgementManager);
         Assert.Null(oldRules.ChartManager);
         Assert.Null(stage.AudioSession);
@@ -2896,7 +2903,7 @@ public class PerformanceStageDeterministicTests
     [InlineData("auto", 990, 1000, 0, false)]
     [InlineData("countdown", 0, 0, 0, false)]
     [InlineData("paused", 1000, 1000, 0, false)]
-    public async Task ManualInput_UsesRealChipPlaybackOnlyForPlayingManualLaneAndCompensatedWindow(
+    public async Task ManualInput_ShouldUseRealChipPlaybackOnlyForPlayingManualLaneAndCompensatedWindow(
         string scenario, int rawMs, int noteMs, int latencyMs, bool expectedChip)
     {
         var directory = CreateTempDirectory();
@@ -2964,7 +2971,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(100, 1000.0)]
     [InlineData(150, 1500.0)]
-    public void LastHit_UsesFrozenRawClockOnlyWhilePlayingAndResetsOnDeactivation(int speed, double rawMs)
+    public void LastHit_ShouldUseFrozenRawClockOnlyWhilePlayingAndResetOnDeactivation(int speed, double rawMs)
     {
         var config = new ConfigData { PlaySpeedPercent = speed, AudioLatencyOffsetMs = 200 };
         using var input = new MockInputManagerCompat();
@@ -3021,7 +3028,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_LastHitRecorded_ShouldDeconstructConsistently()
+    public void PopulateTelemetryLastHitRecorded_ShouldDeconstructConsistently()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -3046,7 +3053,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_NoHitRecorded_ShouldReportNullLastHit()
+    public void PopulateTelemetryNoHitRecorded_ShouldReportNullLastHit()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
 
@@ -3059,7 +3066,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenSongTimerPlaying_ShouldReportCurrentSongTimeMs()
+    public void PopulateTelemetryWhenSongTimerPlaying_ShouldReportCurrentSongTimeMs()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var chart = new ParsedChart("playing-telemetry.dtx") { DurationMs = 10000 };
@@ -3077,7 +3084,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenSongTimerPaused_ShouldReportFrozenLogicalTime()
+    public void PopulateTelemetryWhenSongTimerPaused_ShouldReportFrozenLogicalTime()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
             new StageTestLogger(), new ConfigData { PlaySpeedPercent = 150, PitchSemitones = -4 }));
@@ -3106,7 +3113,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenAudioBindsBeforeFirstUpdate_ShouldReportZeroSongTime()
+    public void PopulateTelemetryWhenAudioBindsBeforeFirstUpdate_ShouldReportZeroSongTime()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var chart = new ParsedChart("null-gametime.dtx");
@@ -3127,7 +3134,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenSongTimerNotPlaying_ShouldReportZeroSongTimeAndNotReady()
+    public void PopulateTelemetryWhenSongTimerNotPlaying_ShouldReportZeroSongTimeAndNotReady()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var chart = new ParsedChart("stopped-telemetry.dtx") { DurationMs = 10000 };
@@ -3147,7 +3154,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public void Deactivation_WithScheduledAudio_ShouldDisposeAndResetForReactivation()
+    public void DeactivationWithScheduledAudio_ShouldDisposeAndResetForReactivation()
     {
         var directory = CreateTempDirectory();
         using var input = new MockInputManagerCompat();
@@ -3246,7 +3253,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Back_WhenLoadingFailedWithoutSessionOrJudgement_IsSafeWithOrWithoutStageManager(bool hasManager)
+    public void BackWhenLoadingFailedWithoutSessionOrJudgement_ShouldBeSafeWithOrWithoutStageManager(bool hasManager)
     {
         using var input = new SwitchableBackInputManager { BackTriggered = true };
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
@@ -3265,7 +3272,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void HandleInput_BackHonorsDebounceThenStopsBeforeTransition()
+    public void HandleInputBack_ShouldHonorDebounceThenStopBeforeTransition()
     {
         using var input = new SwitchableBackInputManager();
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
@@ -3313,7 +3320,7 @@ public class PerformanceStageDeterministicTests
     [InlineData(50)]
     [InlineData(100)]
     [InlineData(150)]
-    public void Countdown_StartsSongAfterOneRealSecondAtEveryFrozenSpeed(
+    public void Countdown_ShouldStartSongAfterOneRealSecondAtEveryFrozenSpeed(
         int playSpeedPercent)
     {
         var config = new ConfigData { PlaySpeedPercent = playSpeedPercent };
@@ -3340,7 +3347,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void UpdateGameplay_WhenSongIsPlaying_ShouldAdvanceManagersAndProgress()
+    public void UpdateGameplayWhenSongIsPlaying_ShouldAdvanceManagersAndProgress()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -3357,7 +3364,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void UpdateComponents_WhenAllOptionalComponentsMissing_ShouldNotThrow()
+    public void UpdateComponentsWhenAllOptionalComponentsMissing_ShouldNotThrow()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "No playfield" }, 0, CreateSingleNoteChart()));
@@ -3368,7 +3375,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawBackground_WhenBackgroundTextureExists_ShouldDrawUILayoutBackgroundBounds()
+    public void DrawBackgroundWhenBackgroundTextureExists_ShouldDrawUILayoutBackgroundBounds()
     {
         var backgroundTexture = CreateTextureMock(width: 512, height: 256);
         var resources = new Mock<IResourceManager>();
@@ -3395,7 +3402,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawBackground_WhenBackgroundTextureMissing_ShouldUseViewportSizedFallbackPath()
+    public void DrawBackgroundWhenBackgroundTextureMissing_ShouldUseViewportSizedFallbackPath()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Fallback" }, 0, new ParsedChart("fallback.dtx")));
@@ -3405,7 +3412,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawLaneBackgrounds_WhenLaneTextureExists_ShouldDrawEachVisibleLaneStrip()
+    public void DrawLaneBackgroundsWhenLaneTextureExists_ShouldDrawEachVisibleLaneStrip()
     {
         var laneTexture = CreateTextureMock(width: 512, height: 512);
         var expectedCalls = PerformanceUILayout.LaneStrips.SourceRects
@@ -3446,14 +3453,14 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawLaneBackgrounds_WhenLaneTextureMissing_ShouldUseFallbackRendererPathWithoutThrowing()
+    public void DrawLaneBackgroundsWhenLaneTextureMissing_ShouldUseFallbackRendererPathWithoutThrowing()
     {
         using var fallback = new LaneBackgroundRenderer(new Mock<IResourceManager>().Object);
         LanesPlayfield.DrawLaneBackgrounds(null!, null, fallback, hidden: false);
     }
 
     [Fact]
-    public void DrawJudgementLine_WhenTextureExists_ShouldDrawNxSolidHitBarBounds()
+    public void DrawJudgementLineWhenTextureExists_ShouldDrawNxSolidHitBarBounds()
     {
         var judgementLineTexture = CreateTextureMock(width: 8, height: 8);
         var expectedRectangle = new Rectangle(295, 561, 558, 6);
@@ -3475,7 +3482,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawJudgementLine_WhenGateHidesJudgementLine_ShouldSkipTextureDraw()
+    public void DrawJudgementLineWhenGateHidesJudgementLine_ShouldSkipTextureDraw()
     {
         var judgementLineTexture = CreateTextureMock(width: 8, height: 8);
         LanesPlayfield.DrawJudgementLine(null!, judgementLineTexture.Object, null, hidden: true);
@@ -3494,13 +3501,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawJudgementLine_WhenTextureAndFallbackMissing_ShouldNotThrow()
+    public void DrawJudgementLineWhenTextureAndFallbackMissing_ShouldNotThrow()
     {
         LanesPlayfield.DrawJudgementLine(null!, null, null, hidden: false);
     }
 
     [Fact]
-    public void DrawGaugeElements_WhenGaugeTexturesExist_ShouldDrawFrameAndScaledFill()
+    public void DrawGaugeElementsWhenGaugeTexturesExist_ShouldDrawFrameAndScaledFill()
     {
         var gaugeBaseTexture = CreateTextureMock(width: 120, height: 24);
         var gaugeFillTexture = CreateTextureMock(width: 200, height: 8);
@@ -3549,7 +3556,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawGaugeElements_WhenGaugeValueIsZero_ShouldOnlyDrawFrame()
+    public void DrawGaugeElementsWhenGaugeValueIsZero_ShouldOnlyDrawFrame()
     {
         var gaugeBaseTexture = CreateTextureMock(width: 120, height: 24);
         var gaugeFillTexture = CreateTextureMock(width: 200, height: 8);
@@ -3581,7 +3588,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawProgressBar_WhenProgressValuePositive_ShouldDrawFrameAndFallbackFill()
+    public void DrawProgressBarWhenProgressValuePositive_ShouldDrawFrameAndFallbackFill()
     {
         var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
         LanesPlayfield.DrawProgressFrame(null!, progressBaseTexture.Object);
@@ -3612,7 +3619,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawProgressBar_WhenProgressValueIsZero_ShouldNotDrawFallbackFill()
+    public void DrawProgressBarWhenProgressValueIsZero_ShouldNotDrawFallbackFill()
     {
         var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
         LanesPlayfield.DrawProgressFrame(null!, progressBaseTexture.Object);
@@ -3633,7 +3640,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawProgressBar_WhenFallbackDrawerAndTextureAreMissing_ShouldSkipFallbackFillWithoutThrowing()
+    public void DrawProgressBarWhenFallbackDrawerAndTextureAreMissing_ShouldSkipFallbackFillWithoutThrowing()
     {
         var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
         LanesPlayfield.DrawProgressFrame(null!, progressBaseTexture.Object);
@@ -3653,7 +3660,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawSkillPanel_WhenSkillPanelTextureExists_ShouldDrawAtUILayoutPanelPosition()
+    public void DrawSkillPanelWhenSkillPanelTextureExists_ShouldDrawAtUILayoutPanelPosition()
     {
         var skillPanelTexture = CreateTextureMock(width: 180, height: 96);
         var panelPosition = PerformanceUILayout.SkillPanel.PanelPosition;
@@ -3674,13 +3681,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawSkillPanel_WhenTextureMissing_ShouldNotThrow()
+    public void DrawSkillPanelWhenTextureMissing_ShouldNotThrow()
     {
         LanesPlayfield.DrawSkillPanel(null!, null);
     }
 
     [Fact]
-    public void DrawShutters_WhenStageIsTransitioning_ShouldDrawAtUILayoutStartPosition()
+    public void DrawShuttersWhenStageIsTransitioning_ShouldDrawAtUILayoutStartPosition()
     {
         var shutterTexture = CreateTextureMock(width: 96, height: 512);
         var shutterPosition = PerformanceUILayout.Shutter.StartPosition;
@@ -3702,7 +3709,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawShutters_WhenStageIsInNormalPhase_ShouldSkipTextureDraw()
+    public void DrawShuttersWhenStageIsInNormalPhase_ShouldSkipTextureDraw()
     {
         var shutterTexture = CreateTextureMock(width: 96, height: 512);
         using var stage = CreateVisualStage(TexturePath.Shutter, shutterTexture.Object);
@@ -3723,7 +3730,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawShutters_WhenTextureMissingDuringTransition_ShouldNotThrow()
+    public void DrawShuttersWhenTextureMissingDuringTransition_ShouldNotThrow()
     {
         using var stage = CreateVisualStage(TexturePath.Shutter, null);
         Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
@@ -3731,7 +3738,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawOverlays_WhenDangerActive_ShouldPulseDangerTint()
+    public void DrawOverlaysWhenDangerActive_ShouldPulseDangerTint()
     {
         var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
         Color? actualDangerColor = null;
@@ -3773,7 +3780,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawOverlays_WhenDangerDisabled_ShouldNotDrawDangerTexture()
+    public void DrawOverlaysWhenDangerDisabled_ShouldNotDrawDangerTexture()
     {
         var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
         using var stage = CreateVisualStage(TexturePath.Danger, dangerOverlayTexture.Object);
@@ -3793,7 +3800,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawFallbackRectangle_WhenDrawerMissingAndWhiteTextureExists_ShouldUseTexturePath()
+    public void DrawFallbackRectangleWhenDrawerMissingAndWhiteTextureExists_ShouldUseTexturePath()
     {
         var pixel = new Mock<ITexture>();
         int refs = 1;
@@ -3812,7 +3819,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawGameplayState_WhenLoading_ShouldUseFallbackRectangleDrawerForCenteredText()
+    public void DrawGameplayStateWhenLoading_ShouldUseFallbackRectangleDrawerForCenteredText()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Loading" }, 0, new ParsedChart("loading.dtx")));
@@ -3822,7 +3829,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawGameplayState_WhenReadyCountdownActive_ShouldUseFallbackRectangleDrawerForPulsingReadyText()
+    public void DrawGameplayStateWhenReadyCountdownActive_ShouldUseFallbackRectangleDrawerForPulsingReadyText()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Ready" }, 0, new ParsedChart("ready.dtx")));
@@ -3838,7 +3845,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TriggerBGMEvent_WhenPlayReturnsNull_ShouldAttemptPlaybackWithoutThrowing()
+    public void TriggerBGMEventWhenPlayReturnsNull_ShouldAttemptPlaybackWithoutThrowing()
     {
         var sound = CreateSoundMock();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
@@ -3870,7 +3877,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TriggerBGMEvent_WhenSoundIsMissing_ShouldNotThrow()
+    public void TriggerBGMEventWhenSoundIsMissing_ShouldNotThrow()
     {
         var session = CreateBgmSession(("missing", 0.0, null));
 
@@ -3880,7 +3887,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TriggerBGMEvent_WhenPlayThrows_ShouldSwallowPlaybackFailure()
+    public void TriggerBGMEventWhenPlayThrows_ShouldSwallowPlaybackFailure()
     {
         var sound = CreateSoundMock();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
@@ -4022,7 +4029,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task LogPerformanceError_WithAndWithoutException_ShouldNotThrow()
+    public async Task LogPerformanceErrorWithAndWithoutException_ShouldNotThrow()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
             NullLogger<PerformanceStage>.Instance, new ConfigData()));
@@ -4037,7 +4044,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartSong_WhenSessionCannotStartPlayback_ShouldDisableReadyAndActivateJudgementManager()
+    public void StartSongWhenSessionCannotStartPlayback_ShouldDisableReadyAndActivateJudgementManager()
     {
         var logger = new StageTestLogger();
         using var input = new MockInputManagerCompat();
@@ -4075,7 +4082,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartSong_WhenLegacyBgmAndBackgroundWavIdDefined_ShouldApplyPerWavVolumeAndPan()
+    public void StartSongWhenLegacyBgmAndBackgroundWavIdDefined_ShouldApplyPerWavVolumeAndPan()
     {
         var chart = new ParsedChart("legacy-bgm.dtx");
         chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 40 });
@@ -4085,7 +4092,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void InitializeReadyFont_WhenSpriteBatchIsMissing_ShouldLeaveFontNull()
+    public void InitializeReadyFontWhenSpriteBatchIsMissing_ShouldLeaveFontNull()
     {
         var resources = new Mock<IResourceManager>();
         using var stage = new HeadlessPerformanceStage(
@@ -4097,7 +4104,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TryLoadTexture_WhenResourceManagerUnavailableOrLoadFails_ShouldReturnNull()
+    public void TryLoadTextureWhenResourceManagerUnavailableOrLoadFails_ShouldReturnNull()
     {
         var missingGame = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         Mock.Get(missingGame).SetupGet(g => g.ResourceManager).Returns((IResourceManager)null!);
@@ -4126,7 +4133,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TryLoadTexture_WhenLoadSucceeds_ShouldReturnTexture()
+    public void TryLoadTextureWhenLoadSucceeds_ShouldReturnTexture()
     {
         var texture = CreateTextureMock();
         var resourceManager = new Mock<IResourceManager>();
@@ -4144,7 +4151,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void WithoutPlayfield_DrawPassesAndJudgement_ShouldRemainSafe()
+    public void WithoutPlayfieldDrawPassesAndJudgement_ShouldRemainSafe()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -4168,7 +4175,7 @@ public class PerformanceStageDeterministicTests
     #region HPA-11 Chart Background Video
 
     [Fact]
-    public void ProcessVideoEvents_WhenChartHasNoVideoEvents_ShouldNotStartPlayer()
+    public void ProcessVideoEventsWhenChartHasNoVideoEvents_ShouldNotStartPlayer()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart());
         AdvanceVideo(stage, 10_000);
@@ -4178,7 +4185,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessVideoEvents_WhenBeforeFirstEvent_ShouldNotStartPlayer()
+    public void ProcessVideoEventsWhenBeforeFirstEvent_ShouldNotStartPlayer()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(5000.0, "movie.avi")));
         AdvanceVideo(stage, 4999);
@@ -4188,7 +4195,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessVideoEvents_WhenEventBecomesDue_ShouldStartOnceAndForwardRelativeMediaTime()
+    public void ProcessVideoEventsWhenEventBecomesDue_ShouldStartOnceAndForwardRelativeMediaTime()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
         AdvanceVideo(stage, 1000);
@@ -4198,7 +4205,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessVideoEvents_WhenSeveralEventsAreDue_ShouldStartOnlyLastDueEvent()
+    public void ProcessVideoEventsWhenSeveralEventsAreDue_ShouldStartOnlyLastDueEvent()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart(
             VideoEvent(100.0, "first.avi", "01"),
@@ -4213,7 +4220,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessVideoEvents_WhenLaterUpdateArrives_ShouldForwardExactLogicalMediaTimeWithoutRescaling()
+    public void ProcessVideoEventsWhenLaterUpdateArrives_ShouldForwardExactLogicalMediaTimeWithoutRescaling()
     {
         // The stage runs frozen at 50% play speed (set by CreateVideoStage); the
         // forwarded media time must stay raw logical chart ms, never rescaled.
@@ -4226,7 +4233,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessVideoEvents_WhenUnresolvedEventIsDue_ShouldLeaveFallbackAndAllowLaterValidEvent()
+    public void ProcessVideoEventsWhenUnresolvedEventIsDue_ShouldLeaveFallbackAndAllowLaterValidEvent()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart(
             VideoEvent(500.0, "", "01"),
@@ -4244,7 +4251,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessVideoEvents_WhenUnresolvedEventSupersedesActiveEvent_ShouldStopActiveAndClear()
+    public void ProcessVideoEventsWhenUnresolvedEventSupersedesActiveEvent_ShouldStopActiveAndClear()
     {
         // A valid event starts the video, then a later unresolved event (empty
         // path) becomes due: the active generation must be stopped and the
@@ -4264,7 +4271,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StopGameplayAudioInstances_WhenVideoIsActive_ShouldStopPlayer()
+    public void StopGameplayAudioInstancesWhenVideoIsActive_ShouldStopPlayer()
     {
         using var input = new SwitchableBackInputManager();
         using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")), input);
@@ -4276,7 +4283,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void CleanupComponents_WhenVideoPlayerExists_ShouldDisposeAndClearPlayer()
+    public void CleanupComponentsWhenVideoPlayerExists_ShouldDisposeAndClearPlayer()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
         stage.Deactivate();
@@ -4287,7 +4294,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void VideoPlayer_ReactivationResetsScheduleAndDisposesEachGenerationOwner()
+    public void VideoPlayerReactivation_ShouldResetScheduleAndDisposeEachGenerationOwner()
     {
         var chart = CreateVideoChart(VideoEvent(500, "movie.avi"));
         using var stage = CreateVideoStage(out var first, chart);
@@ -4310,7 +4317,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void VideoFactory_DeactivationRetiresCandidateAndDoesNotContinueActivation(bool returnNull)
+    public void VideoFactoryDeactivation_ShouldRetireCandidateAndNotContinueActivation(bool returnNull)
     {
         using var input = new MockInputManagerCompat();
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
@@ -4355,7 +4362,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void VideoFactory_ReactivationKeepsFreshOwnerSchedulePreparationAndHandlers(bool returnNull)
+    public void VideoFactoryReactivation_ShouldKeepFreshOwnerSchedulePreparationAndHandlers(bool returnNull)
     {
         using var input = new MockInputManagerCompat();
         input.ModularInputManager.KeyBindings.BindButton("Test.VideoFactory", 3);
@@ -4428,7 +4435,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void VideoFactory_NestedReactivationsDisposeEachRetiredCandidateWithoutOverwritingNewest()
+    public void VideoFactoryNestedReactivations_ShouldDisposeEachRetiredCandidateWithoutOverwritingNewest()
     {
         var players = new[] { new RecordingChartVideoPlayer(), new RecordingChartVideoPlayer(), new RecordingChartVideoPlayer() };
         var scopes = new List<StageBackgroundWorkScope?>();
@@ -4463,7 +4470,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void VideoFactory_ActiveNullStillStartsPreparationAndSubscribes()
+    public void VideoFactoryActiveNull_ShouldStillStartPreparationAndSubscribe()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var playfield = new Mock<IPerformancePlayfield>();
@@ -4479,7 +4486,7 @@ public class PerformanceStageDeterministicTests
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public void VideoFactory_ThrowPreservesOriginalExceptionAndDoesNotStartOldPreparation(bool retire, bool reactivate)
+    public void VideoFactoryThrow_ShouldPreserveOriginalExceptionAndNotStartOldPreparation(bool retire, bool reactivate)
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var config = Mock.Get(game.ConfigManager);
@@ -4535,7 +4542,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void VideoFactory_StaleDisposeFailurePropagatesOnceWithoutTouchingFreshRun(bool reactivate)
+    public void VideoFactoryStaleDisposeFailure_ShouldPropagateOnceWithoutTouchingFreshRun(bool reactivate)
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var config = Mock.Get(game.ConfigManager);
@@ -4576,7 +4583,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void VideoFactory_StaleDisposeCanReactivateWithoutOldInitializationResuming(bool throwOnDispose)
+    public void VideoFactoryStaleDispose_ShouldReactivateWithoutOldInitializationResuming(bool throwOnDispose)
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var config = Mock.Get(game.ConfigManager);
@@ -4623,7 +4630,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void VideoFactory_DeactivationCleanupFailureKeepsOriginalExceptionAndNoPreparation()
+    public void VideoFactoryDeactivationCleanupFailure_ShouldKeepOriginalExceptionAndNoPreparation()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var playfield = new Mock<IPerformancePlayfield>();
@@ -4648,7 +4655,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void VideoFactory_PreparationFailureReactivationDoesNotAddOldConfigSubscription()
+    public void VideoFactoryPreparationFailureReactivation_ShouldNotAddOldConfigSubscription()
     {
         var logger = new StageTestLogger();
         var game = CreateHeadlessGame(logger, new ConfigData());
@@ -4677,7 +4684,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task VideoPlayer_MissingFileLeavesStaticBackgroundAndIsDisposed()
+    public async Task VideoPlayerMissingFile_ShouldLeaveStaticBackgroundAndBeDisposed()
     {
         var logs = new ConcurrentQueue<string>();
         var player = new FfmpegChartVideoPlayer(work => Task.Run(work), null, logs.Enqueue);
@@ -4720,7 +4727,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawBackground_WhenVideoPlayerDraws_ShouldConsumePinnedLayout()
+    public void DrawBackgroundWhenVideoPlayerDraws_ShouldConsumePinnedLayout()
     {
         using var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
         AdvanceVideo(stage, 1000);
@@ -4732,7 +4739,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void BasePass_DrawsStaticBackgroundThenVideoBeforePlayfield()
+    public void BasePass_ShouldDrawStaticBackgroundThenVideoBeforePlayfield()
     {
         var order = new List<string>();
         var background = CreateTextureMock(1280, 720);
@@ -4834,7 +4841,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenTabAndTimingFeedbackHidden_ShouldOmitPerHitTimingLineOnly()
+    public void OnJudgementMadeWhenTabAndTimingFeedbackHidden_ShouldOmitPerHitTimingLineOnly()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowHitTimingFeedback = false };
@@ -4856,7 +4863,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenTabPartialAutoPlayLane_ShouldKeepPlayerPopupAndTiming()
+    public void OnJudgementMadeWhenTabPartialAutoPlayLane_ShouldKeepPlayerPopupAndTiming()
     {
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowHitTimingFeedback = true };
         config.AutoPlayLanes.Add(3);
@@ -4883,7 +4890,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenTabFullAutoPlay_ShouldFeedPopupFromAutomatedLanes()
+    public void OnJudgementMadeWhenTabFullAutoPlay_ShouldFeedPopupFromAutomatedLanes()
     {
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, ShowHitTimingFeedback = true };
         config.AutoPlayLanes.UnionWith(Enumerable.Range(0, PerformanceUILayout.LaneCount));
@@ -4904,7 +4911,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnLaneHitForPadFeedback_WhenNotationStripActive_ShouldFlashTabHudLane()
+    public void OnLaneHitForPadFeedbackWhenNotationStripActive_ShouldFlashTabHudLane()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(
@@ -4922,7 +4929,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnLaneHitForPadFeedback_WhenNotationStripMissing_ShouldNotFlashTabHudLane()
+    public void OnLaneHitForPadFeedbackWhenNotationStripMissing_ShouldNotFlashTabHudLane()
     {
         using var input = new MockInputManagerCompat();
         using var tabHud = TabPlayfieldTests.CreateUnreadyHud();
@@ -5400,7 +5407,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnActivate_WhenConfigManagerNotNull_ShouldSubscribeToScrollSpeedChanged()
+    public void OnActivateWhenConfigManagerNotNull_ShouldSubscribeToScrollSpeedChanged()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var manager = Mock.Get(game.ConfigManager);
@@ -5415,7 +5422,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Deactivate_WhenNeverActivated_ShouldBeSafeWithoutSubscription()
+    public void DeactivateWhenNeverActivated_ShouldBeSafeWithoutSubscription()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         using var stage = new HeadlessPerformanceStage(game);
@@ -5425,7 +5432,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnDeactivate_WhenSubscribedConfigManager_ShouldUnsubscribeFlushAndCleanup()
+    public void OnDeactivateWhenSubscribedConfigManager_ShouldUnsubscribeFlushAndCleanup()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         var manager = Mock.Get(game.ConfigManager);
@@ -5436,13 +5443,15 @@ public class PerformanceStageDeterministicTests
         UpdateUntil(stage, () => stage.AudioSession != null);
         stage.Update(0.75);
         var oldSession = stage.AudioSession!;
+        var oldRules = stage.Rules!;
         stage.Deactivate();
 
         manager.Verify(x => x.FlushPendingSave(), Times.Once);
         Assert.Null(stage.AudioSession);
         Assert.Null(oldSession.Timer);
-        Assert.Null(stage.Rules!.ChartManager);
-        Assert.False(stage.Rules.IsCompleted);
+        Assert.Null(stage.Rules);
+        Assert.Null(oldRules.ChartManager);
+        Assert.False(oldRules.IsCompleted);
         manager.Raise(m => m.ScrollSpeedChanged += null, new ScrollSpeedChangedEventArgs(100, 200));
         playfield.Verify(p => p.OnScrollSpeedChanged(200), Times.Never);
 
@@ -5459,7 +5468,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Deactivate_WhenAlreadyDeactivated_ShouldNotFlushAgain()
+    public void DeactivateWhenAlreadyDeactivated_ShouldNotFlushAgain()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         using var stage = new HeadlessPerformanceStage(game);
@@ -5473,7 +5482,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(InputCommandType.IncreaseScrollSpeed, 1)]
     [InlineData(InputCommandType.DecreaseScrollSpeed, -1)]
-    public void HandleInput_ScrollSpeedHotkeysWorkDuringCountdown(InputCommandType command, int adjustment)
+    public void HandleInputScrollSpeedHotkeys_ShouldWorkDuringCountdown(InputCommandType command, int adjustment)
     {
         using var input = new ScrollSpeedInputManagerCompat(command);
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
@@ -5489,7 +5498,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void HandleInput_WhenNoConfigManager_ShouldNotThrowOnScrollSpeed()
+    public void HandleInputWhenNoConfigManager_ShouldNotThrowOnScrollSpeed()
     {
         using var input = new ScrollSpeedInputManagerCompat(InputCommandType.IncreaseScrollSpeed);
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input);
@@ -5516,7 +5525,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnScrollSpeedChanged_WhenPlayfieldNull_ShouldNotThrow()
+    public void OnScrollSpeedChangedWhenPlayfieldNull_ShouldNotThrow()
     {
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData());
         using var stage = new HeadlessPerformanceStage(game);
@@ -5526,13 +5535,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public void StartSong_WhenNoBgmEvents_ShouldSetVolumeToOne()
+    public void StartSongWhenNoBgmEvents_ShouldSetVolumeToOne()
     {
         AssertStartSongAudio(new ParsedChart("startsong-default.dtx"), 1.0f, 0.0f);
     }
 
     [Fact]
-    public void StartSong_WhenBgmEventsExist_ShouldMuteBackgroundAudio()
+    public void StartSongWhenBgmEventsExist_ShouldMuteBackgroundAudio()
     {
         var bgmChart = new ParsedChart("startsong-mute.dtx") { Bpm = 120.0 };
         bgmChart.AddBGMEvent(new BGMEvent { WavId = "01", TimeMs = 100.0 });
@@ -5572,7 +5581,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void StartSong_WhileAudioIsPreparing_DoesNotStartOrConsumeCountdown()
+    public void StartSongWhileAudioIsPreparing_ShouldNotStartOrConsumeCountdown()
     {
         var directory = CreateTempDirectory();
         using var input = new MockInputManagerCompat();
@@ -5604,7 +5613,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawGameplayState_WhenNotLoadingAndNotReady_ShouldNotDraw()
+    public void DrawGameplayStateWhenNotLoadingAndNotReady_ShouldNotDraw()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Playing" }, 0, new ParsedChart("playing.dtx")));
@@ -5615,7 +5624,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Constructor_WithIStageGame_ShouldInitializeCoreSystems()
+    public void ConstructorWithIStageGame_ShouldInitializeCoreSystems()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -5630,7 +5639,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnActivate_WhenMetronomeEnabled_ShouldLoadMetronomeSounds()
+    public void OnActivateWhenMetronomeEnabled_ShouldLoadMetronomeSounds()
     {
         var resources = new Mock<IResourceManager>();
         var game = CreateHeadlessGame(new StageTestLogger(), new ConfigData { Metronome = true }, resources: resources);
@@ -5643,7 +5652,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Activation_FreezesFullAutoPlayBeforeChartPublication()
+    public void Activation_ShouldFreezeFullAutoPlayBeforeChartPublication()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.UnionWith(Enumerable.Range(0, PerformanceUILayout.LaneCount));
@@ -5667,7 +5676,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Activation_FrozenLanePolicyWorksBeforeAndAfterChartPublication()
+    public void ActivationFrozenLanePolicy_ShouldWorkBeforeAndAfterChartPublication()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(0);
@@ -5718,7 +5727,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Activation_FreezesAutomatedLanesAndReactivationResetsAutoplayCursor()
+    public void Activation_ShouldFreezeAutomatedLanesAndResetAutoplayCursorOnReactivation()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(0);
@@ -5756,7 +5765,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Activation_FrozenGaugePolicySurvivesConfigRemovalDuringChartLoading(bool noFail)
+    public void ActivationFrozenGaugePolicy_ShouldSurviveConfigRemovalDuringChartLoading(bool noFail)
     {
         var config = new ConfigData
         {
@@ -5807,7 +5816,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void RiskyFailure_SummaryIncludesFailingMissAndEarlierAutoHit()
+    public void RiskyFailureSummary_ShouldIncludeFailingMissAndEarlierAutoHit()
     {
         var config = new ConfigData { Risky = 1 };
         config.AutoPlayLanes.Add(0);
@@ -5843,7 +5852,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void RiskyFailure_PoorHitIsCountedInReentrantResultAndTelemetry()
+    public void RiskyFailurePoorHit_ShouldBeCountedInReentrantResultAndTelemetry()
     {
         var config = new ConfigData { Risky = 1 };
         config.AutoPlayLanes.Add(0);
@@ -5902,7 +5911,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void RiskyFailure_SynchronousDeactivationStopsFanoutAfterGauge()
+    public void RiskyFailureSynchronousDeactivation_ShouldStopFanoutAfterGauge()
     {
         var config = new ConfigData { Risky = 1 };
         config.AutoPlayLanes.Add(0);
@@ -5952,7 +5961,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void RiskyFailure_LateManualMissIsAbsentFromResultAndTelemetryMissCounts()
+    public void RiskyFailureLateManualMiss_ShouldBeAbsentFromResultAndTelemetryMissCounts()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -5989,7 +5998,7 @@ public class PerformanceStageDeterministicTests
     [InlineData(50)]
     [InlineData(100)]
     [InlineData(150)]
-    public void SongCompletion_UsesRealTimeBufferAndFrozenRunMetadata(int speed)
+    public void SongCompletion_ShouldUseRealTimeBufferAndFrozenRunMetadata(int speed)
     {
         var config = new ConfigData { PlaySpeedPercent = speed, PitchSemitones = -4 };
         config.AutoPlayLanes.Add(0);
@@ -6050,13 +6059,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [AudioFact]
-    public void SongCompletion_StopsLiveBgmAndChipBeforeResultTransition() => AssertAudioStoppedAtResult(false);
+    public void SongCompletion_ShouldStopLiveBgmAndChipBeforeResultTransition() => AssertAudioStoppedAtResult(false);
 
     [AudioFact]
-    public void GaugeFailure_StopsLiveBgmAndChipBeforeResultTransition() => AssertAudioStoppedAtResult(true);
+    public void GaugeFailure_ShouldStopLiveBgmAndChipBeforeResultTransition() => AssertAudioStoppedAtResult(true);
 
     [Fact]
-    public void GaugeFailure_DoesNotReadMutableConfigDuringSynchronousFinalization()
+    public void GaugeFailure_ShouldNotReadMutableConfigDuringSynchronousFinalization()
     {
         var config = new Mock<IConfigManager>();
         config.SetupGet(c => c.Config).Returns(new ConfigData { Risky = 1 });
@@ -6087,7 +6096,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void SongCompletion_WithoutStageManagerStillStopsAndCompletes()
+    public void SongCompletionWithoutStageManager_ShouldStillStopAndComplete()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -6286,7 +6295,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void Judgement_WithNoPlayfield_ShouldStillUpdateSkill()
+    public void JudgementWithNoPlayfield_ShouldStillUpdateSkill()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData(), input));
@@ -6301,7 +6310,7 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(false, 52.0f)]
     [InlineData(true, 54.0f)]
-    public void StageUpdate_MixedAutoPlay_ShouldApplyGaugeByFrozenLanePolicy(
+    public void StageUpdateMixedAutoPlay_ShouldApplyGaugeByFrozenLanePolicy(
         bool autoAddGauge,
         float expectedFinalLife)
     {
@@ -6331,7 +6340,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void CleanupGameplayManagers_UnsubscribesStageAndRetainsThirdPartyObservers()
+    public void CleanupGameplayManagers_ShouldUnsubscribeStageAndRetainThirdPartyObservers()
     {
         using var input = new MockInputManagerCompat();
         var (stageRef, rulesRef, judgement, score, gauge, observers) = CreateRetiredStageWithManagers(input);
@@ -6410,7 +6419,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void LogPerformanceError_WithException_ShouldLogErrorWithOriginalException()
+    public void LogPerformanceErrorWithException_ShouldLogErrorWithOriginalException()
     {
         var logger = new StageTestLogger();
         using var stage = new ThrowingAudioVariantStage(CreateHeadlessGame(
@@ -6422,7 +6431,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void LogPerformanceError_WithoutException_ShouldLogErrorWithoutException()
+    public void LogPerformanceErrorWithoutException_ShouldLogErrorWithoutException()
     {
         var logger = new StageTestLogger();
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(logger, new ConfigData()));
@@ -6432,7 +6441,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawCenteredText_WithReadyFont_ShouldMeasureAndDrawAtCenteredPosition()
+    public void DrawCenteredTextWithReadyFont_ShouldMeasureAndDrawAtCenteredPosition()
     {
         var font = new Mock<IFont>();
         font.Setup(f => f.MeasureString("READY...")).Returns(new Vector2(100, 20));
@@ -6461,7 +6470,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task StartSong_BeforeFirstUpdate_DoesNotBindOrStart()
+    public async Task StartSongBeforeFirstUpdate_ShouldNotBindOrStart()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "First frame" }, 0, CreateSingleNoteChart()));
@@ -6479,7 +6488,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ExtractSharedData_WithParsedChart_ShouldSetParsedChart()
+    public void ExtractSharedDataWithParsedChart_ShouldSetParsedChart()
     {
         using var stage = new HeadlessPerformanceStage(CreateHeadlessGame(new StageTestLogger(), new ConfigData()));
         var parsedChart = new ParsedChart("shared-test.dtx") { Bpm = 140.0 };

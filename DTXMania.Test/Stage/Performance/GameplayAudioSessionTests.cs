@@ -32,7 +32,7 @@ namespace DTXMania.Test.Stage.Performance;
 public class GameplayAudioSessionTests
 {
     [Fact]
-    public void Bind_WithoutBackgroundAudio_CreatesSilentSpeedAwareTimer()
+    public void BindWithoutBackgroundAudio_ShouldCreateSilentSpeedAwareTimer()
     {
         var session = CreateSession(modifiers: new PlaybackModifiers(50, 0));
 
@@ -43,7 +43,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Bind_SchedulesBgmEventsInChronologicalOrder()
+    public void Bind_ShouldScheduleBgmEventsInChronologicalOrder()
     {
         var chart = CreateChart();
         chart.AddBGMEvent(new BGMEvent { WavId = "03", TimeMs = 900.0 });
@@ -59,7 +59,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WithSilentTimer_ReportsPlayingAndAdvancesLogicalClock()
+    public void StartWithSilentTimer_ShouldReportPlayingAndAdvanceLogicalClock()
     {
         var session = CreateSession(modifiers: new PlaybackModifiers(150, 0));
         session.Bind(CreateChart(), CreateEmptyPreparedSet());
@@ -75,7 +75,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WhenBgmEventsAreScheduled_MutesTheMainTimer()
+    public void StartWhenBgmEventsAreScheduled_ShouldMuteTheMainTimer()
     {
         var instance = CreateSoundEffectInstance();
         var session = CreateSession();
@@ -91,7 +91,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WithoutBgmEvents_DefaultsToFullVolume()
+    public void StartWithoutBgmEvents_ShouldDefaultToFullVolume()
     {
         var instance = CreateSoundEffectInstance();
         var session = CreateSession();
@@ -103,7 +103,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WithBackgroundWavId_AppliesChartVolumeAndPan()
+    public void StartWithBackgroundWavId_ShouldApplyChartVolumeAndPan()
     {
         var instance = CreateSoundEffectInstance();
         var chart = CreateChart(chart =>
@@ -122,7 +122,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WithoutTimer_ReturnsFalse()
+    public void StartWithoutTimer_ShouldReturnFalse()
     {
         // An unbound session has no timer — the stage logs and continues silently.
         var session = CreateSession();
@@ -131,7 +131,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WhenMainBackgroundPlaybackFails_ReturnsFalseAndRunsSilentClock()
+    public void StartWhenMainBackgroundPlaybackFails_ShouldReturnFalseAndRunSilentClock()
     {
         // Play() throws on the uninitialized instance: SongTimer reports the
         // transport failure but the logical clock still runs on its GameTime
@@ -149,7 +149,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Start_WhenPlaybackFailsWithBgmEvents_StillMutesMainTimer()
+    public void StartWhenPlaybackFailsWithBgmEvents_ShouldStillMuteMainTimer()
     {
         // The BGM mute policy is independent of playback outcome: even when
         // Play() fails, the main-track volume is forced to zero.
@@ -168,7 +168,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Advance_TriggersDueBgmEventsAndReapsStoppedInstances()
+    public void Advance_ShouldTriggerDueBgmEventsAndReapStoppedInstances()
     {
         var sound = new Mock<ISound>();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
@@ -185,7 +185,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Advance_FiresBgmEventAtItsExactBoundaryTime()
+    public void Advance_ShouldFireBgmEventAtItsExactBoundaryTime()
     {
         var played = new List<string>();
         var sound = new Mock<ISound>();
@@ -206,7 +206,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Advance_WithOverdueEqualTimeBgmEvents_PreservesDeclarationTieOrder()
+    public void AdvanceWithOverdueEqualTimeBgmEvents_ShouldPreserveDeclarationTieOrder()
     {
         var playedOrder = new List<string>();
         ISound RecordingSound(string wavId)
@@ -231,7 +231,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Advance_ConsumesTriggeredBgmEvents_TheyDoNotReplay()
+    public void AdvanceConsumesTriggeredBgmEvents_ShouldNotReplay()
     {
         var sound = new Mock<ISound>();
         sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
@@ -248,7 +248,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Advance_WhenBgmPlayFails_LogsWarningOncePerWavId()
+    public void AdvanceWhenBgmPlayFails_ShouldLogWarningOncePerWavId()
     {
         var logger = new Mock<ILogger>();
         var sound = new Mock<ISound>();
@@ -273,7 +273,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void PlayChip_PlaysWavWithChartVolumeAndPan()
+    public void PlayChip_ShouldPlayWavWithChartVolumeAndPan()
     {
         var soundMock = new Mock<ISound>();
         var chipSet = CreatePreparedSetWithChips(
@@ -292,7 +292,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void UpdateMetronome_FiresPlayClickForDueMarkers()
+    public void UpdateMetronome_ShouldFirePlayClickForDueMarkers()
     {
         var clicks = new List<BeatMarker>();
         var session = CreateSession(metronomeEnabled: true, playClick: clicks.Add);
@@ -313,7 +313,7 @@ public class GameplayAudioSessionTests
     [InlineData(100, 201.0, false)]
     [InlineData(200, 300.0, true)]
     [InlineData(200, 301.0, false)]
-    public void UpdateMetronome_ScalesLateToleranceBySessionSpeed(int speed, double time, bool expectedClick)
+    public void UpdateMetronome_ShouldScaleLateToleranceBySessionSpeed(int speed, double time, bool expectedClick)
     {
         var clicks = new List<BeatMarker>();
         using var session = CreateSession(modifiers: new PlaybackModifiers(speed, 0),
@@ -331,7 +331,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void UpdateMetronome_WhenDisabled_IsNoOp()
+    public void UpdateMetronomeWhenDisabled_ShouldBeNoOp()
     {
         var session = CreateSession(metronomeEnabled: false);
         session.Bind(CreateChart(), CreateEmptyPreparedSet());
@@ -342,7 +342,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void InitializeMetronome_WhenDisabled_ShouldNotLoadClickSoundsOrCreatePlayer()
+    public void InitializeMetronomeWhenDisabled_ShouldNotLoadClickSoundsOrCreatePlayer()
     {
         var resources = new Mock<IResourceManager>();
         using var session = CreateSession(resourceManager: resources.Object);
@@ -352,7 +352,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void InitializeMetronome_WhenEnabled_ShouldLoadBothSoundsAndUseFinalizedMarkers()
+    public void InitializeMetronomeWhenEnabled_ShouldLoadBothSoundsAndUseFinalizedMarkers()
     {
         var beat = new Mock<ISound>();
         var accent = new Mock<ISound>();
@@ -376,7 +376,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void InitializeMetronome_AfterCleanup_ShouldCreateFreshPlayerStartingAtMarkerZero()
+    public void InitializeMetronomeAfterCleanup_ShouldCreateFreshPlayerStartingAtMarkerZero()
     {
         var sound = new Mock<ISound>();
         var resources = new Mock<IResourceManager>();
@@ -399,7 +399,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void InitializeMetronome_WhenClickResourcesAreMissing_ShouldLeaveGameplayUsable()
+    public void InitializeMetronomeWhenClickResourcesAreMissing_ShouldLeaveGameplayUsable()
     {
         var resources = new Mock<IResourceManager>();
         resources.Setup(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny))
@@ -417,7 +417,7 @@ public class GameplayAudioSessionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void PlayMetronomeClick_SelectsBeatOrAccentSound(bool accentMarker)
+    public void PlayMetronomeClick_ShouldSelectBeatOrAccentSound(bool accentMarker)
     {
         var beat = new Mock<ISound>();
         var accent = new Mock<ISound>();
@@ -428,7 +428,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void PlayMetronomeClick_WhenEachSoundFails_LogsOriginalOncePerSoundAndAgainForNewSession()
+    public void PlayMetronomeClickWhenEachSoundFails_ShouldLogOriginalOncePerSoundAndAgainForNewSession()
     {
         var logger = new Mock<ILogger<PerformanceStage>>();
         var beatFailure = new InvalidOperationException("beat failed");
@@ -460,7 +460,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void StopAll_StopsTheSongTimer()
+    public void StopAll_ShouldStopTheSongTimer()
     {
         var session = CreateSession();
         session.Bind(CreateChart(), CreateEmptyPreparedSet());
@@ -474,7 +474,7 @@ public class GameplayAudioSessionTests
     }
 
     [AudioFact]
-    public void StopAll_StopsLiveBgmAndChipInstancesWithoutDisposing()
+    public void StopAll_ShouldStopLiveBgmAndChipInstancesWithoutDisposing()
     {
         using var bgm = PlayingSoundInstance.Create();
         var bgmInstance = bgm.Instance;
@@ -537,7 +537,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void PlayChip_WhenNoteValueIsEmpty_NeverPlaysASound()
+    public void PlayChipWhenNoteValueIsEmpty_ShouldNeverPlayASound()
     {
         var soundMock = new Mock<ISound>();
         var chipSet = CreatePreparedSetWithChips(
@@ -556,7 +556,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void PlayChip_WhenNoteIsNullOrSessionUnbound_DoesNotThrow()
+    public void PlayChipWhenNoteIsNullOrSessionUnbound_ShouldNotThrow()
     {
         var bound = CreateSession();
         bound.Bind(CreateChart(), CreateEmptyPreparedSet());
@@ -568,7 +568,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Dispose_DisposesPreparedSetAndClearsState()
+    public void Dispose_ShouldDisposePreparedSetAndClearState()
     {
         var soundMock = new Mock<ISound>();
         var chipSet = CreatePreparedSetWithChips(
@@ -585,7 +585,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Bind_WhenAudioLoaderConstructionFails_DisposesTransferredSetExactlyOnce()
+    public void BindWhenAudioLoaderConstructionFails_ShouldDisposeTransferredSetExactlyOnce()
     {
         var sound = new Mock<ISound>();
         var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["01"] = sound.Object });
@@ -604,7 +604,7 @@ public class GameplayAudioSessionTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task PreparedSet_RetiredQueuedOrLateResult_DisposesOwnedSoundExactlyOnce(bool queued)
+    public async Task PreparedSetRetiredQueuedOrLateResult_ShouldDisposeOwnedSoundExactlyOnce(bool queued)
     {
         var sound = new Mock<ISound>();
         var prepared = CreatePreparedSetWithChips(new Dictionary<string, ISound> { ["01"] = sound.Object });
@@ -645,7 +645,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void Dispose_IsIdempotent()
+    public void Dispose_ShouldBeIdempotent()
     {
         var session = CreateSession();
         session.Bind(CreateChart(), CreateEmptyPreparedSet());
@@ -657,7 +657,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void GetCurrentMs_WithoutTimer_ReturnsZero()
+    public void GetCurrentMsWithoutTimer_ShouldReturnZero()
     {
         var session = CreateSession();
 
@@ -665,7 +665,7 @@ public class GameplayAudioSessionTests
     }
 
     [Fact]
-    public void IsPaused_ReflectsTimerPause()
+    public void IsPaused_ShouldReflectTimerPause()
     {
         var session = CreateSession();
         session.Bind(CreateChart(), CreateEmptyPreparedSet());

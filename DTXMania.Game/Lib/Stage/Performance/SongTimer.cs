@@ -35,8 +35,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             get => _soundInstance?.Volume ?? 0f;
             set
             {
-                if (_soundInstance != null)
+                if (_disposed || _soundInstance == null)
+                    return;
+
+                try
+                {
                     _soundInstance.Volume = MathHelper.Clamp(value, 0f, 1f);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Invoke(
+                        $"SongTimer.Volume() failed: {ex.GetType().Name} - {ex.Message}");
+                }
             }
         }
 
@@ -50,8 +60,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             get => _soundInstance?.Pan ?? 0f;
             set
             {
-                if (_soundInstance != null)
+                if (_disposed || _soundInstance == null)
+                    return;
+
+                try
+                {
                     _soundInstance.Pan = MathHelper.Clamp(value, -1f, 1f);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Invoke(
+                        $"SongTimer.Pan() failed: {ex.GetType().Name} - {ex.Message}");
+                }
             }
         }
 
@@ -63,8 +83,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             get => _soundInstance?.Pitch ?? 0f;
             set
             {
-                if (_soundInstance != null)
+                if (_disposed || _soundInstance == null)
+                    return;
+
+                try
+                {
                     _soundInstance.Pitch = MathHelper.Clamp(value, -1f, 1f);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Invoke(
+                        $"SongTimer.Pitch() failed: {ex.GetType().Name} - {ex.Message}");
+                }
             }
         }
 
@@ -76,8 +106,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             get => _soundInstance?.IsLooped ?? false;
             set
             {
-                if (_soundInstance != null)
+                if (_disposed || _soundInstance == null)
+                    return;
+
+                try
+                {
                     _soundInstance.IsLooped = value;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Invoke(
+                        $"SongTimer.IsLooped() failed: {ex.GetType().Name} - {ex.Message}");
+                }
             }
         }
 
@@ -240,9 +280,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || !disposing)
                 return;
 
-            Stop();
-            _soundInstance?.Dispose();
-            _disposed = true;
+            try
+            {
+                Stop();
+                _soundInstance?.Dispose();
+            }
+            finally
+            {
+                _disposed = true;
+            }
         }
     }
 }

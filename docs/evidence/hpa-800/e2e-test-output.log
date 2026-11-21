@@ -1,8 +1,8 @@
   Determining projects to restore...
-  Restored /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.Automation/DTXMania.Automation.csproj (in 1.13 sec).
-  Restored /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj (in 1.15 sec).
-  Restored /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.E2E/DTXMania.E2E.csproj (in 1.17 sec).
-  Restored /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.Game/DTXMania.Game.Mac.csproj (in 1.19 sec).
+  Restored DTXMania.Automation/DTXMania.Automation.csproj (in 1.13 sec).
+  Restored DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj (in 1.15 sec).
+  Restored DTXMania.E2E/DTXMania.E2E.csproj (in 1.17 sec).
+  Restored DTXMania.Game/DTXMania.Game.Mac.csproj (in 1.19 sec).
   Tool 'dotnet-mgcb' (version '3.8.6.1') was restored. Available commands: mgcb
   Tool 'dotnet-mgcb-editor' (version '3.8.6.1') was restored. Available commands: mgcb-editor
   Tool 'dotnet-mgcb-editor-linux' (version '3.8.6.1') was restored. Available commands: mgcb-editor-linux
@@ -10,11 +10,11 @@
   Tool 'dotnet-mgcb-editor-mac' (version '3.8.6.1') was restored. Available commands: mgcb-editor-mac
 
   Restore was successful.
-  DTXMania.Automation -> /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.Automation/bin/Debug/net10.0/DTXMania.Automation.dll
-  DTXMania.VideoRecorder -> /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video.dll
-  DTXMania.Game.Mac -> /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.Game/bin/Debug/net10.0/DTXMania.Game.Mac.dll
-  DTXMania.E2E -> /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.E2E/bin/Debug/net10.0-windows7.0/DTXMania.E2E.dll
-Test run for /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/DTXMania.E2E/bin/Debug/net10.0-windows7.0/DTXMania.E2E.dll (.NETCoreApp,Version=v10.0)
+  DTXMania.Automation -> DTXMania.Automation/bin/Debug/net10.0/DTXMania.Automation.dll
+  DTXMania.VideoRecorder -> DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video.dll
+  DTXMania.Game.Mac -> DTXMania.Game/bin/Debug/net10.0/DTXMania.Game.Mac.dll
+  DTXMania.E2E -> DTXMania.E2E/bin/Debug/net10.0-windows7.0/DTXMania.E2E.dll
+Test run for DTXMania.E2E/bin/Debug/net10.0-windows7.0/DTXMania.E2E.dll (.NETCoreApp,Version=v10.0)
 VSTest version 18.0.1 (arm64)
 
 Starting test execution, please wait...
@@ -41,4 +41,4 @@ Test Run Successful.
 Total tests: 12
      Passed: 12
  Total time: 3.9670 Minutes
-Results File: /Users/chanwaichan/orca/workspaces/DTXmaniaCX/docs-hpa-800-plan-audio-session-gameplay-rules-a/.superpowers/sdd/2026-11-19-hpa-800-implementation-plan/task-4-final-native-H2wPJPEX/e2e-results/e2e.trx
+Results File: .superpowers/sdd/2026-11-19-hpa-800-implementation-plan/task-4-final-native-H2wPJPEX/e2e-results/e2e.trx
