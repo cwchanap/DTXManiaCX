@@ -12,6 +12,7 @@ namespace DTXMania.Test.Stage.Performance
     /// Unit tests for JudgementManager implementation
     /// Tests the keyboard mapping, note hit detection, and judgement logic
     /// </summary>
+    [Trait("Category", "Unit")]
     public class JudgementManagerTests
     {
         [Fact]

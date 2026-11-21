@@ -182,18 +182,25 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void DisposeAndSetters_WhenSoundInstanceIsUninitialized_ShouldStayDisposedAndLogFailures()
+        public void DisposeAndSetters_WhenSoundInstanceIsUninitialized_ShouldStayDisposedAndSilenceSetters()
         {
+            // Setter failure logging cannot be exercised here: the backing
+            // fields work on an uninitialized SoundEffectInstance (see
+            // GameplayAudioSessionTests). The observable contract is that
+            // post-disposal setters no-op without emitting diagnostics.
             var logs = new System.Collections.Generic.List<string>();
             var timer = new SongTimer(CreateSoundEffectInstance(), logs.Add);
 
             timer.Dispose();
+            var logCountAfterDispose = logs.Count;
 
             Assert.False(timer.Play(At(0)));
             timer.Volume = 0.8f;
             timer.Pan = 0.5f;
             timer.Pitch = 0.25f;
             timer.IsLooped = true;
+
+            Assert.Equal(logCountAfterDispose, logs.Count);
             Assert.Null(Record.Exception(timer.Dispose));
         }
 
