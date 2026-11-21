@@ -16,7 +16,7 @@ namespace DTXMania.Test.Stage.Performance;
 public class GameplayRulesTests
 {
     [Fact]
-    public void FrameState_UsesManagersAndPreservesBothMissMeanings()
+    public void FrameState_ShouldUseManagersAndPreserveBothMissMeanings()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("hud.dtx") { DurationMs = 10000 };
@@ -93,7 +93,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void FrameState_WithoutManagersKeepsHudAndApiGaugeDefaultsDistinct()
+    public void FrameStateWithoutManagers_ShouldKeepHudAndApiGaugeDefaultsDistinct()
     {
         var frame = new GameplayRules(null).BuildFrameState(0);
 
@@ -109,7 +109,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void FrameState_MaxSkillDangerAndEmptyDurationFollowManagers()
+    public void FrameStateMaxSkillDangerAndEmptyDuration_ShouldFollowManagers()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("max-hud.dtx");
@@ -135,7 +135,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void FrameState_FastSlowUsesRoundedSuccessfulManualHitsAndResets()
+    public void FrameStateFastSlow_ShouldUseRoundedSuccessfulManualHitsAndReset()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -177,7 +177,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void FrameState_DuringSynchronousFailureSeesPreSkillCountsAndNoFastSlowAfterCleanup()
+    public void FrameStateDuringSynchronousFailure_ShouldSeePreSkillCountsAndNoFastSlowAfterCleanup()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("failure-hud.dtx") { DurationMs = 2000 };
@@ -208,7 +208,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void FrameState_FailureRebindingDoesNotSendOldJudgementToNewManagers()
+    public void FrameStateFailureRebinding_ShouldNotSendOldJudgementToNewManagers()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("old-run.dtx");
@@ -242,7 +242,7 @@ public class GameplayRulesTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void AutoPlay_RebindingDuringScoreOrComboDoesNotAffectNewManagersOrFeedback(bool duringScore)
+    public void AutoPlayRebindingDuringScoreOrCombo_ShouldNotAffectNewManagersOrFeedback(bool duringScore)
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(0);
@@ -286,7 +286,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void Completion_UsesRealTimeFromEndCrossingAndResetsOnSeekOrSongStart()
+    public void Completion_ShouldUseRealTimeFromEndCrossingAndResetOnSeekOrSongStart()
     {
         var rules = new GameplayRules(null);
         Assert.Null(rules.CheckCompletion(5000, null, 1));
@@ -308,7 +308,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void Completion_SongEndTakesPriorityOverAlreadyFailedGauge()
+    public void CompletionSongEnd_ShouldTakePriorityOverAlreadyFailedGauge()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("completion-priority.dtx") { DurationMs = 1000 };
@@ -326,7 +326,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void Summary_UsesNoteStatusesAndFrozenPolicyWithAllJudgementsAndChartLevel()
+    public void Summary_ShouldUseNoteStatusesAndFrozenPolicyWithAllJudgementsAndChartLevel()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(9);
@@ -377,7 +377,7 @@ public class GameplayRulesTests
     [InlineData(CompletionReason.SongComplete, true, true)]
     [InlineData(CompletionReason.PlayerFailed, false, true)]
     [InlineData(CompletionReason.PlayerQuit, false, false)]
-    public void Summary_WithoutManagersUsesDefaultsAndReason(CompletionReason reason, bool clear, bool savable)
+    public void SummaryWithoutManagers_ShouldUseDefaultsAndReason(CompletionReason reason, bool clear, bool savable)
     {
         var rules = new GameplayRules(null);
         Assert.True(rules.TryComplete());
@@ -400,7 +400,7 @@ public class GameplayRulesTests
     [InlineData(1120, 0, 1, 0)]
     [InlineData(0, 1201, 0, 1)]
     [InlineData(1160, 0, 0, 0)]
-    public void Summary_GaugeFailureSeesFailingNoteStatusBeforeSkillFanout(
+    public void SummaryGaugeFailure_ShouldSeeFailingNoteStatusBeforeSkillFanout(
         int hitTime, int missTime, int poorCount, int missCount)
     {
         var config = new ConfigData { Risky = 1 };
@@ -446,7 +446,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void AutoPlay_StallsTiesAndManualLanesResolveOnlyDuePendingAutomatedNotes()
+    public void AutoPlayStallsTiesAndManualLanes_ShouldResolveOnlyDuePendingAutomatedNotes()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -491,7 +491,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void AutoPlay_AlreadyHitMissedAndInactiveNotesKeepExistingFeedbackBehavior()
+    public void AutoPlayAlreadyHitMissedAndInactiveNotes_ShouldKeepExistingFeedbackBehavior()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -520,7 +520,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void AutoPlay_WithoutAutomatedLanesOrManagersLeavesNotesPending()
+    public void AutoPlayWithoutAutomatedLanesOrManagers_ShouldLeaveNotesPending()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("manual.dtx");
@@ -540,7 +540,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void AutoPlay_ReentrantCleanupStillCallsFeedbackAndDoesNotResolveFurtherNotes()
+    public void AutoPlayReentrantCleanup_ShouldSkipFeedbackAndNotResolveFurtherNotes()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -562,7 +562,7 @@ public class GameplayRulesTests
 
         rules.ProcessAutoPlay(1000, note => order.Add($"feedback:{note.Id}"));
 
-        Assert.Equal(new[] { "judgement", $"feedback:{first.Id}" }, order);
+        Assert.Equal(new[] { "judgement" }, order);
         Assert.Null(rules.JudgementManager);
         Assert.Null(rules.ChartManager);
     }
@@ -570,7 +570,7 @@ public class GameplayRulesTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AutoPlay_ThrowingObserverOrFeedbackLeavesCursorToSkipResolvedNoteOnRetry(bool throwInFeedback)
+    public void AutoPlayThrowingObserverOrFeedback_ShouldLeaveCursorToSkipResolvedNoteOnRetry(bool throwInFeedback)
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -602,7 +602,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void Judgement_UsesCompensatedTimeForPendingHitsAndMissScanning()
+    public void Judgement_ShouldUseCompensatedTimeForPendingHitsAndMissScanning()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("latency.dtx");
@@ -631,14 +631,14 @@ public class GameplayRulesTests
     [InlineData(100, 0, 1000, 1000)]
     [InlineData(100, -1, -10, -10)]
     [InlineData(0, 250, 1000, 750)]
-    public void PlayerJudgementTime_ScalesLiveLatencyByPlaybackProfile(
+    public void PlayerJudgementTime_ShouldScaleLiveLatencyByPlaybackProfile(
         int speed, int latency, double raw, double expected)
     {
         Assert.Equal(expected, GameplayRules.GetPlayerJudgementTimeMs(raw, latency, new PlaybackModifiers(speed, 0)));
     }
 
     [Fact]
-    public void ChipLookup_UsesNearestPendingNoteInLaneWithinInclusivePoorWindow()
+    public void ChipLookup_ShouldUseNearestPendingNoteInLaneWithinInclusivePoorWindow()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("chips.dtx");
@@ -670,7 +670,7 @@ public class GameplayRulesTests
     [InlineData(true, false, 52f)]
     [InlineData(false, true, 50f)]
     [InlineData(true, true, 52f)]
-    public void JudgementFanout_UsesFrozenGaugePolicyForManualAndAutomatedLanes(
+    public void JudgementFanout_ShouldUseFrozenGaugePolicyForManualAndAutomatedLanes(
         bool autoAddGauge, bool automated, float expectedGauge)
     {
         var config = new ConfigData { AutoAddGauge = autoAddGauge };
@@ -710,7 +710,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void JudgementFanout_AutomatedLaneGreatSkipsGaugeButUpdatesOtherManagers()
+    public void JudgementFanoutAutomatedLaneGreat_ShouldSkipGaugeButUpdateOtherManagers()
     {
         var config = new ConfigData { AutoAddGauge = false };
         config.AutoPlayLanes.Add(1);
@@ -732,7 +732,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void JudgementFanout_LateManualMissFailsBeforeSkillButKeepsNoteStatusCounts()
+    public void JudgementFanoutLateManualMiss_ShouldFailBeforeSkillButKeepNoteStatusCounts()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("late-miss.dtx");
@@ -768,7 +768,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void ClearJudgement_UnsubscribesRulesAndKeepsOtherObserversAcrossRuns()
+    public void ClearJudgement_ShouldUnsubscribeRulesAndKeepOtherObserversAcrossRuns()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("lifetime.dtx");
@@ -805,7 +805,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void InitializeGaugeAndSkill_UsesFrozenPolicyBoundChartAndRulesCombo()
+    public void InitializeGaugeAndSkill_ShouldUseFrozenPolicyBoundChartAndRulesCombo()
     {
         var config = new ConfigData { DamageLevel = GaugeDamageLevel.High, Risky = 2, NoFail = false };
         var rules = new GameplayRules(config);
@@ -841,7 +841,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void ClearGaugeAndSkill_DisposesAndAllowsFreshManagersForNextChart()
+    public void ClearGaugeAndSkill_ShouldDisposeAndAllowFreshManagersForNextChart()
     {
         var rules = new GameplayRules(new ConfigData { NoFail = true, Risky = 1 });
         var first = new ParsedChart("first-gauge-skill.dtx");
@@ -882,7 +882,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void InitializeScoreAndCombo_UsesBoundChartAndStartsEmpty()
+    public void InitializeScoreAndCombo_ShouldUseBoundChartAndStartEmpty()
     {
         var rules = new GameplayRules(null);
         var chart = new ParsedChart("score.dtx");
@@ -909,7 +909,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void ClearScoreAndCombo_DisposesAndAllowsFreshManagersForNextChart()
+    public void ClearScoreAndCombo_ShouldDisposeAndAllowFreshManagersForNextChart()
     {
         var rules = new GameplayRules(null);
         var first = new ParsedChart("first-score.dtx");
@@ -946,7 +946,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void InitializeJudgement_UsesBoundChartAndFrozenLanesAndStartsInactive()
+    public void InitializeJudgement_ShouldUseBoundChartAndFrozenLanesAndStartInactive()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(1);
@@ -977,7 +977,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void ClearJudgement_DisposesAndAllowsFreshManagerForNextChart()
+    public void ClearJudgement_ShouldDisposeAndAllowFreshManagerForNextChart()
     {
         var rules = new GameplayRules(null);
         var first = new ParsedChart("first.dtx");
@@ -1009,7 +1009,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void BindChart_OwnsSortedChartAndClearsItWithoutChangingFrozenPolicy()
+    public void BindChart_ShouldOwnSortedChartAndClearItWithoutChangingFrozenPolicy()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(2);
@@ -1039,7 +1039,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void BindChart_WhenConstructionFails_KeepsPreviouslyBoundChart()
+    public void BindChartWhenConstructionFails_ShouldKeepPreviouslyBoundChart()
     {
         var rules = new GameplayRules(null);
         rules.BindChart(new ParsedChart("first.dtx"));
@@ -1050,7 +1050,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void Constructor_FreezesLanesAndGaugePolicyBeforeChartLoading()
+    public void Constructor_ShouldFreezeLanesAndGaugePolicyBeforeChartLoading()
     {
         var config = new ConfigData
         {
@@ -1078,7 +1078,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void Constructor_WithNoConfig_UsesManualGameplayDefaults()
+    public void ConstructorWithNoConfig_ShouldUseManualGameplayDefaults()
     {
         var rules = new GameplayRules(null);
 
@@ -1094,7 +1094,7 @@ public class GameplayRulesTests
     [InlineData(0, RiskyRange.Min)]
     [InlineData(3, 3)]
     [InlineData(11, RiskyRange.Max)]
-    public void Constructor_ClampsRiskyToSupportedRange(int configured, int expected)
+    public void Constructor_ShouldClampRiskyToSupportedRange(int configured, int expected)
     {
         var rules = new GameplayRules(new ConfigData { Risky = configured });
 
@@ -1102,7 +1102,7 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void AutoPlayLanes_CannotBeMutatedThroughCollectionInterfaces()
+    public void AutoPlayLanes_ShouldNotBeMutatedThroughCollectionInterfaces()
     {
         var config = new ConfigData();
         config.AutoPlayLanes.Add(2);

@@ -559,6 +559,33 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0, manager.GetJudgementCount(JudgementType.Miss));
         }
 
+        [Fact]
+        public void Update_WhenJudgementMadeHandlerEnqueuesReentrantHit_ShouldDeferToNextUpdateWithoutThrowing()
+        {
+            using var input = CreateMockInput();
+            var chart = new ParsedChart("reentrant.dtx") { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            chart.AddNote(new Note(1, 0, 96, 0x12, "01"));
+            chart.FinalizeChart();
+            using var manager = new JudgementManager(input, new ChartManager(chart));
+            bool enqueuedReentrant = false;
+            manager.JudgementMade += (_, _) =>
+            {
+                if (!enqueuedReentrant)
+                {
+                    enqueuedReentrant = true;
+                    manager.EnqueueLaneHit(1);
+                }
+            };
+
+            manager.EnqueueLaneHit(0);
+            manager.Update(1000.0);
+
+            Assert.Equal(1, manager.GetJudgementCount(JudgementType.Perfect));
+            manager.Update(1000.0);
+            Assert.Equal(2, manager.GetJudgementCount(JudgementType.Perfect));
+        }
+
         #endregion
 
         #region GetStatistics Tests with Different Judgements

@@ -168,7 +168,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     judgementManager.GetNoteRuntimeData(note.Id)?.Status == NoteStatus.Pending)
                 {
                     judgementManager.ResolveAutoHit(note.Id);
-                    if (JudgementManager != null && !ReferenceEquals(judgementManager, JudgementManager))
+                    if (!ReferenceEquals(judgementManager, JudgementManager))
                         return;
                     feedback(note);
                     if (!ReferenceEquals(judgementManager, JudgementManager))

@@ -25,7 +25,7 @@ namespace DTXMania.Test.Stage.Performance;
 public class PerformancePlayfieldStageTests
 {
     [Fact]
-    public async Task HeadlessStage_NonDefaultProfile_UsesIsolatedActualCacheFactory()
+    public async Task HeadlessStageNonDefaultProfile_ShouldUseIsolatedActualCacheFactory()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessStage(
@@ -183,7 +183,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public void Activation_WhenPlayfieldConstructionFails_ShouldReleaseWhitePixelOnce()
+    public void ActivationWhenPlayfieldConstructionFails_ShouldReleaseWhitePixelOnce()
     {
         using var input = new MockInputManagerCompat();
         var order = new List<string>();
@@ -206,7 +206,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public void Activation_WhenPixelReleaseAlsoFails_ShouldPreserveConstructionFailure()
+    public void ActivationWhenPixelReleaseAlsoFails_ShouldPreserveConstructionFailure()
     {
         using var input = new MockInputManagerCompat();
         var pixel = new Mock<ITexture>();
@@ -234,7 +234,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LanesFactory_RetirementDisposesOldCandidateBeforeLastPixelReference(bool reactivate)
+    public async Task LanesFactoryRetirement_ShouldDisposeOldCandidateBeforeLastPixelReference(bool reactivate)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -298,7 +298,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Activation_BackgroundAcquisitionRetirementDoesNotPublishOldRun(bool reactivate)
+    public async Task ActivationBackgroundAcquisitionRetirement_ShouldNotPublishOldRun(bool reactivate)
     {
         using var input = new MockInputManagerCompat();
         var resources = new Mock<IResourceManager>();
@@ -351,7 +351,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task Activation_FontAcquisitionRetirementKeepsFreshFonts()
+    public async Task ActivationFontAcquisitionRetirement_ShouldKeepFreshFonts()
     {
         using var input = new MockInputManagerCompat();
         var resources = new Mock<IResourceManager>();
@@ -393,7 +393,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task Activation_UiTextureAcquisitionRetirementKeepsFreshTextures()
+    public async Task ActivationUiTextureAcquisitionRetirement_ShouldKeepFreshTextures()
     {
         using var input = new MockInputManagerCompat();
         var resources = new Mock<IResourceManager>();
@@ -468,7 +468,7 @@ public class PerformancePlayfieldStageTests
     [InlineData(1, true, true)]
     [InlineData(2, false, false)]
     [InlineData(2, true, false)]
-    public async Task LanesInitialization_RetirementDuringPixelAcquisitionPreservesFreshRun(
+    public async Task LanesInitializationRetirementDuringPixelAcquisition_ShouldPreserveFreshRun(
         int phase, bool reactivate, bool getterThrows)
     {
         using var input = new MockInputManagerCompat();
@@ -557,7 +557,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LanesFactory_StaleFactoryOrCandidateCleanupFailurePreservesFreshOwner(bool factoryThrows)
+    public async Task LanesFactoryStaleFactoryOrCandidateCleanupFailure_ShouldPreserveFreshOwner(bool factoryThrows)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData();
@@ -597,7 +597,7 @@ public class PerformancePlayfieldStageTests
                 new ParsedChart("old-failure.dtx"))));
 
         Assert.Same(failure, caught);
-        Assert.Contains(factoryThrows ? "LanesFactory_StaleFactoryOrCandidateCleanupFailurePreservesFreshOwner" : "Moq",
+        Assert.Contains(factoryThrows ? "LanesFactoryStaleFactoryOrCandidateCleanupFailure_ShouldPreserveFreshOwner" : "Moq",
             caught.StackTrace);
         Assert.Equal(new[] { "old add:2", "factory begin:2", "old remove:1", "factory resumed:1",
             factoryThrows ? "partial cleanup:1" : "old field dispose:1", "old remove:0" }, oldEvents);
@@ -620,7 +620,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LanesFactory_FailedRollbackCanReactivateWithoutClobberingFreshResources(bool releaseThrows)
+    public async Task LanesFactoryFailedRollback_ShouldReactivateWithoutClobberingFreshResources(bool releaseThrows)
     {
         using var input = new MockInputManagerCompat();
         var events = new List<string>();
@@ -669,7 +669,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task LanesFactory_StaleCandidateCleanupCanRetireAndReplaceFreshRun()
+    public async Task LanesFactoryStaleCandidateCleanup_ShouldRetireAndReplaceFreshRun()
     {
         using var input = new MockInputManagerCompat();
         var oldEvents = new List<string>();
@@ -731,7 +731,7 @@ public class PerformancePlayfieldStageTests
     [AudioTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ConfigTeardownFailures_CleanRealPlayfieldAndPreparedAudio(bool unsubscribeFails)
+    public async Task ConfigTeardownFailures_ShouldCleanRealPlayfieldAndPreparedAudio(bool unsubscribeFails)
     {
         var directory = Directory.CreateTempSubdirectory("dtx-config-teardown-");
         using var input = new MockInputManagerCompat();
@@ -755,6 +755,7 @@ public class PerformancePlayfieldStageTests
             var sound = Assert.IsAssignableFrom<ISound>(prepared.MainBackground);
             Assert.True(SpinWait.SpinUntil(() => { stage.Update(0); return stage.AudioSession != null; }, TimeSpan.FromSeconds(5)));
             Assert.False(sound.IsDisposed);
+            var oldRules = stage.Rules!;
 
             var caught = Assert.Throws<InvalidOperationException>(() => stage.Deactivate());
 
@@ -765,7 +766,8 @@ public class PerformancePlayfieldStageTests
             Assert.Contains("pads", visuals.Disposals);
             Assert.True(sound.IsDisposed);
             Assert.Null(stage.AudioSession);
-            Assert.Null(stage.Rules!.ChartManager);
+            Assert.Null(stage.Rules);
+            Assert.Null(oldRules.ChartManager);
             var snapshot = new GameTelemetrySnapshot();
             stage.PopulateTelemetry(snapshot);
             Assert.False(snapshot.PerformanceReady);
@@ -783,7 +785,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ConfigFlush_ReactivationPreservesFreshRunAndOriginalFailure(bool throws)
+    public async Task ConfigFlushReactivation_ShouldPreserveFreshRunAndOriginalFailure(bool throws)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData();
@@ -825,7 +827,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task ConfigUnsubscribe_ReactivationDoesNotFlushOrCleanFreshRun()
+    public async Task ConfigUnsubscribeReactivation_ShouldNotFlushOrCleanFreshRun()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData();
@@ -866,7 +868,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task ConfigFlushFailure_ConcurrentPollingSeesReadyThenCleanedSnapshots()
+    public async Task ConfigFlushFailureConcurrentPolling_ShouldSeeReadyThenCleanedSnapshots()
     {
         using var input = new MockInputManagerCompat();
         using var release = new ManualResetEventSlim();
@@ -909,7 +911,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task TeardownFailures_PublishCleanedTelemetryAndPreserveFirstException()
+    public async Task TeardownFailures_ShouldPublishCleanedTelemetryAndPreserveFirstException()
     {
         using var input = new MockInputManagerCompat();
         var events = new List<string>();
@@ -940,14 +942,16 @@ public class PerformancePlayfieldStageTests
         Assert.True(before.PerformanceReady);
         Assert.Equal(1, before.TotalNotes);
         events.Clear();
+        var oldRules = stage.Rules!;
 
         var caught = Assert.Throws<InvalidOperationException>(() => stage.Deactivate());
 
         Assert.Same(first, caught);
-        Assert.Contains("TeardownFailures_PublishCleanedTelemetryAndPreserveFirstException", caught.StackTrace);
+        Assert.Contains(nameof(TeardownFailures_ShouldPublishCleanedTelemetryAndPreserveFirstException), caught.StackTrace);
         Assert.Equal(new[] { "playfield dispose:1", "pixel remove:0" }, events);
         Assert.Null(stage.AudioSession);
-        Assert.Null(stage.Rules!.ChartManager);
+        Assert.Null(stage.Rules);
+        Assert.Null(oldRules.ChartManager);
         var after = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(after);
         Assert.False(after.PerformanceReady);
@@ -975,7 +979,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task TeardownCallback_NestedDeactivationAndReactivationKeepsFreshRun(bool cleanupThrows)
+    public async Task TeardownCallbackNestedDeactivationAndReactivation_ShouldKeepFreshRun(bool cleanupThrows)
     {
         using var input = new MockInputManagerCompat();
         var oldEvents = new List<string>();
@@ -1027,7 +1031,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task TeardownFailure_ConcurrentPollingSeesWholeSnapshotsBeforeAndAfterCleanup()
+    public async Task TeardownFailureConcurrentPolling_ShouldSeeWholeSnapshotsBeforeAndAfterCleanup()
     {
         using var input = new MockInputManagerCompat();
         using var release = new ManualResetEventSlim();
@@ -1180,7 +1184,7 @@ public class PerformancePlayfieldStageTests
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]
-    public void TabSelection_WhenCandidateUnavailableOrThrows_ShouldKeepCompleteLanes(int failure)
+    public void TabSelectionWhenCandidateUnavailableOrThrows_ShouldKeepCompleteLanes(int failure)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1219,7 +1223,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void TabSelection_WhenCandidateSynchronouslyDeactivates_ShouldDisposeWithoutPublishingIt(bool duringPrepare)
+    public void TabSelectionWhenCandidateSynchronouslyDeactivates_ShouldDisposeWithoutPublishingIt(bool duringPrepare)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1259,7 +1263,7 @@ public class PerformancePlayfieldStageTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task ChartPublication_WhenLanesRetiresActivation_DoesNotPublishOrFailAnotherRun(
+    public async Task ChartPublicationWhenLanesRetiresActivation_ShouldNotPublishOrFailAnotherRun(
         bool reactivate, bool throwAfterRetirement)
     {
         using var input = new MockInputManagerCompat();
@@ -1341,7 +1345,7 @@ public class PerformancePlayfieldStageTests
     [AudioTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ChartPublication_WhenRetired_DropsQueuedAudioAndPreservesFreshTerminal(bool reactivate)
+    public async Task ChartPublicationWhenRetired_ShouldDropQueuedAudioAndPreserveFreshTerminal(bool reactivate)
     {
         var directory = Directory.CreateTempSubdirectory("dtx-publication-retirement-");
         using var input = new MockInputManagerCompat();
@@ -1419,7 +1423,7 @@ public class PerformancePlayfieldStageTests
     [InlineData(true, true, false, false)]
     [InlineData(true, true, true, false)]
     [InlineData(true, true, false, true)]
-    public async Task TabSelection_PixelLeaseSurvivesCandidateCallbacksAndStaleCleanup(
+    public async Task TabSelectionPixelLease_ShouldSurviveCandidateCallbacksAndStaleCleanup(
         bool duringPrepare, bool reactivate, bool callbackThrows, bool cleanupThrows)
     {
         using var input = new MockInputManagerCompat();
@@ -1520,7 +1524,7 @@ public class PerformancePlayfieldStageTests
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task TabSelection_PixelLeaseSurvivesOutgoingLanesTeardown(bool reactivate, bool cleanupThrows)
+    public async Task TabSelectionPixelLease_ShouldSurviveOutgoingLanesTeardown(bool reactivate, bool cleanupThrows)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1591,7 +1595,7 @@ public class PerformancePlayfieldStageTests
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]
-    public async Task TabSelection_PixelLeaseBalancesNormalFallbackAndCandidateCleanup(int failure)
+    public async Task TabSelectionPixelLease_ShouldBalanceNormalFallbackAndCandidateCleanup(int failure)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1640,7 +1644,7 @@ public class PerformancePlayfieldStageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task TabSelection_WhenCandidateCleanupReactivates_PixelOutlivesCleanup(bool cleanupThrows)
+    public async Task TabSelectionWhenCandidateCleanupReactivates_ShouldKeepPixelAliveThroughCleanup(bool cleanupThrows)
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1699,7 +1703,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task ChartPublication_WhenTelemetryCallbackReactivates_DoesNotOverwriteNewSnapshot()
+    public async Task ChartPublicationWhenTelemetryCallbackReactivates_ShouldNotOverwriteNewSnapshot()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1744,7 +1748,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task ChartPublication_WhenFailureTelemetryReactivates_DoesNotFailOrOverwriteNewRun()
+    public async Task ChartPublicationWhenFailureTelemetryReactivates_ShouldNotFailOrOverwriteNewRun()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1804,7 +1808,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task TabSelection_RealCandidateRetiredDuringResourceLoad_CleansOldBorrowersBeforePixel()
+    public async Task TabSelectionRealCandidateRetiredDuringResourceLoad_ShouldCleanOldBorrowersBeforePixel()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1866,7 +1870,7 @@ public class PerformancePlayfieldStageTests
     }
 
     [Fact]
-    public async Task TabSelection_WhenFactoryReactivates_StaleCreateDelegateCannotReadNewResources()
+    public async Task TabSelectionWhenFactoryReactivates_ShouldPreventStaleCreateDelegateFromReadingNewResources()
     {
         using var input = new MockInputManagerCompat();
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab };
@@ -1904,6 +1908,29 @@ public class PerformancePlayfieldStageTests
         Assert.Equal("New delegate", telemetry.SelectedSongTitle);
         Assert.True(telemetry.PerformanceReady);
         stage.Deactivate();
+    }
+
+    [Fact]
+    public void DisposeWhenTeardownThrows_ShouldMarkDisposedAndNotRetryTeardownOnSecondDispose()
+    {
+        using var input = new MockInputManagerCompat();
+        var playfield = new Mock<IPerformancePlayfield>();
+        var failure = new InvalidOperationException("playfield dispose failed");
+        int disposeAttempts = 0;
+        playfield.Setup(x => x.Dispose()).Callback(() =>
+        {
+            disposeAttempts++;
+            throw failure;
+        });
+        var stage = new HeadlessStage(CreateGame(new ConfigData(), input), playfield.Object);
+        stage.Activate(new SongPlayRequest(new SongListNode { Title = "Dispose failure" }, 0, new ParsedChart("dispose.dtx")));
+
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(stage.Dispose));
+        Assert.Equal(1, disposeAttempts);
+
+        // Second Dispose must not re-run OnDeactivate / CleanupComponents because _disposed was set in finally.
+        stage.Dispose();
+        Assert.Equal(1, disposeAttempts);
     }
 
     private static Mock<ITexture> CountedPixel(string name, List<string> events, Func<int> get, Action<int> set)

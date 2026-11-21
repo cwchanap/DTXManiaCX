@@ -454,18 +454,23 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (!_disposed)
             {
-                if (disposing)
+                try
                 {
-            // Deactivate if still active
-            if (_currentPhase != StagePhase.Inactive)
-            {
-                Deactivate();
-            }
-
-            // Clear transition payload
-            _transitionPayload = null;
+                    if (disposing)
+                    {
+                        // Deactivate if still active
+                        if (_currentPhase != StagePhase.Inactive)
+                        {
+                            Deactivate();
+                        }
+                    }
                 }
-                _disposed = true;
+                finally
+                {
+                    // Clear transition payload
+                    _transitionPayload = null;
+                    _disposed = true;
+                }
             }
         }
 

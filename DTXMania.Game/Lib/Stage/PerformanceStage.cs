@@ -128,6 +128,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool _inputPaused = false;
         
+        private static readonly GameplayRules EmptyRules = new(null);
         internal GameplayRules? Rules { get; private set; }
         private IReadOnlySet<int> FrozenAutoPlayLanes =>
             Rules?.AutoPlayLanes ?? FrozenSet<int>.Empty;
@@ -611,8 +612,9 @@ namespace DTXMania.Game.Lib.Stage
             var videoPlayer = _chartVideoPlayer;
             _backgroundRenderer = null;
             _playfield = null;
-            _readyFont = null;
+            _readyFont = null!;
             _scrollSpeedFont = null;
+            _scrollSpeedIndicator = null;
             _backgroundTexture = null!;
             _shutterTexture = null!;
             _dangerOverlayTexture = null!;
@@ -620,8 +622,8 @@ namespace DTXMania.Game.Lib.Stage
             _fallbackWhiteTexture = null!;
             Rules = null;
             _audioSession = null;
-            _parsedChart = null;
-            _chartVideoPlayer = null;
+            _parsedChart = null!;
+            _chartVideoPlayer = null!;
             _activeVideoEvent = null;
             _nextVideoEventIndex = 0;
 
@@ -649,8 +651,6 @@ namespace DTXMania.Game.Lib.Stage
             rules?.ClearChart();
             Release(() => videoPlayer?.Dispose());
 
-            if (ReferenceEquals(scope, BackgroundWork))
-                Rules = rules;
             if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
@@ -872,9 +872,9 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 catch (Exception exception)
                 {
-                    var failure = exception;
-                    audioVariantProcessorFactory = () => throw failure;
-                    audioVariantCacheFactory = () => throw failure;
+                    var failure = ExceptionDispatchInfo.Capture(exception);
+                    audioVariantProcessorFactory = () => { failure.Throw(); return null!; };
+                    audioVariantCacheFactory = () => { failure.Throw(); return null!; };
                 }
             }
 
@@ -1300,12 +1300,18 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (!transferred)
                 {
-                    Exception? failure = null;
                     try { readyFont?.RemoveReference(); }
-                    catch (Exception ex) { failure = ex; }
+                    catch (Exception ex)
+                    {
+                        if (ReferenceEquals(scope, BackgroundWork))
+                            Logger.LogError(ex, "InitializeReadyFont failed to release readyFont during cleanup");
+                    }
                     try { scrollFont?.RemoveReference(); }
-                    catch (Exception ex) { failure ??= ex; }
-                    if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+                    catch (Exception ex)
+                    {
+                        if (ReferenceEquals(scope, BackgroundWork))
+                            Logger.LogError(ex, "InitializeReadyFont failed to release scrollFont during cleanup");
+                    }
                 }
             }
         }
@@ -1600,7 +1606,7 @@ namespace DTXMania.Game.Lib.Stage
                 && e.IsHit()
                 && !FrozenAutoPlayLanes.Contains(e.Lane);
 
-            var frame = Rules?.BuildFrameState(CurrentVisualSongTimeMs, _currentProgressValue) ?? default;
+            var frame = (Rules ?? EmptyRules).BuildFrameState(CurrentVisualSongTimeMs, _currentProgressValue);
             _playfield?.OnJudgement(e, frame, showPerHitTiming);
         }
 
@@ -1906,7 +1912,7 @@ namespace DTXMania.Game.Lib.Stage
                 StageCompleted = Rules?.IsCompleted == true,
                 ClockReadable = readable,
                 // Lanes and the pre-refactor Tab HUD retain the last gameplay progress after Stop.
-                Frame = Rules?.BuildFrameState(rawMs, chartManager != null ? _currentProgressValue : 0f) ?? default,
+                Frame = (Rules ?? EmptyRules).BuildFrameState(rawMs, chartManager != null ? _currentProgressValue : 0f),
                 NoteDisplayStyle = (_playfield?.Mode ?? DrumsNoteDisplayStyle.Lanes).ToString(),
                 LastHit = _lastLaneHit
             };
@@ -1954,13 +1960,31 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && !_disposed)
+            var shouldDispose = disposing && !_disposed;
+            Exception? failure = null;
+            try
             {
-                _spriteBatch?.Dispose();
-                _uiManager?.Dispose();
+                base.Dispose(disposing);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
             }
 
-            base.Dispose(disposing);
+            if (shouldDispose)
+            {
+                var spriteBatch = _spriteBatch;
+                var uiManager = _uiManager;
+                _spriteBatch = null!;
+                _uiManager = null!;
+                try { spriteBatch?.Dispose(); }
+                catch (Exception ex) { failure ??= ex; }
+                try { uiManager?.Dispose(); }
+                catch (Exception ex) { failure ??= ex; }
+            }
+
+            if (failure != null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         #endregion

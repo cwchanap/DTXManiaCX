@@ -34,7 +34,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly ILanesSkillMeter _skillMeter;
         private ITexture? _laneTexture, _lineTexture, _gaugeBase, _gaugeFill, _progressBase, _skillTexture;
         // Release acquired textures in acquisition order, including on constructor failure.
-        private readonly List<ITexture> _ownedTextures = new();
+        private readonly List<(ITexture Texture, bool Cached)> _ownedTextures = new();
         private bool _disposed;
 
         public LanesPlayfield(GraphicsDevice device, IResourceManager resources, Texture2D? whitePixel,
@@ -74,7 +74,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _gaugeBase = Acquire(TexturePath.GaugeFrame);
                 _gaugeFill = Acquire(TexturePath.GaugeFill);
                 _progressBase = Acquire(TexturePath.ProgressFrame);
-                _skillTexture = Own(LoadSkillPanelTexture(resources, resources.CurrentTheme ?? SkinTheme.Empty));
+                _skillTexture = Own(
+                    LoadSkillPanelTexture(resources, resources.CurrentTheme ?? SkinTheme.Empty, out var skillCached),
+                    skillCached);
             }
             catch
             {
@@ -249,46 +251,55 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         public void DrawAdditive(SpriteBatch batch) => _effects.Draw(batch);
 
-        private ITexture? Acquire(string path) => Own(TryLoad(_resources, path));
-
-        private ITexture? Own(ITexture? texture)
+        private ITexture? Acquire(string path)
         {
-            if (texture != null) _ownedTextures.Add(texture);
+            var texture = TryLoad(_resources, path, out var cached);
+            return Own(texture, cached);
+        }
+
+        private ITexture? Own(ITexture? texture, bool cached)
+        {
+            if (texture != null) _ownedTextures.Add((texture, cached));
             return texture;
         }
 
-        internal static ITexture? LoadSkillPanelTexture(IResourceManager resources, ISkinTheme theme)
+        internal static ITexture? LoadSkillPanelTexture(IResourceManager resources, ISkinTheme theme) =>
+            LoadSkillPanelTexture(resources, theme, out _);
+
+        internal static ITexture? LoadSkillPanelTexture(IResourceManager resources, ISkinTheme theme, out bool cached)
         {
             string path = ResolveSkillPanelTexturePath(theme);
-            var texture = TryLoad(resources, path, out var cached);
+            var texture = TryLoad(resources, path, out cached);
             try
             {
                 if (texture != null && texture.Width > 1 && texture.Height > 1) return texture;
-                var invalid = texture;
-                texture = null;
-                invalid?.Dispose();
-                if (string.Equals(path, TexturePath.SkillPanel, StringComparison.Ordinal)) return null;
+                ReleaseRejectedTexture(ref texture, cached);
+                if (string.Equals(path, TexturePath.SkillPanel, StringComparison.Ordinal))
+                {
+                    cached = false;
+                    return null;
+                }
                 texture = TryLoad(resources, TexturePath.SkillPanel, out cached);
                 if (texture != null && texture.Width > 1 && texture.Height > 1) return texture;
-                invalid = texture;
-                texture = null;
-                invalid?.Dispose();
+                ReleaseRejectedTexture(ref texture, cached);
+                cached = false;
                 return null;
             }
             catch
             {
-                try
-                {
-                    if (cached) texture?.RemoveReference();
-                    else texture?.Dispose();
-                }
+                try { ReleaseRejectedTexture(ref texture, cached); }
                 catch { }
                 throw;
             }
         }
 
-        private static ITexture? TryLoad(IResourceManager resources, string path) =>
-            TryLoad(resources, path, out _);
+        private static void ReleaseRejectedTexture(ref ITexture? texture, bool cached)
+        {
+            var invalid = texture;
+            texture = null;
+            if (cached) invalid?.RemoveReference();
+            else invalid?.Dispose();
+        }
 
         private static ITexture? TryLoad(IResourceManager resources, string path, out bool cached)
         {
@@ -324,8 +335,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Release(() => _fontPopups?.Dispose());
             Release(() => _timing?.Dispose());
             Release(() => _pads?.Dispose());
-            foreach (var texture in _ownedTextures)
-                Release(texture.RemoveReference);
+            foreach (var (texture, cached) in _ownedTextures)
+                Release(cached ? texture.RemoveReference : texture.Dispose);
             _ownedTextures.Clear();
             _laneTexture = _lineTexture = _gaugeBase = _gaugeFill = _progressBase = _skillTexture = null;
             if (firstFailure != null) ExceptionDispatchInfo.Capture(firstFailure).Throw();

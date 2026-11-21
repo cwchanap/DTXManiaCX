@@ -26,7 +26,7 @@ namespace DTXMania.Test.Stage.Performance;
 public class LanesPlayfieldStageIntegrationTests
 {
     [Fact]
-    public async Task HeadlessLanesStage_NonDefaultProfile_UsesIsolatedActualCacheFactory()
+    public async Task HeadlessLanesStageNonDefaultProfile_ShouldUseIsolatedActualCacheFactory()
     {
         var config = new ConfigData { PlaySpeedPercent = 150 };
         using var input = new MockInputManagerCompat();
@@ -261,7 +261,7 @@ public class LanesPlayfieldStageIntegrationTests
     }
 
     [Fact]
-    public void StageUpdate_WhenSongPlays_ShouldAdvanceRealLanesTimingFeedback()
+    public void StageUpdateWhenSongPlays_ShouldAdvanceRealLanesTimingFeedback()
     {
         var config = new ConfigData { ShowHitTimingFeedback = true };
         using var input = new MockInputManagerCompat();
@@ -317,7 +317,7 @@ public class LanesPlayfieldStageIntegrationTests
     }
 
     [Fact]
-    public void Deactivate_WhenLanesChildAndPixelReleaseThrow_ShouldFinishTeardownAndPreserveFirstFailure()
+    public void DeactivateWhenLanesChildAndPixelReleaseThrow_ShouldFinishTeardownAndPreserveFirstFailure()
     {
         var config = new ConfigData();
         using var input = new MockInputManagerCompat();
@@ -608,7 +608,7 @@ public class LanesPlayfieldStageIntegrationTests
     }
 
     [Fact]
-    public void UiPass_Tab_ShouldDrawShutterHudUiAndDangerInOrder()
+    public void UiPassTab_ShouldDrawShutterHudUiAndDangerInOrder()
     {
         var config = new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab, NoFail = true };
         using var input = new MockInputManagerCompat();
@@ -675,7 +675,7 @@ public class LanesPlayfieldStageIntegrationTests
     }
 
     [Fact]
-    public void StageAssets_WhenShutterReleaseThrows_ShouldReleaseDangerAndPixelOnce()
+    public void StageAssetsWhenShutterReleaseThrows_ShouldReleaseDangerAndPixelOnce()
     {
         var config = new ConfigData();
         using var input = new MockInputManagerCompat();

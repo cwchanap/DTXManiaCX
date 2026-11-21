@@ -78,12 +78,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
         ILanesPadRenderer CreatePads();
     }
 
+    internal sealed class NullJudgementLine : ILanesJudgementLine
+    {
+        public static readonly NullJudgementLine Instance = new();
+        private NullJudgementLine() { }
+        public void Update(double deltaTime) { }
+        public void Draw(SpriteBatch batch) { }
+        public void Dispose() { }
+    }
+
     internal sealed class LanesVisualFactory(
         GraphicsDevice device, IResourceManager resources, Texture2D? whitePixel,
         SongChart? chart, string? difficultyLabel) : ILanesVisualFactory
     {
         public LaneBackgroundRenderer CreateBackground() => new(resources);
-        public ILanesJudgementLine CreateLine() => new JudgementLineRenderer(device, whitePixel!);
+        public ILanesJudgementLine CreateLine()
+        {
+            ArgumentNullException.ThrowIfNull(device);
+            return whitePixel != null ? new JudgementLineRenderer(device, whitePixel) : NullJudgementLine.Instance;
+        }
         public ILanesScoreDisplay CreateScore() => new ScoreDisplay(resources, device);
         public ILanesComboDisplay CreateCombo() => new ComboDisplay(resources, device);
         public ILanesSkillPanel CreateSkillPanel() => new SkillPanelDisplay(resources, device, chart, difficultyLabel);

@@ -181,6 +181,22 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(Record.Exception(timer.Dispose));
         }
 
+        [Fact]
+        public void DisposeAndSetters_WhenSoundInstanceIsUninitialized_ShouldStayDisposedAndLogFailures()
+        {
+            var logs = new System.Collections.Generic.List<string>();
+            var timer = new SongTimer(CreateSoundEffectInstance(), logs.Add);
+
+            timer.Dispose();
+
+            Assert.False(timer.Play(At(0)));
+            timer.Volume = 0.8f;
+            timer.Pan = 0.5f;
+            timer.Pitch = 0.25f;
+            timer.IsLooped = true;
+            Assert.Null(Record.Exception(timer.Dispose));
+        }
+
         private static void StartLogicalClock(SongTimer timer, GameTime gameTime)
         {
             var field = typeof(SongTimer).GetField(

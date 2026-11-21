@@ -250,5 +250,20 @@ namespace DTXMania.Test.Config
             roundTrip.LoadConfig();
             Assert.Equal(200, roundTrip.Config.ScrollSpeed);
         }
+
+        [Fact]
+        [Trait("Category", "ConfigManager")]
+        public void LoadConfigAndResetToDefaults_WhenScrollSpeedChanges_ShouldRaiseChangedEvent()
+        {
+            File.WriteAllText(IniPath, "ScrollSpeed=250\n");
+            var cm = CreateManager();
+            var events = new List<(int Old, int New)>();
+            cm.ScrollSpeedChanged += (_, e) => events.Add((e.OldPercent, e.NewPercent));
+
+            cm.LoadConfig();
+            cm.ResetToDefaults();
+
+            Assert.Equal(new[] { (100, 250), (250, 100) }, events);
+        }
     }
 }
