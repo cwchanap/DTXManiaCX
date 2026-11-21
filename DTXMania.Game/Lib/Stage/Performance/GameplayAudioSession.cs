@@ -454,7 +454,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Release(() => audioLoader?.Dispose());
             foreach (var instance in bgmInstances)
             {
-                Release(() => { instance.Stop(); instance.Dispose(); });
+                Release(() => instance.Stop());
+                Release(() => instance.Dispose());
             }
             Release(() => chipSoundCache?.Dispose());
             Release(() => metronomeBeatSound?.RemoveReference());
