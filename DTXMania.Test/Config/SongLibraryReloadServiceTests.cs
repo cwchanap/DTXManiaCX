@@ -106,7 +106,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
         // HPA-801: the test owns one library over the temp database; the
         // game-wired reload service resolves the library lazily via IStageGame.
         var library = new SongLibrary(
-            new SongDatabaseService(_databasePath),
+            new SongDatabase(_databasePath),
             finalizePendingNodes: (_, _) =>
                 throw new InvalidOperationException("finalization failed after commit"));
         Assert.True(await library.InitializeAsync());
@@ -123,7 +123,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
         Assert.False(result.RetainsCurrentSnapshot);
         Assert.Contains("finalization failed after commit", result.FailureMessage);
         // The default service scans the bundled practice songs after the configured roots.
-        var titles = (await library.Database.GetSongsAsync())
+        var titles = (await new SongCatalogStore(library.Database).GetSongsAsync())
             .Select(song => song.Title)
             .ToList();
         Assert.Contains("Committed Reload", titles);

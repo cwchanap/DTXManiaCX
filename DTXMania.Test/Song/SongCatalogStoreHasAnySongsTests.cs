@@ -16,17 +16,17 @@ namespace DTXMania.Test.Song
     /// five-COUNT aggregate statistics.
     /// </summary>
     [Trait("Category", "Unit")]
-    public sealed class SongDatabaseServiceHasAnySongsTests : IDisposable
+    public sealed class SongCatalogStoreHasAnySongsTests : IDisposable
     {
-        private readonly SongDatabaseService _service;
+        private readonly SongDatabase _service;
         private readonly string _dbPath;
 
-        public SongDatabaseServiceHasAnySongsTests()
+        public SongCatalogStoreHasAnySongsTests()
         {
             _dbPath = Path.Combine(
                 Path.GetTempPath(),
                 $"has_any_songs_{Guid.NewGuid()}.db");
-            _service = new SongDatabaseService(_dbPath);
+            _service = new SongDatabase(_dbPath);
         }
 
         public void Dispose()
@@ -44,7 +44,7 @@ namespace DTXMania.Test.Song
         {
             await _service.InitializeDatabaseAsync();
 
-            Assert.False(await _service.HasAnySongsAsync());
+            Assert.False(await new SongCatalogStore(_service).HasAnySongsAsync());
         }
 
         [Fact]
@@ -61,7 +61,7 @@ namespace DTXMania.Test.Song
                 await context.SaveChangesAsync();
             }
 
-            Assert.True(await _service.HasAnySongsAsync());
+            Assert.True(await new SongCatalogStore(_service).HasAnySongsAsync());
         }
 
         [Fact]
@@ -81,7 +81,7 @@ namespace DTXMania.Test.Song
                 songId = song.Id;
             }
 
-            Assert.True(await _service.HasAnySongsAsync());
+            Assert.True(await new SongCatalogStore(_service).HasAnySongsAsync());
 
             using (var context = _service.CreateContext())
             {
@@ -90,7 +90,7 @@ namespace DTXMania.Test.Song
                 await context.SaveChangesAsync();
             }
 
-            Assert.False(await _service.HasAnySongsAsync());
+            Assert.False(await new SongCatalogStore(_service).HasAnySongsAsync());
         }
     }
 }

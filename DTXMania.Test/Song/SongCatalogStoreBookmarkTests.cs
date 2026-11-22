@@ -9,15 +9,15 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    public class SongDatabaseServiceBookmarkTests : IDisposable
+    public class SongCatalogStoreBookmarkTests : IDisposable
     {
-        private readonly SongDatabaseService _db;
+        private readonly SongDatabase _db;
         private readonly string _dbPath;
 
-        public SongDatabaseServiceBookmarkTests()
+        public SongCatalogStoreBookmarkTests()
         {
             _dbPath = Path.Combine(Path.GetTempPath(), $"bookmark_db_{Guid.NewGuid()}.db");
-            _db = new SongDatabaseService(_dbPath);
+            _db = new SongDatabase(_dbPath);
         }
 
         public void Dispose()
@@ -34,7 +34,7 @@ namespace DTXMania.Test.Song
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await _db.SeedSongAsync(song, chart);
-            return (await _db.GetSongsAsync()).Single(s => s.Title == title).Id;
+            return (await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Title == title).Id;
         }
 
         [Fact]
@@ -43,18 +43,18 @@ namespace DTXMania.Test.Song
             await _db.InitializeDatabaseAsync();
             var id = await AddSongAsync("Song");
 
-            await _db.SetBookmarkAsync(id, true);
-            Assert.True((await _db.GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
+            await new SongCatalogStore(_db).SetBookmarkAsync(id, true);
+            Assert.True((await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
 
-            await _db.SetBookmarkAsync(id, false);
-            Assert.False((await _db.GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
+            await new SongCatalogStore(_db).SetBookmarkAsync(id, false);
+            Assert.False((await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
         }
 
         [Fact]
         public async Task SetBookmarkAsync_WithUnknownId_DoesNotThrow()
         {
             await _db.InitializeDatabaseAsync();
-            var ex = await Record.ExceptionAsync(() => _db.SetBookmarkAsync(999999, true));
+            var ex = await Record.ExceptionAsync(() => new SongCatalogStore(_db).SetBookmarkAsync(999999, true));
             Assert.Null(ex);
         }
 
@@ -67,11 +67,11 @@ namespace DTXMania.Test.Song
             var bravo = await AddSongAsync("Bravo");
             await AddSongAsync("Unmarked");
 
-            await _db.SetBookmarkAsync(charlie, true);
-            await _db.SetBookmarkAsync(alpha, true);
-            await _db.SetBookmarkAsync(bravo, true);
+            await new SongCatalogStore(_db).SetBookmarkAsync(charlie, true);
+            await new SongCatalogStore(_db).SetBookmarkAsync(alpha, true);
+            await new SongCatalogStore(_db).SetBookmarkAsync(bravo, true);
 
-            var result = await _db.GetBookmarkedSongsAsync();
+            var result = await new SongCatalogStore(_db).GetBookmarkedSongsAsync();
 
             Assert.Equal(new[] { "Alpha", "Bravo", "Charlie" }, result.Select(s => s.Title).ToArray());
         }
@@ -81,9 +81,9 @@ namespace DTXMania.Test.Song
         {
             await _db.InitializeDatabaseAsync();
             var id = await AddSongAsync("Song");
-            await _db.SetBookmarkAsync(id, true);
+            await new SongCatalogStore(_db).SetBookmarkAsync(id, true);
 
-            var result = await _db.GetBookmarkedSongsAsync();
+            var result = await new SongCatalogStore(_db).GetBookmarkedSongsAsync();
 
             Assert.Single(result);
             Assert.NotNull(result[0].Charts);
@@ -98,7 +98,7 @@ namespace DTXMania.Test.Song
             await _db.InitializeDatabaseAsync();
             await AddSongAsync("Song");
 
-            var result = await _db.GetBookmarkedSongsAsync();
+            var result = await new SongCatalogStore(_db).GetBookmarkedSongsAsync();
 
             Assert.Empty(result);
         }

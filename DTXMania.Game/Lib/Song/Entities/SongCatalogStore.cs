@@ -3,14 +3,11 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -18,250 +15,24 @@ using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Game.Lib.Song.Entities
 {
-    /// Comprehensive service for managing the song database initialization and operations
-    /// Provides both low-level database management and high-level CRUD operations
-    public class SongDatabaseService : IDisposable
+    /// <summary>
+    /// Catalog-side persistence over one shared <see cref="SongDatabase"/>:
+    /// atomic bulk import/cleanup, chart inventory queries, per-root scan
+    /// watermarks and rejected-tab counts (HPA-801). Score transactions and
+    /// receipts live on <see cref="SongScoreStore"/>.
+    /// </summary>
+    public class SongCatalogStore
     {
-        private readonly string _databasePath;
-        private readonly DbContextOptions<SongDbContext> _options;
-        private readonly Func<SongDbContext>? _contextFactory;
+        private readonly SongDatabase _database;
+
         private readonly Func<int, bool>? _activeChartIdentityFilter;
-        private readonly object _initializationLock = new object();
-        private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
-        private bool _isInitialized = false;
 
-        /// <summary>
-        /// Whether <see cref="InitializeDatabaseAsync"/> completed. Exposed to the
-        /// game-owned library so its query paths can preserve the pre-HPA-801
-        /// contract: queries before Startup's initialization phase read as empty
-        /// instead of throwing (HPA-801).
-        /// </summary>
-        internal bool IsInitialized
+        public SongCatalogStore(
+            SongDatabase database,
+            Func<int, bool>? activeChartIdentityFilter = null)
         {
-            get
-            {
-                lock (_initializationLock)
-                {
-                    return _isInitialized;
-                }
-            }
-        }
-
-        internal const int CurrentSongSchemaVersion = 1;
-
-        internal const string EnumerationMetadataTableDdl = @"CREATE TABLE IF NOT EXISTS __EnumerationMetadata (
-    Key TEXT PRIMARY KEY,
-    Value TEXT NOT NULL
-)";
-
-        /// <summary>
-        /// Gets the path to the database file
-        /// </summary>
-        public string DatabasePath => _databasePath;
-
-        public SongDatabaseService(string databasePath = "songs.db")
-        {
-            _databasePath = databasePath;
-
-            // No filesystem side effects here (HPA-801): ordinary BaseGame
-            // construction runs sandboxed, so the database directory is created
-            // by InitializeDatabaseAsync instead.
-
-            var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
-            // Configure SQLite with UTF-8 support for Japanese text
-            // Include explicit UTF-8 encoding in connection string
-            var connectionString = $"Data Source={_databasePath};Cache=Shared;";
-            optionsBuilder.UseSqlite(connectionString, options =>
-            {
-                options.CommandTimeout(30);
-            });
-            _options = optionsBuilder.Options;
-        }
-
-        /// <summary>
-        /// Test-friendly constructor that accepts pre-built DbContext options.
-        /// Lets unit tests inject an in-memory SQLite connection without going through
-        /// the file-path-based config path. The caller is responsible for ensuring the
-        /// schema is created (e.g., via SongDbContext.Database.EnsureCreated()).
-        /// </summary>
-        internal SongDatabaseService(DbContextOptions<SongDbContext> options)
-        {
-            _options = options ?? throw new ArgumentNullException(nameof(options));
-            _databasePath = string.Empty;
-            // Tests provide a pre-created schema; mark the service as initialized so
-            // CreateContext() does not throw the "must initialize first" guard.
-            _isInitialized = true;
-        }
-
-        internal SongDatabaseService(
-            DbContextOptions<SongDbContext> options,
-            Func<SongDbContext> contextFactory)
-            : this(options, contextFactory, initialized: true)
-        {
-        }
-
-        internal SongDatabaseService(
-            DbContextOptions<SongDbContext> options,
-            Func<SongDbContext> contextFactory,
-            bool initialized)
-        {
-            _options = options ?? throw new ArgumentNullException(nameof(options));
-            _contextFactory = contextFactory
-                ?? throw new ArgumentNullException(nameof(contextFactory));
-            _databasePath = string.Empty;
-            _isInitialized = initialized;
-        }
-
-        internal SongDatabaseService(
-            DbContextOptions<SongDbContext> options,
-            Func<SongDbContext> contextFactory,
-            Func<int, bool> activeChartIdentityFilter)
-            : this(options, contextFactory)
-        {
-            _activeChartIdentityFilter = activeChartIdentityFilter
-                ?? throw new ArgumentNullException(
-                    nameof(activeChartIdentityFilter));
-        }
-
-
-        /// Initialize the database and ensure it exists
-        public async Task InitializeDatabaseAsync()
-        {
-            await _initializationSemaphore.WaitAsync();
-            try
-            {
-                // Create the database directory here rather than in the path
-                // constructor, so constructing the game-owned database never
-                // writes into host AppData (HPA-801).
-                var databaseDirectory = Path.GetDirectoryName(_databasePath);
-                if (!string.IsNullOrWhiteSpace(databaseDirectory))
-                {
-                    Directory.CreateDirectory(databaseDirectory);
-                }
-
-                lock (_initializationLock)
-                {
-                    if (_isInitialized)
-                    {
-                        return;
-                    }
-                }
-
-                bool needsRecreation = true;
-
-                if (InitializationDatabaseFileExists())
-                {
-                    var storedVersion = await ReadSchemaVersionOrMismatchAsync();
-
-                    if (storedVersion != CurrentSongSchemaVersion)
-                    {
-                        await PurgeDatabaseAsync();
-                    }
-                    else
-                    {
-                        needsRecreation = false;
-                    }
-                }
-
-                if (needsRecreation)
-                {
-                    using var context = CreateInitializationContext();
-
-                    // Ensure database is created first
-                    await EnsureCreatedForInitializationAsync(context);
-                    await EnsureEnumerationMetadataTableAsync(context);
-                    await StampSchemaVersionAsync(context);
-                }
-
-                // Mark as initialized after successful creation
-                lock (_initializationLock)
-                {
-                    _isInitialized = true;
-                }
-
-            }
-            finally
-            {
-                _initializationSemaphore.Release();
-            }
-        }
-
-        internal virtual bool InitializationDatabaseFileExists() =>
-            File.Exists(_databasePath);
-
-        internal virtual SongDbContext CreateInitializationContext() =>
-            new SongDbContext(_options);
-
-        internal virtual Task EnsureCreatedForInitializationAsync(
-            SongDbContext context) =>
-            context.Database.EnsureCreatedAsync();
-
-        private const int SqliteCorruptErrorCode = 11;
-        private const int SqliteNotADatabaseErrorCode = 26;
-
-        internal virtual async Task<long> ReadSchemaVersionOrMismatchAsync()
-        {
-            try
-            {
-                var connectionString = new SqliteConnectionStringBuilder
-                {
-                    DataSource = _databasePath,
-                    Pooling = false,
-                }.ToString();
-
-                await using var connection = new SqliteConnection(connectionString);
-                await connection.OpenAsync();
-                using var command = connection.CreateCommand();
-                command.CommandText = "PRAGMA user_version;";
-                var version = (long)(await command.ExecuteScalarAsync())!;
-                if (version != CurrentSongSchemaVersion)
-                {
-                    return version;
-                }
-
-                command.CommandText = "PRAGMA quick_check(1);";
-                var checkResult = (string?)(await command.ExecuteScalarAsync());
-                if (!string.Equals(checkResult, "ok", StringComparison.OrdinalIgnoreCase))
-                {
-                    return -1;
-                }
-
-                return version;
-            }
-            catch (SqliteException ex) when (
-                ex.SqliteErrorCode == SqliteCorruptErrorCode
-                || ex.SqliteErrorCode == SqliteNotADatabaseErrorCode)
-            {
-                return -1;
-            }
-        }
-
-        private static async Task StampSchemaVersionAsync(SongDbContext context)
-        {
-            var stampSql = $"PRAGMA user_version = {CurrentSongSchemaVersion}";
-            await context.Database.ExecuteSqlRawAsync(stampSql);
-        }
-
-        /// Create a new DbContext instance
-        public SongDbContext CreateContext()
-        {
-            // Ensure database is initialized before creating context
-            lock (_initializationLock)
-            {
-                if (!_isInitialized)
-                {
-                    throw new InvalidOperationException("Database must be initialized before creating contexts. Call InitializeDatabaseAsync() first.");
-                }
-            }
-            return _contextFactory?.Invoke() ?? new SongDbContext(_options);
-        }
-
-
-        /// Check if the database exists and is accessible
-        public async Task<bool> DatabaseExistsAsync()
-        {
-            using var context = new SongDbContext(_options);
-            return await context.Database.CanConnectAsync();
+            _database = database ?? throw new ArgumentNullException(nameof(database));
+            _activeChartIdentityFilter = activeChartIdentityFilter;
         }
 
         /// <summary>
@@ -271,55 +42,12 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public async Task<bool> HasAnySongsAsync()
         {
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
             return await context.Songs
                 .AsNoTracking()
                 .AnyAsync();
         }
 
-
-        /// <summary>
-        /// Purge the database file completely (for fresh rebuild)
-        /// </summary>
-        public virtual async Task PurgeDatabaseAsync()
-        {
-            // Close any existing connections first
-            using (var context = new SongDbContext(_options))
-            {
-                await context.Database.CloseConnectionAsync();
-            }
-
-            // Clear all pooled SQLite connections so the file is no longer locked
-            SqliteConnection.ClearAllPools();
-
-            // Delete the database file completely
-            if (File.Exists(_databasePath))
-            {
-                File.Delete(_databasePath);
-            }
-            DeleteDatabaseFileSidecars(_databasePath);
-
-            // Reset initialization flag
-            lock (_initializationLock)
-            {
-                _isInitialized = false;
-            }
-        }
-
-        private static void DeleteDatabaseFileSidecars(string databasePath)
-        {
-            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
-            {
-                var sidecar = databasePath + suffix;
-                if (File.Exists(sidecar))
-                {
-                    File.Delete(sidecar);
-                }
-            }
-        }
-
-        // Song Management Operations        
-        // Legacy AddSongAsync(SongMetadata) method removed - use AddSongAsync(Song, SongChart) instead
 
         internal async Task<SongBulkImportResult> ImportSongsAsync(
             SongBulkImportRequest request,
@@ -329,7 +57,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
 
-            await using var context = CreateContext();
+            await using var context = _database.CreateContext();
             context.Database.SetCommandTimeout(TimeSpan.FromSeconds(120));
             await using var transaction =
                 await context.Database.BeginTransactionAsync(cancellationToken)
@@ -1087,20 +815,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
-        /// Add a new song with charts and scores using EF Core entities
-        /// Handles duplicate detection based on file path
-        /// </summary>
-        /// <remarks>
-        /// Legacy/test-only helper with per-call persistence semantics. Startup song
-        /// discovery must use <see cref="ImportSongsAsync"/> so the complete library is
-        /// committed atomically.
-        /// </remarks>
-        /// <summary>
         /// Get all songs from the database
         /// </summary>
         public async Task<List<SongEntity>> GetSongsAsync()
         {
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
 
             return await context.Songs
                 .Include(s => s.Charts)
@@ -1108,390 +827,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                         .ThenInclude(sc => sc.PerformanceHistory)
                 .OrderBy(s => s.Title)
                 .ToListAsync();
-        }
-
-        /// <summary>
-        /// Persists a complete PerformanceSummary into the SongScore for the given chart+instrument.
-        /// Updates best fields only when the new score exceeds the existing best. Always updates the
-        /// "last play" fields and increments PlayCount. The pre-computed summary.GameSkill is assigned
-        /// directly (not re-derived via score.CalculateSkill()), preserving level-decimal precision.
-        /// </summary>
-        public async Task<ScoreSaveResult> UpdateScoreAsync(
-            int chartId,
-            EInstrumentPart instrument,
-            PerformanceSummary summary,
-            CancellationToken cancellationToken = default)
-        {
-            if (summary == null) throw new ArgumentNullException(nameof(summary));
-            if (summary.PlaySpeedPercent < PlaySpeedRange.Min
-                || summary.PlaySpeedPercent > PlaySpeedRange.Max
-                || summary.PlaySpeedPercent % PlaySpeedRange.Step != 0)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(summary),
-                    summary.PlaySpeedPercent,
-                    "PerformanceSummary.PlaySpeedPercent must be a canonical gameplay speed.");
-            }
-
-            // Pre-feature callers did not carry a run id. Preserve those direct service
-            // calls as non-idempotent legacy writes while all modern gameplay summaries
-            // use their frozen, non-empty RunId.
-            var runId = summary.RunId == Guid.Empty
-                ? Guid.NewGuid()
-                : summary.RunId;
-
-            try
-            {
-                return await SaveScoreTransactionAsync(
-                    chartId,
-                    instrument,
-                    summary,
-                    runId,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (IsSqliteWriteRace(ex))
-            {
-                // First, check whether this run was already saved (same-run
-                // retry/idempotency). The winner may share this RunId if the
-                // caller retried the same performance.
-                var resolved = await ResolveReceiptAfterRaceAsync(
-                    runId,
-                    chartId,
-                    instrument,
-                    summary.PlaySpeedPercent,
-                    cancellationToken).ConfigureAwait(false);
-                if (resolved != null)
-                    return resolved;
-
-                // The race was against a different run (the winner has a different
-                // RunId, so the receipt lookup above found nothing). Retry the
-                // transaction: the winner's score now exists in the database, so
-                // the retry will find and update it instead of inserting a
-                // duplicate. The receipt check at the top of
-                // SaveScoreTransactionAsync preserves same-run idempotency.
-                // Limit retries to avoid unbounded loops under sustained
-                // contention.
-                const int maxRetries = 3;
-                for (int attempt = 0; ; attempt++)
-                {
-                    try
-                    {
-                        return await SaveScoreTransactionAsync(
-                            chartId,
-                            instrument,
-                            summary,
-                            runId,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception retryEx) when (IsSqliteWriteRace(retryEx) && attempt < maxRetries)
-                    {
-                        await Task.Delay(
-                            10 * (attempt + 1),
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                }
-            }
-        }
-
-        private async Task<ScoreSaveResult> SaveScoreTransactionAsync(
-            int chartId,
-            EInstrumentPart instrument,
-            PerformanceSummary summary,
-            Guid runId,
-            CancellationToken cancellationToken)
-        {
-            using var context = CreateContext();
-            await using var transaction = await context.Database.BeginTransactionAsync(
-                cancellationToken);
-
-            // Receipt identity is deliberately checked before chart or score lookup.
-            // This keeps retries valid after stale cleanup removes the related score
-            // and nulls the optional SongScoreId foreign key.
-            var existingReceipt = await context.ScoreSaveReceipts
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    receipt => receipt.RunId == runId,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (existingReceipt != null)
-            {
-                return ResolveExistingReceipt(
-                    existingReceipt,
-                    chartId,
-                    instrument,
-                    summary.PlaySpeedPercent);
-            }
-
-            var score = await context.SongScores
-                .Include(s => s.Chart)
-                .FirstOrDefaultAsync(
-                    s => s.ChartId == chartId
-                        && s.Instrument == instrument
-                        && s.PlaySpeedPercent == summary.PlaySpeedPercent,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            bool wasNewlyCreated = false;
-            if (score == null)
-            {
-                var chart = await context.SongCharts.FirstOrDefaultAsync(
-                    chart => chart.Id == chartId,
-                    cancellationToken)
-                    .ConfigureAwait(false)
-                    ?? throw new KeyNotFoundException($"Chart with Id {chartId} was not found.");
-                score = new SongScoreEntity
-                {
-                    ChartId = chartId,
-                    Chart = chart,
-                    Instrument = instrument,
-                    PlaySpeedPercent = summary.PlaySpeedPercent
-                };
-                context.SongScores.Add(score);
-                wasNewlyCreated = true;
-            }
-
-            // Only force-overwrite the best fields when the score row is
-            // genuinely empty — either created in this transaction, or a
-            // placeholder row (PlayCount == 0 AND BestScore == 0).
-            // NX import can persist a BestScore > 0 with
-            // PlayCount == 0 (NxScoreData.HasDrumData allows that combination,
-            // and NxScoreImporter writes best fields without requiring
-            // PlayCount > 0). Using PlayCount == 0 alone as the "first play"
-            // signal would treat that imported row as empty and overwrite the
-            // imported best even when the new CX result is worse. Compare each
-            // best field normally when the row already carries imported data.
-            var isFirstPlay = wasNewlyCreated
-                || (score.PlayCount == 0 && score.BestScore == 0);
-            if (isFirstPlay || summary.Score > score.BestScore)
-            {
-                score.BestScore = summary.Score;
-                score.BestPerfect = summary.PerfectCount;
-                score.BestGreat = summary.GreatCount;
-                score.BestGood = summary.GoodCount;
-                score.BestPoor = summary.PoorCount;
-                score.BestMiss = summary.MissCount;
-                score.TotalNotes = summary.TotalNotes;
-            }
-
-            var normalizedRunRank = SongScoreEntity.RunRankBucket(summary.PlayingSkill);
-            var normalizedBestRank = isFirstPlay
-                ? 0
-                : SongScoreEntity.NormalizeRankPercentage(score.BestRank);
-            if (isFirstPlay || normalizedRunRank > normalizedBestRank)
-                score.BestRank = normalizedRunRank;
-            else
-                score.BestRank = normalizedBestRank;
-
-            score.MaxCombo = Math.Max(score.MaxCombo, summary.MaxCombo);
-            score.FullCombo = score.FullCombo ||
-                (summary.ClearFlag &&
-                 summary.MissCount == 0 &&
-                 summary.PoorCount == 0);
-
-            if (summary.GameSkill > score.HighSkill)
-            {
-                score.HighSkill = summary.GameSkill;
-                // NX stores the achievement rate (達成率 / playing skill, 0-100) on a new skill record
-                // (CStageResult: HighSkill[m] = dbPerformanceSkill when bNewRecordSkill). The song-select
-                // panel reads this as the per-cell percentage, so it must be persisted alongside HighSkill.
-                score.BestAchievementRate = summary.PlayingSkill;
-            }
-            score.SongSkill = summary.GameSkill;
-
-            score.LastScore = summary.Score;
-            score.LastSkillPoint = summary.GameSkill;
-            var nowUtc = DateTime.UtcNow;
-            score.LastPlayedAt = nowUtc;
-            score.PlayCount++;
-            if (summary.ClearFlag) score.ClearCount++;
-
-            await context.SaveChangesAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            var localDate = nowUtc.ToLocalTime();
-            var rank = SongScoreEntity.RankString(normalizedRunRank);
-            var status = summary.ClearFlag ? "Cleared" : "Failed";
-            var line = string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}.{1:yy/M/d} {2} ({3}: {4}) [{5}, {6}]",
-                score.PlayCount,
-                localDate,
-                status,
-                rank,
-                SkillValueFormatter.Format(summary.PlayingSkill),
-                PlaySpeedRange.Format(summary.PlaySpeedPercent),
-                PitchRange.Format(summary.PitchSemitones));
-
-            await PerformanceHistoryMerger.MergeAsync(
-                context,
-                score.Chart.SongId,
-                score.Id,
-                new[]
-                {
-                    new PerformanceHistoryCandidate(
-                        line,
-                        nowUtc,
-                        summary.PitchSemitones)
-                },
-                cancellationToken).ConfigureAwait(false);
-
-            context.ScoreSaveReceipts.Add(new ScoreSaveReceipt
-            {
-                RunId = runId,
-                ChartId = chartId,
-                Instrument = instrument,
-                PlaySpeedPercent = summary.PlaySpeedPercent,
-                SongScoreId = score.Id,
-                SavedAtUtc = nowUtc
-            });
-
-            await context.SaveChangesAsync(cancellationToken)
-                .ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken)
-                .ConfigureAwait(false);
-            return ScoreSaveResult.Saved(score.Id);
-        }
-
-        private static ScoreSaveResult ResolveExistingReceipt(
-            ScoreSaveReceipt receipt,
-            int chartId,
-            EInstrumentPart instrument,
-            int playSpeedPercent)
-        {
-            if (receipt.ChartId == chartId
-                && receipt.Instrument == instrument
-                && receipt.PlaySpeedPercent == playSpeedPercent)
-            {
-                return ScoreSaveResult.AlreadySaved(receipt.SongScoreId);
-            }
-
-            return ScoreSaveResult.Failed(
-                $"RunId collision: {receipt.RunId} is already stored for " +
-                $"chart {receipt.ChartId}, instrument {receipt.Instrument}, " +
-                $"speed {receipt.PlaySpeedPercent}, not chart {chartId}, " +
-                $"instrument {instrument}, speed {playSpeedPercent}.");
-        }
-
-        private async Task<ScoreSaveResult> ResolveReceiptAfterRaceAsync(
-            Guid runId,
-            int chartId,
-            EInstrumentPart instrument,
-            int playSpeedPercent,
-            CancellationToken cancellationToken)
-        {
-            const int maxAttempts = 20;
-            for (var attempt = 0; attempt < maxAttempts; attempt++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    using var context = CreateContext();
-                    var receipt = await context.ScoreSaveReceipts
-                        .AsNoTracking()
-                        .FirstOrDefaultAsync(
-                            candidate => candidate.RunId == runId,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    if (receipt != null)
-                    {
-                        return ResolveExistingReceipt(
-                            receipt,
-                            chartId,
-                            instrument,
-                            playSpeedPercent);
-                    }
-                }
-                catch (SqliteException ex) when (
-                    ex.SqliteErrorCode == 5
-                    || ex.SqliteErrorCode == 6)
-                {
-                    // The winning transaction still owns the database lock.
-                }
-
-                await Task.Delay(
-                    TimeSpan.FromMilliseconds(10 + (attempt * 5)),
-                    cancellationToken).ConfigureAwait(false);
-            }
-
-            return null;
-        }
-
-        private static bool IsSqliteWriteRace(Exception exception)
-        {
-            for (var current = exception; current != null; current = current.InnerException)
-            {
-                if (current is SqliteException sqlite
-                    && (sqlite.SqliteErrorCode == 5
-                        || sqlite.SqliteErrorCode == 6
-                        || sqlite.SqliteExtendedErrorCode == 1555
-                        || sqlite.SqliteExtendedErrorCode == 2067))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Gets top scores for one explicit gameplay-speed bucket.
-        /// </summary>
-        public async Task<List<SongScoreEntity>> GetTopScoresForSpeedAsync(
-            EInstrumentPart instrument,
-            int playSpeedPercent,
-            int limit = 10)
-        {
-            using var context = CreateContext();
-
-            return await context.SongScores
-                .Where(s => s.Instrument == instrument
-                    && s.PlaySpeedPercent == playSpeedPercent
-                    && s.BestScore > 0)
-                .Include(s => s.Chart)
-                .ThenInclude(c => c.Song)
-                .OrderByDescending(s => s.BestScore)
-                .Take(limit)
-                .ToListAsync();
-        }
-
-        /// <summary>
-        /// Loads a single <see cref="SongScore"/> with its <see cref="SongScore.PerformanceHistory"/>
-        /// collection eagerly loaded. Used by <see cref="SongManager"/> to refresh the
-        /// in-memory score cache after a score update without rebuilding the entire
-        /// song-list tree. This overload is retained only for legacy callers and reads
-        /// the default 100% speed variant.
-        /// </summary>
-        public async Task<SongScoreEntity> GetScoreWithHistoryAsync(int chartId, EInstrumentPart instrument)
-        {
-            return await GetScoreWithHistoryAsync(
-                chartId,
-                instrument,
-                playSpeedPercent: 100,
-                CancellationToken.None).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Loads one exact chart/instrument/speed score variant with its own history.
-        /// Returns null when that specific speed has not been played; another speed's
-        /// score is never substituted.
-        /// </summary>
-        public async Task<SongScoreEntity> GetScoreWithHistoryAsync(
-            int chartId,
-            EInstrumentPart instrument,
-            int playSpeedPercent,
-            CancellationToken cancellationToken = default)
-        {
-            using var context = CreateContext();
-
-            return await context.SongScores
-                .Include(s => s.Chart)
-                .Include(s => s.PerformanceHistory)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    s => s.ChartId == chartId
-                        && s.Instrument == instrument
-                        && s.PlaySpeedPercent == playSpeedPercent,
-                    cancellationToken)
-                .ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1508,6 +843,10 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// scores of these charts. This pushes an active-root criterion into SQL so that
         /// ordering is globally correct across pages; null means every chart is considered.
         /// </param>
+        /// <remarks>
+        /// Interim home: Task 7 (HPA-801) moves recent-play and bookmark reads to
+        /// <c>SongQueryService</c>; the SQL itself is unchanged.
+        /// </remarks>
         public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(
             int limit = 20,
             int skip = 0,
@@ -1515,7 +854,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             if (limit <= 0) return new List<SongEntity>();
 
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
 
             // Push grouping + ordering + limit into SQL so we transfer at most `limit`
             // integer IDs back to the client instead of every played SongScore row.
@@ -1588,7 +927,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToArray();
             if (normalizedRoots.Length == 0)
                 return Array.Empty<int>();
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
                 .Select(chart => new { chart.Id, chart.FilePath })
@@ -1634,7 +973,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToArray();
             if (normalizedRoots.Length == 0)
                 return Array.Empty<(int, string)>();
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
                 .Select(chart => new { chart.Id, chart.FilePath })
@@ -1690,7 +1029,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToArray();
             if (normalizedRoots.Length == 0)
                 return 0;
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
                 .Select(chart => new { chart.Id, chart.FilePath })
@@ -1717,7 +1056,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public async Task SetBookmarkAsync(int songId, bool bookmarked)
         {
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
             var song = await context.Songs.FirstOrDefaultAsync(s => s.Id == songId);
             if (song == null) return;
             song.IsBookmarked = bookmarked;
@@ -1733,7 +1072,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public async Task<List<SongEntity>> GetBookmarkedSongsAsync()
         {
-            using var context = CreateContext();
+            using var context = _database.CreateContext();
             return await context.Songs
                 .Where(s => s.IsBookmarked)
                 .Include(s => s.Charts)
@@ -1742,15 +1081,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .OrderBy(s => s.Title)
                 .ThenBy(s => s.Id)
                 .ToListAsync();
-        }
-
-        /// <summary>
-        /// Dispose of resources
-        /// </summary>
-        public void Dispose()
-        {
-            // Database connections are managed by DbContext instances and disposed automatically
-            // No explicit cleanup needed as we use 'using' statements for context management
         }
 
         /// <summary>
@@ -1777,20 +1107,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 SongPathIdentity.GetStableRootKey(normalizedRoot);
 
         /// <summary>
-        /// Ensures the <c>__EnumerationMetadata</c> key/value table exists. Created
-        /// idempotently for both fresh and pre-existing databases via
-        /// <c>CREATE TABLE IF NOT EXISTS</c> (the table is intentionally not modeled
-        /// on <see cref="SongDbContext"/>, so <c>EnsureCreated</c> does not create
-        /// it). The table stores the <see cref="LastSuccessfulEnumerationKey"/>
-        /// timestamp used by the cache-freshness check instead of the database
-        /// file's last-write time.
-        /// </summary>
-        private static async Task EnsureEnumerationMetadataTableAsync(SongDbContext context)
-        {
-            await context.Database.ExecuteSqlRawAsync(EnumerationMetadataTableDdl);
-        }
-
-        /// <summary>
         /// Returns the UTC timestamp of the last successful enumeration, or null
         /// when no enumeration has been recorded (fresh database, missing table, or
         /// unparseable value). Never throws: any storage error is treated as
@@ -1800,7 +1116,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             try
             {
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 var value = await context.Database.SqlQueryRaw<string>(
                     "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
                     LastSuccessfulEnumerationKey).ToListAsync();
@@ -1832,7 +1148,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
                     return null;
 
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 var value = await context.Database.SqlQueryRaw<string>(
                     "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
                     BuildRootWatermarkKey(normalizedRoot))
@@ -1867,7 +1183,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             try
             {
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 await context.Database.ExecuteSqlRawAsync(
                     "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
                     LastSuccessfulEnumerationKey,
@@ -1900,7 +1216,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             try
             {
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 var value = utc.ToUniversalTime().ToString("o");
                 foreach (var canonicalRoot in canonicalRoots)
                 {
@@ -1942,7 +1258,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             try
             {
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 foreach (var (root, count) in countsByRoot)
                 {
                     if (!SongPathIdentity.TryNormalize(root, out var normalizedRoot))
@@ -1968,7 +1284,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             try
             {
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 var keys = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var root in canonicalRoots)
                 {
@@ -2026,7 +1342,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             try
             {
-                using var context = CreateContext();
+                using var context = _database.CreateContext();
                 await using var transaction =
                     await context.Database.BeginTransactionAsync().ConfigureAwait(false);
 

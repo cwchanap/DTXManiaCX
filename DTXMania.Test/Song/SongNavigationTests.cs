@@ -21,7 +21,7 @@ namespace DTXMania.Test.Song
 
         public SongNavigationTests()
         {
-            _songManager = new SongLibrary(new SongDatabaseService(Path.Combine(Path.GetTempPath(), $"nav_{Guid.NewGuid()}.db")));
+            _songManager = new SongLibrary(new SongDatabase(Path.Combine(Path.GetTempPath(), $"nav_{Guid.NewGuid()}.db")));
         }
 
         public void Dispose()

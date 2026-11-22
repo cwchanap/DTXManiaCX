@@ -7,15 +7,15 @@ using Xunit;
 namespace DTXMania.Test.Song;
 
 /// <summary>
-/// HPA-801 Decision A: the game constructs <see cref="SongDatabaseService"/> from
+/// HPA-801 Decision A: the game constructs <see cref="SongDatabase"/> from
 /// its path constructor during ordinary <c>BaseGame</c> load, so the constructor
 /// must not touch the filesystem. The database directory is created by
-/// <see cref="SongDatabaseService.InitializeDatabaseAsync"/> instead — Startup's
+/// <see cref="SongDatabase.InitializeDatabaseAsync"/> instead — Startup's
 /// initialization phase — so sandboxed tests and non-running games never write
 /// into host AppData.
 /// </summary>
 [Trait("Category", "Unit")]
-public sealed class SongDatabaseServicePathConstructorTests : IDisposable
+public sealed class SongDatabasePathConstructorTests : IDisposable
 {
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "HPA-801-DbCtor", Guid.NewGuid().ToString("N"));
@@ -25,7 +25,7 @@ public sealed class SongDatabaseServicePathConstructorTests : IDisposable
     {
         var databasePath = Path.Combine(_root, "nested", "songs.db");
 
-        var service = new SongDatabaseService(databasePath);
+        var service = new SongDatabase(databasePath);
 
         Assert.Equal(databasePath, service.DatabasePath);
         Assert.False(Directory.Exists(_root),
@@ -37,7 +37,7 @@ public sealed class SongDatabaseServicePathConstructorTests : IDisposable
     public async Task InitializeDatabaseAsync_ShouldCreateDatabaseDirectoryAndFile()
     {
         var databasePath = Path.Combine(_root, "nested", "songs.db");
-        var service = new SongDatabaseService(databasePath);
+        var service = new SongDatabase(databasePath);
 
         await service.InitializeDatabaseAsync();
 

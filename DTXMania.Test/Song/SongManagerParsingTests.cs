@@ -16,7 +16,7 @@ public class SongManagerParsingTests : IDisposable
     {
         // Parsing tests never touch the database; the path is never initialized
         // and construction has no filesystem side effects (HPA-801).
-        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+        _manager = new SongLibrary(new SongDatabase(Path.Combine(
             Path.GetTempPath(), $"parsing_{Guid.NewGuid()}.db")));
     }
 

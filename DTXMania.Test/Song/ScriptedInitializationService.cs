@@ -13,7 +13,7 @@ namespace DTXMania.Test.Song
     /// Startup initialization without touching real files; every runtime context
     /// creation faults, mirroring the established broken-database fixtures.
     /// </summary>
-    internal sealed class ScriptedInitializationService : SongDatabaseService
+    internal sealed class ScriptedInitializationService : SongDatabase
     {
         private readonly Func<SongDbContext, int, Task> _ensureCreated;
         private readonly Func<SongDbContext> _initializationContextFactory;

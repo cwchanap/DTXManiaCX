@@ -25,7 +25,7 @@ namespace DTXMania.Test.Song
         public SongManagerDifficultyLabelTests()
         {
             _testDbPath = Path.Combine(Path.GetTempPath(), $"test_difflabel_{Guid.NewGuid()}.db");
-            _songManager = new SongLibrary(new SongDatabaseService(_testDbPath));
+            _songManager = new SongLibrary(new SongDatabase(_testDbPath));
         }
 
         public void Dispose()
@@ -61,7 +61,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService ManagerDatabaseService => _songManager.Database;
+        private SongDatabase ManagerDatabaseService => _songManager.Database;
 
 
         private string CreateTempDirectory()

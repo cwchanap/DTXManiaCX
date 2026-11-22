@@ -274,13 +274,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_RapidDoubleToggle_LastIntentWinsInDb()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_order_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
 
             try
             {
@@ -297,7 +297,7 @@ namespace DTXMania.Test.Stage
                 var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
                 await pending[songId]; // await the serialized chain so both writes settle
 
-                var persisted = (await db.GetSongsAsync()).Single(s => s.Id == songId);
+                var persisted = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Id == songId);
                 Assert.False(persisted.IsBookmarked); // last intent (OFF) won
             }
             finally
@@ -316,13 +316,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenPersistFaults_RevertsInMemoryFlag()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
             try
@@ -369,13 +369,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_ShouldRevertSharedEntityButDropUiRollback()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_drop_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
             try
@@ -439,13 +439,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromRecentTab_WhenStageDeactivatesBeforeFault_ShouldRevertSharedSnapshotEntity()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_shared_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
             try
@@ -513,13 +513,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromBookmarksTab_WhenSnapshotHoldsDuplicateEntities_ShouldRevertEveryDuplicateAfterFailedPersist()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_dups_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
             try
@@ -599,13 +599,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromRecentTab_WhenNewerToggleSupersedesFailedWrite_ShouldKeepNewerIntentInSharedSnapshot()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_newer_wins_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the gated older write fault when released
 
             try
@@ -683,13 +683,13 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenFaultLandsAfterReactivation_ShouldNotMutateTheNewActivation()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_react_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault once it runs
 
             try
@@ -798,7 +798,7 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenNavigationCrossesACommittedWrite_ShouldPersistAndPreserveNondefaultDifficulty()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_persist_nav_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
@@ -810,7 +810,7 @@ namespace DTXMania.Test.Stage
                 seedContext.SongCharts.AddRange(basic, advanced);
                 await seedContext.SaveChangesAsync();
             }
-            var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
+            var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
 
             try
             {
@@ -864,7 +864,7 @@ namespace DTXMania.Test.Stage
                 Assert.True(pending[songId].IsCompletedSuccessfully);
 
                 // The committed write landed in the database.
-                var persisted = (await db.GetSongsAsync()).Single(s => s.Id == songId);
+                var persisted = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Id == songId);
                 Assert.True(persisted.IsBookmarked);
                 Assert.True(nodeEntity.IsBookmarked); // and no rollback ever flipped the node back
 

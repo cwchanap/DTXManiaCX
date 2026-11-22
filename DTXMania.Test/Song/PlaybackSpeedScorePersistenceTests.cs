@@ -15,14 +15,14 @@ namespace DTXMania.Test.Song
     public sealed class PlaybackSpeedScorePersistenceTests : IDisposable
     {
         private readonly string _dbPath;
-        private readonly SongDatabaseService _service;
+        private readonly SongDatabase _service;
 
         public PlaybackSpeedScorePersistenceTests()
         {
             _dbPath = Path.Combine(
                 Path.GetTempPath(),
                 $"speed_persistence_{Guid.NewGuid()}.db");
-            _service = new SongDatabaseService(_dbPath);
+            _service = new SongDatabase(_dbPath);
         }
 
         public void Dispose()
@@ -39,11 +39,11 @@ namespace DTXMania.Test.Song
         {
             var chartId = await InitializeAndSeedChartAsync();
 
-            var first = await _service.UpdateScoreAsync(
+            var first = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(Guid.NewGuid(), 100, 0, 600000));
-            var second = await _service.UpdateScoreAsync(
+            var second = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(Guid.NewGuid(), 100, 2, 700000));
@@ -65,11 +65,11 @@ namespace DTXMania.Test.Song
         {
             var chartId = await InitializeAndSeedChartAsync();
 
-            await _service.UpdateScoreAsync(
+            await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(Guid.NewGuid(), 75, -2, 750000));
-            await _service.UpdateScoreAsync(
+            await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(Guid.NewGuid(), 100, 3, 500000));
@@ -97,11 +97,11 @@ namespace DTXMania.Test.Song
         {
             var chartId = await InitializeAndSeedChartAsync();
 
-            await _service.UpdateScoreAsync(
+            await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(Guid.NewGuid(), 75, -3, 500000));
-            await _service.UpdateScoreAsync(
+            await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(Guid.NewGuid(), 75, 5, 600000));
@@ -128,11 +128,11 @@ namespace DTXMania.Test.Song
             var runId = Guid.NewGuid();
             var summary = Summary(runId, 100, 0, 700000);
 
-            var first = await _service.UpdateScoreAsync(
+            var first = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 summary);
-            var repeated = await _service.UpdateScoreAsync(
+            var repeated = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 summary);
@@ -151,19 +151,19 @@ namespace DTXMania.Test.Song
             var chartId = await InitializeAndSeedChartAsync();
             var oldRunId = Guid.NewGuid();
             var oldSummary = Summary(oldRunId, 100, 0, 100000);
-            await _service.UpdateScoreAsync(
+            await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 oldSummary);
             for (var index = 1; index <= 6; index++)
             {
-                await _service.UpdateScoreAsync(
+                await new SongScoreStore(_service).UpdateScoreAsync(
                     chartId,
                     EInstrumentPart.DRUMS,
                     Summary(Guid.NewGuid(), 100, index, 100000 + index));
             }
 
-            var repeated = await _service.UpdateScoreAsync(
+            var repeated = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 oldSummary);
@@ -182,18 +182,18 @@ namespace DTXMania.Test.Song
             var chartId = await InitializeAndSeedChartAsync();
             var runId = Guid.NewGuid();
             var summary = Summary(runId, 100, 0, 700000);
-            await _service.UpdateScoreAsync(
+            await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 summary);
             await ExecuteSqlAsync(
                 "DELETE FROM SongScores WHERE PlaySpeedPercent=100");
 
-            var matching = await _service.UpdateScoreAsync(
+            var matching = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 summary);
-            var collision = await _service.UpdateScoreAsync(
+            var collision = await new SongScoreStore(_service).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 Summary(runId, 75, 0, 700000));
@@ -228,7 +228,7 @@ namespace DTXMania.Test.Song
                 "PRAGMA foreign_keys=OFF; DELETE FROM Songs; PRAGMA foreign_keys=ON;");
 
             await Assert.ThrowsAnyAsync<DbUpdateException>(() =>
-                _service.UpdateScoreAsync(
+                new SongScoreStore(_service).UpdateScoreAsync(
                     chartId,
                     EInstrumentPart.DRUMS,
                     Summary(Guid.NewGuid(), 100, 1, 900000)));
@@ -248,11 +248,11 @@ namespace DTXMania.Test.Song
             var summary = Summary(Guid.NewGuid(), 100, 2, 800000);
 
             var results = await Task.WhenAll(
-                _service.UpdateScoreAsync(
+                new SongScoreStore(_service).UpdateScoreAsync(
                     chartId,
                     EInstrumentPart.DRUMS,
                     summary),
-                _service.UpdateScoreAsync(
+                new SongScoreStore(_service).UpdateScoreAsync(
                     chartId,
                     EInstrumentPart.DRUMS,
                     summary));

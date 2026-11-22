@@ -33,7 +33,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         _songsRoot = Path.Combine(_testRoot, "Songs");
         _databasePath = Path.Combine(_testRoot, "songs.db");
         Directory.CreateDirectory(_songsRoot);
-        _manager = new SongLibrary(new SongDatabaseService(_databasePath));
+        _manager = new SongLibrary(new SongDatabase(_databasePath));
     }
 
     /// <summary>
@@ -49,7 +49,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Func<string, IEnumerable<string>>? enumerateDirectories = null,
         Func<string, Encoding, CancellationToken, Task<string[]>>? readAllLinesAsync = null,
         Func<
-            SongDatabaseService,
+            SongCatalogStore,
             SongBulkImportRequest,
             IProgress<SongBulkImportProgress>?,
             CancellationToken,
@@ -63,7 +63,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Action<SongEnumerationBatch>? publishEnumeration = null)
     {
         return new SongLibrary(
-            new SongDatabaseService(_databasePath),
+            new SongDatabase(_databasePath),
             rootPolicy: rootPolicy,
             bundledSongsRoot: bundledSongsRoot,
             parseSongEntitiesAsync: parseSongEntitiesAsync,
@@ -79,10 +79,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     [Fact]
     public async Task EnumerateAndImportSongsAsync_ShouldPublishCommittedHierarchyWithoutReload()
     {
-        _manager = CreateManager(importSongsAsync: (database, request, progress, token) =>
+        _manager = CreateManager(importSongsAsync: (catalog, request, progress, token) =>
         {
             _bulkImportCalls++;
-            return database.ImportSongsAsync(request, progress, token);
+            return catalog.ImportSongsAsync(request, progress, token);
         });
         await _manager.InitializeAsync();
         WriteChart("Songs/A/basic.dtx", title: "Grouped", drumLevel: 20);
@@ -509,7 +509,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await _manager.EnumerateAndImportSongsAsync(
             new[] { _songsRoot }, null, CancellationToken.None);
         var protectedChart = Assert.Single(
-            Assert.Single(await ManagerDatabaseService!.GetSongsAsync()).Charts);
+            Assert.Single(await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync()).Charts);
         var newPath = WriteChart("Songs/Valid/new.dtx", "Valid", 70);
         // Second pass runs on a fresh library over the same database (HPA-801:
         // collaborators are constructor seams, so the failing-parser phase gets
@@ -520,10 +520,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                     ? Task.FromException<(SongEntity, SongChart)>(
                         new InvalidDataException($"malformed {path}"))
                     : DTXChartParser.ParseSongEntitiesAsync(path),
-            importSongsAsync: (database, request, progress, token) =>
+            importSongsAsync: (catalog, request, progress, token) =>
             {
                 _bulkImportCalls++;
-                return database.ImportSongsAsync(request, progress, token);
+                return catalog.ImportSongsAsync(request, progress, token);
             });
 
         await failingParse.InitializeAsync();
@@ -538,7 +538,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             FlattenScoreNodes(failingParse.RootSongs),
             node => node.Title == "Valid" &&
                 node.Scores.Any(score => score?.ChartId > 0));
-        var persisted = await failingParse.Database.GetSongsAsync();
+        var persisted = await new SongCatalogStore(failingParse.Database).GetSongsAsync();
         var preserved = Assert.Single(
             persisted.SelectMany(song => song.Charts),
             chart => SongPathIdentity.CanonicalComparer.Equals(
@@ -584,10 +584,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                     ? Task.FromException<(SongEntity, SongChart)>(
                         new InvalidDataException($"malformed {path}"))
                     : DTXChartParser.ParseSongEntitiesAsync(path),
-            importSongsAsync: (database, request, progress, token) =>
+            importSongsAsync: (catalog, request, progress, token) =>
             {
                 _bulkImportCalls++;
-                return database.ImportSongsAsync(request, progress, token);
+                return catalog.ImportSongsAsync(request, progress, token);
             });
 
         await failingParse.InitializeAsync();
@@ -603,7 +603,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal("BASIC", score.DifficultyLabel);
         Assert.True(score.ChartId > 0);
         Assert.Contains(
-            (await ManagerDatabaseService!.GetSongsAsync())
+            (await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync())
                 .SelectMany(song => song.Charts),
             chart => SongPathIdentity.CanonicalComparer.Equals(
                 chart.FilePath,
@@ -730,10 +730,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     public async Task EnumerateAndImportSongsAsync_WhenRootTraversalFails_ShouldNotCallImporter()
     {
         _manager = CreateManager(
-            importSongsAsync: (database, request, progress, token) =>
+            importSongsAsync: (catalog, request, progress, token) =>
             {
                 _bulkImportCalls++;
-                return database.ImportSongsAsync(request, progress, token);
+                return catalog.ImportSongsAsync(request, progress, token);
             },
             enumerateDirectories: _ =>
                 throw new IOException("root unavailable"));
@@ -783,7 +783,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var breadcrumb = placeholder.BreadcrumbPath;
         var labels = placeholder.DifficultyLabels.ToArray();
 
-        var import = await ManagerDatabaseService!.ImportSongsAsync(
+        var import = await new SongCatalogStore(ManagerDatabaseService!).ImportSongsAsync(
             new SongBulkImportRequest(
                 batch.ActiveRoots,
                 batch.DiscoveredChartPaths,
@@ -934,7 +934,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
         // A cached launch is a new process that starts with an empty library:
         // construct a fresh library over the same database file (HPA-801).
-        var cached = new SongLibrary(new SongDatabaseService(_databasePath));
+        var cached = new SongLibrary(new SongDatabase(_databasePath));
         await cached.InitializeAsync();
         await cached.BuildHierarchyFromDatabaseOnceAsync(roots);
 
@@ -1022,7 +1022,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var batch = await _manager.BuildEnumerationBatchAsync(
             new[] { _songsRoot, secondRoot }, null, CancellationToken.None);
         Assert.Equal(2, batch.RootNodes.Count);
-        var import = await ManagerDatabaseService!.ImportSongsAsync(
+        var import = await new SongCatalogStore(ManagerDatabaseService!).ImportSongsAsync(
             new SongBulkImportRequest(
                 batch.ActiveRoots,
                 batch.DiscoveredChartPaths,
@@ -1165,7 +1165,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         }
 
         var contextCreations = 0;
-        var service = new SongDatabaseService(
+        var service = new SongDatabase(
             options,
             () =>
             {
@@ -1793,7 +1793,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var firstResult = await _manager.EnumerateAndImportSongsAsync(
             new[] { songsRoot }, null, CancellationToken.None);
         Assert.Single(firstResult.Batch.Candidates);
-        var firstWatermark = await ManagerDatabaseService!
+        var firstWatermark = await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalRoot);
         Assert.NotNull(firstWatermark);
 
@@ -1818,7 +1818,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // The root's per-root watermark must NOT have advanced. Without the
         // fix, it would advance to the second enumeration's backed-off start,
         // silently accepting the stale chart content.
-        var secondWatermark = await dirty.Database
+        var secondWatermark = await new SongCatalogStore(dirty.Database)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalRoot);
         Assert.Equal(firstWatermark!.Value.ToUniversalTime(),
             secondWatermark!.Value.ToUniversalTime());
@@ -1874,7 +1874,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.False(await _manager.NeedsEnumerationAsync(new[] { songsRoot }));
 
         // Editing the tab to add drums is a change the next startup must scan.
-        var watermark = await ManagerDatabaseService!
+        var watermark = await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalRoot);
         await File.WriteAllTextAsync(tabPath, MusicXmlTab(withDrums: true));
         File.SetLastWriteTimeUtc(tabPath, watermark!.Value.AddSeconds(10));
@@ -1960,9 +1960,9 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // First enumeration: both charts succeed, both watermarks established.
         await _manager.EnumerateAndImportSongsAsync(
             new[] { rootA, rootB }, null, CancellationToken.None);
-        var firstWatermarkA = await ManagerDatabaseService!
+        var firstWatermarkA = await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
-        var firstWatermarkB = await ManagerDatabaseService!
+        var firstWatermarkB = await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
         Assert.NotNull(firstWatermarkA);
         Assert.NotNull(firstWatermarkB);
@@ -1980,9 +1980,9 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             new[] { rootA, rootB }, null, CancellationToken.None);
 
         // rootA's watermark advanced (clean), rootB's did not (dirty).
-        var secondWatermarkA = await dirty.Database
+        var secondWatermarkA = await new SongCatalogStore(dirty.Database)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
-        var secondWatermarkB = await dirty.Database
+        var secondWatermarkB = await new SongCatalogStore(dirty.Database)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
         Assert.NotEqual(firstWatermarkA!.Value.ToUniversalTime(),
             secondWatermarkA!.Value.ToUniversalTime());
@@ -2058,21 +2058,21 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         {
             await context.Database.ExecuteSqlRawAsync(
                 "DELETE FROM __EnumerationMetadata WHERE Key LIKE {0}",
-                SongDatabaseService.LastSuccessfulEnumerationRootKeyPrefix + "%");
+                SongCatalogStore.LastSuccessfulEnumerationRootKeyPrefix + "%");
         }
         var legacyGlobal = DateTime.UtcNow.AddMinutes(-20);
-        await ManagerDatabaseService!
+        await new SongCatalogStore(ManagerDatabaseService!)
             .SetLastSuccessfulEnumerationUtcAsync(legacyGlobal);
         // Confirm the legacy state: global watermark present, no per-root rows.
-        Assert.NotNull(await ManagerDatabaseService!
+        Assert.NotNull(await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync());
         var canonicalA = _manager.RootPolicy
             .Validate(new[] { rootA }).CanonicalRoots.Single();
         var canonicalB = _manager.RootPolicy
             .Validate(new[] { rootB }).CanonicalRoots.Single();
-        Assert.Null(await ManagerDatabaseService!
+        Assert.Null(await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalA));
-        Assert.Null(await ManagerDatabaseService!
+        Assert.Null(await new SongCatalogStore(ManagerDatabaseService!)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalB));
 
         // Second enumeration: chartA parse fails (recoverable error in A),
@@ -2094,12 +2094,12 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             !error.IsRootFailure);
 
         // B has a per-root watermark now; A still does not.
-        Assert.Null(await dirty.Database
+        Assert.Null(await new SongCatalogStore(dirty.Database)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalA));
-        Assert.NotNull(await dirty.Database
+        Assert.NotNull(await new SongCatalogStore(dirty.Database)
             .GetLastSuccessfulEnumerationUtcAsync(canonicalB));
         // The global watermark advanced past A's file mtime.
-        var advancedGlobal = await dirty.Database
+        var advancedGlobal = await new SongCatalogStore(dirty.Database)
             .GetLastSuccessfulEnumerationUtcAsync();
         Assert.True(advancedGlobal!.Value > oldTime);
 
@@ -2306,7 +2306,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // initialized database faults on every context creation.
         var batchBuilds = 0;
         var manager = new SongLibrary(
-            new SongDatabaseService(
+            new SongDatabase(
                 new DbContextOptionsBuilder<SongDbContext>()
                     .UseSqlite("Data Source=:memory:")
                     .Options,
@@ -2333,7 +2333,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // touched, releasing the busy slot via the enumeration finally.
         var batchBuilds = 0;
         var manager = new SongLibrary(
-            new SongDatabaseService(_databasePath),
+            new SongDatabase(_databasePath),
             buildEnumerationBatchAsync: (_, _, _) =>
             {
                 batchBuilds++;
@@ -2364,7 +2364,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var manager = new SongLibrary(
-            new SongDatabaseService(_databasePath),
+            new SongDatabase(_databasePath),
             importSongsAsync: async (_, _, _, token) =>
             {
                 entered.SetResult();
@@ -2472,9 +2472,9 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // commit. This models a Config deactivation that races immediately
         // afterward: finalization/publication must still complete (HPA-801:
         // the wrapper is a constructor seam on a test-owned instance).
-        _manager = CreateManager(importSongsAsync: async (database, request, progress, token) =>
+        _manager = CreateManager(importSongsAsync: async (catalog, request, progress, token) =>
         {
-            var import = await database.ImportSongsAsync(request, progress, token);
+            var import = await catalog.ImportSongsAsync(request, progress, token);
             cancellation.Cancel();
             return import;
         });
@@ -2597,7 +2597,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var messages = new List<string>();
         IProgress<EnumerationProgress>? capturedProgress = null;
         var importCallCount = 0;
-        _manager = CreateManager(importSongsAsync: async (database, request, progress, token) =>
+        _manager = CreateManager(importSongsAsync: async (catalog, request, progress, token) =>
         {
             importCallCount++;
             // The adapter is passed as progress; report through it.
@@ -2613,7 +2613,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                 SongBulkImportMilestone.SaveStarted, 1, 1));
             progress?.Report(new SongBulkImportProgress(
                 SongBulkImportMilestone.Committed, 1, 1));
-            return await database.ImportSongsAsync(request, progress, token);
+            return await catalog.ImportSongsAsync(request, progress, token);
         });
         await _manager.InitializeAsync();
         WriteChart("Songs/Adapter/chart.dtx", "Adapter Song", 50);
@@ -2759,7 +2759,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     /// seam after the test-only DatabaseService accessor was removed
     /// (HPA-801 Decision 0).
     /// </summary>
-    private SongDatabaseService ManagerDatabaseService => _manager.Database;
+    private SongDatabase ManagerDatabaseService => _manager.Database;
 
     private async Task<int> CountChartsAsync()
     {
@@ -2769,7 +2769,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
     private async Task<PersistedChartSnapshot[]> ReadPersistedChartSnapshotsAsync()
     {
-        var songs = await ManagerDatabaseService!.GetSongsAsync();
+        var songs = await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync();
         return songs
             .SelectMany(song => song.Charts.Select(chart =>
                 new PersistedChartSnapshot(

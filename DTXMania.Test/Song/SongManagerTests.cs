@@ -32,7 +32,7 @@ namespace DTXMania.Test.Song
             // (HPA-801: no singleton; construction has no filesystem side effects).
             Directory.CreateDirectory(_testRoot);
             _testDbPath = Path.Combine(_testRoot, "songs.db");
-            _manager = new SongLibrary(new SongDatabaseService(_testDbPath));
+            _manager = new SongLibrary(new SongDatabase(_testDbPath));
         }
 
         [Fact]
@@ -709,16 +709,16 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        private static SongDatabaseService CreateBrokenDatabaseService()
+        private static SongDatabase CreateBrokenDatabaseService()
         {
-            return (SongDatabaseService)RuntimeHelpers.GetUninitializedObject(typeof(SongDatabaseService));
+            return (SongDatabase)RuntimeHelpers.GetUninitializedObject(typeof(SongDatabase));
         }
 
         /// <summary>
         /// The one constructor-injected database (HPA-801): read through the
         /// library's internal accessor instead of the retired reflection seam.
         /// </summary>
-        private SongDatabaseService ManagerDatabaseService => _manager.Database;
+        private SongDatabase ManagerDatabaseService => _manager.Database;
 
         private readonly string _testRoot = Path.Combine(
             Path.GetTempPath(),
@@ -1117,19 +1117,19 @@ namespace DTXMania.Test.Song
             // every supplied per-root watermark. A partial commit (global only)
             // would leave per-root rows absent, forcing a conservative full rescan
             // on every startup until the per-root rows catch up.
-            var success = await ManagerDatabaseService!
+            var success = await new SongCatalogStore(ManagerDatabaseService!)
                 .SetEnumerationWatermarkAtomicallyAsync(
                     watermark,
                     new[] { canonicalA, canonicalB });
 
             Assert.True(success);
-            var global = await ManagerDatabaseService!
+            var global = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(watermark.ToUniversalTime(), global!.Value.ToUniversalTime());
-            var perRootA = await ManagerDatabaseService!
+            var perRootA = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(watermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
-            var perRootB = await ManagerDatabaseService!
+            var perRootB = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
             Assert.Equal(watermark.ToUniversalTime(), perRootB!.Value.ToUniversalTime());
         }
@@ -1153,26 +1153,26 @@ namespace DTXMania.Test.Song
 
             // Seed a legacy global-only watermark (no per-root rows).
             var legacyGlobal = DateTime.UtcNow.AddHours(-3);
-            await ManagerDatabaseService!
+            await new SongCatalogStore(ManagerDatabaseService!)
                 .SetLastSuccessfulEnumerationUtcAsync(legacyGlobal);
-            Assert.Null(await ManagerDatabaseService!
+            Assert.Null(await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync(rootA));
 
             var canonicalA = _manager.RootPolicy
                 .Validate(new[] { rootA }).CanonicalRoots.Single();
             var newWatermark = DateTime.UtcNow.AddHours(-1);
 
-            var success = await ManagerDatabaseService!
+            var success = await new SongCatalogStore(ManagerDatabaseService!)
                 .SetEnumerationWatermarkAtomicallyAsync(
                     newWatermark,
                     new[] { canonicalA });
 
             Assert.True(success);
             // Both global and per-root must be at the new watermark — no partial state.
-            var global = await ManagerDatabaseService!
+            var global = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(newWatermark.ToUniversalTime(), global!.Value.ToUniversalTime());
-            var perRootA = await ManagerDatabaseService!
+            var perRootA = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(newWatermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
         }
@@ -1197,7 +1197,7 @@ namespace DTXMania.Test.Song
             var baseline = DateTime.UtcNow.AddHours(-2);
             var canonicalA = _manager.RootPolicy
                 .Validate(new[] { rootA }).CanonicalRoots.Single();
-            Assert.True(await ManagerDatabaseService!
+            Assert.True(await new SongCatalogStore(ManagerDatabaseService!)
                 .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
 
             // Use a broken service that cannot create contexts, simulating a
@@ -1205,7 +1205,7 @@ namespace DTXMania.Test.Song
             // false and leave the baseline watermark intact.
             var brokenService = CreateBrokenDatabaseService();
             var newWatermark = DateTime.UtcNow.AddHours(-1);
-            var success = await brokenService
+            var success = await new SongCatalogStore(brokenService)
                 .SetEnumerationWatermarkAtomicallyAsync(
                     newWatermark,
                     new[] { canonicalA });
@@ -1214,10 +1214,10 @@ namespace DTXMania.Test.Song
 
             // The real database must still have the baseline watermark — no partial
             // state was created by the failed write.
-            var global = await ManagerDatabaseService!
+            var global = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
-            var perRootA = await ManagerDatabaseService!
+            var perRootA = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
         }
@@ -1246,7 +1246,7 @@ namespace DTXMania.Test.Song
             var baseline = DateTime.UtcNow.AddHours(-2);
             var canonicalA = _manager.RootPolicy
                 .Validate(new[] { rootA }).CanonicalRoots.Single();
-            Assert.True(await ManagerDatabaseService!
+            Assert.True(await new SongCatalogStore(ManagerDatabaseService!)
                 .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
 
             // Install a SQLite trigger that aborts any INSERT on
@@ -1267,7 +1267,7 @@ namespace DTXMania.Test.Song
             }
 
             var newWatermark = DateTime.UtcNow.AddHours(-1);
-            var success = await ManagerDatabaseService!
+            var success = await new SongCatalogStore(ManagerDatabaseService!)
                 .SetEnumerationWatermarkAtomicallyAsync(
                     newWatermark,
                     new[] { canonicalA });
@@ -1277,12 +1277,12 @@ namespace DTXMania.Test.Song
 
             // The global watermark must still be the baseline — the preceding
             // global-key INSERT was rolled back, not left committed.
-            var global = await ManagerDatabaseService!
+            var global = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
 
             // The per-root watermark must also still be the baseline.
-            var perRootA = await ManagerDatabaseService!
+            var perRootA = await new SongCatalogStore(ManagerDatabaseService!)
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
         }
@@ -1440,8 +1440,8 @@ namespace DTXMania.Test.Song
             // DB-mtime-based threshold, this advanced the threshold to ~now, which is
             // after the chart edit, masking it (the 5-minutes-ago edit would appear
             // older than the now-1minute threshold).
-            var song = (await ManagerDatabaseService!.GetSongsAsync()).Single();
-            await ManagerDatabaseService!.SetBookmarkAsync(song.Id, true);
+            var song = (await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync()).Single();
+            await new SongCatalogStore(ManagerDatabaseService!).SetBookmarkAsync(song.Id, true);
 
             var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
 
@@ -1540,7 +1540,7 @@ namespace DTXMania.Test.Song
             Assert.NotNull(checkTask);
 
             var changeDetected = await checkTask!;
-            var songs = await ManagerDatabaseService!.GetSongsAsync();
+            var songs = await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync();
 
             Assert.True(changeDetected);
             Assert.Equal(movedPath, songs.Single().Charts.Single().FilePath);
@@ -1551,7 +1551,7 @@ namespace DTXMania.Test.Song
         {
             // An invalid database path fails schema creation; the library stays
             // usable after the failure is logged (startup continues on error).
-            var initialized = await new SongLibrary(new SongDatabaseService("\0invalid"))
+            var initialized = await new SongLibrary(new SongDatabase("\0invalid"))
                 .InitializeAsync();
 
             Assert.False(initialized);
@@ -1572,7 +1572,7 @@ namespace DTXMania.Test.Song
             Assert.True(reinitialized);
             Assert.NotNull(ManagerDatabaseService);
             // The purge must have emptied the previously seeded database.
-            Assert.False(await ManagerDatabaseService!.HasAnySongsAsync());
+            Assert.False(await new SongCatalogStore(ManagerDatabaseService!).HasAnySongsAsync());
         }
 
         [Fact]
@@ -1976,7 +1976,7 @@ namespace DTXMania.Test.Song
         public async Task GetLastEnumerationTimestampAsync_WithMissingDatabaseFile_ShouldReturnNull()
         {
             var missingLibrary = new SongLibrary(
-                new SongDatabaseService(Path.Combine(_testRoot, "missing.db")));
+                new SongDatabase(Path.Combine(_testRoot, "missing.db")));
 
             var result = await ReflectionHelpers.InvokePrivateMethod<Task<DateTime?>>(missingLibrary, "GetLastEnumerationTimestampAsync");
 
@@ -2045,7 +2045,7 @@ namespace DTXMania.Test.Song
                 Assert.Single(exception.Import.ChartsByPath);
                 Assert.IsType<NullReferenceException>(exception.InnerException);
 
-                var committedSong = Assert.Single(await ManagerDatabaseService!.GetSongsAsync());
+                var committedSong = Assert.Single(await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync());
                 Assert.Equal("Broken Root Song", committedSong.Title);
                 Assert.Single(committedSong.Charts);
             }
@@ -2174,7 +2174,7 @@ namespace DTXMania.Test.Song
             await CreateDtxFileAsync(Path.Combine(songsRoot, "song.dtx"), "Broken Node Song", "Coverage Bot", "Rock", 40);
 
             _manager = new SongLibrary(
-                new SongDatabaseService(_testDbPath),
+                new SongDatabase(_testDbPath),
                 parseSongEntitiesAsync: _ =>
                     Task.FromException<(SongEntity, SongChart)>(
                         new InvalidDataException("broken chart")));
@@ -2639,7 +2639,7 @@ namespace DTXMania.Test.Song
         {
             Assert.NotNull(ManagerDatabaseService);
             var utcTimestamp = localTimestamp.ToUniversalTime();
-            await ManagerDatabaseService!.SetLastSuccessfulEnumerationUtcAsync(utcTimestamp);
+            await new SongCatalogStore(ManagerDatabaseService!).SetLastSuccessfulEnumerationUtcAsync(utcTimestamp);
 
             var currentRoots = ReflectionHelpers.GetPrivateField<string[]>(
                 _manager,
@@ -2659,16 +2659,16 @@ namespace DTXMania.Test.Song
                 .CanonicalRoots
                 .Single();
 
-            await ManagerDatabaseService!.SetLastSuccessfulEnumerationUtcAsync(
+            await new SongCatalogStore(ManagerDatabaseService!).SetLastSuccessfulEnumerationUtcAsync(
                 new[] { canonicalRoot },
                 utcTimestamp.ToUniversalTime());
         }
 
 
-        private static SongDatabaseService CreateBrokenDatabaseServiceWithDatabasePath(string databasePath)
+        private static SongDatabase CreateBrokenDatabaseServiceWithDatabasePath(string databasePath)
         {
             var service = CreateBrokenDatabaseService();
-            var field = typeof(SongDatabaseService).GetField("_databasePath", BindingFlags.Instance | BindingFlags.NonPublic);
+            var field = typeof(SongDatabase).GetField("_databasePath", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(field);
             field!.SetValue(service, databasePath);
             return service;

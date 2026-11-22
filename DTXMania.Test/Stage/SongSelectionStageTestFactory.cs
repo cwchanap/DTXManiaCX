@@ -18,7 +18,7 @@ namespace DTXMania.Test.Stage
             game ??= CreateGame();
             // HPA-801: every test stage gets its own game-owned library over a
             // never-initialized temp database (construction is side-effect free).
-            SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabaseService(
+            SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabase(
                 Path.Combine(Path.GetTempPath(), $"songselect_logic_{System.Guid.NewGuid():N}.db"))));
             return new SongSelectionStage(game);
         }

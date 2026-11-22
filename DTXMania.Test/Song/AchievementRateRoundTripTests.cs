@@ -26,7 +26,7 @@ public class AchievementRateRoundTripTests : IDisposable
 
     public AchievementRateRoundTripTests()
     {
-        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+        _manager = new SongLibrary(new SongDatabase(Path.Combine(
             Path.GetTempPath(), $"achievement_{Guid.NewGuid()}.db")));
 
         _testRoot = Path.Combine(
@@ -57,7 +57,7 @@ public class AchievementRateRoundTripTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         // Get the chart IDs from the database so we can record a performance
-        var songs = await ManagerDatabaseService!.GetSongsAsync();
+        var songs = await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync();
         var song = Assert.Single(songs);
         Assert.Equal(2, song.Charts.Count);
 
@@ -119,7 +119,7 @@ public class AchievementRateRoundTripTests : IDisposable
 
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var songs = await ManagerDatabaseService!.GetSongsAsync();
+        var songs = await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync();
         var song = Assert.Single(songs);
         var advancedChart = song.Charts.Single(c => c.DrumLevel == 70);
 
@@ -177,7 +177,7 @@ public class AchievementRateRoundTripTests : IDisposable
     /// seam after the test-only DatabaseService accessor was removed
     /// (HPA-801 Decision 0).
     /// </summary>
-    private SongDatabaseService ManagerDatabaseService => _manager.Database;
+    private SongDatabase ManagerDatabaseService => _manager.Database;
 
 
     #region Helpers

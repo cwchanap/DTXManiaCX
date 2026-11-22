@@ -1546,7 +1546,7 @@ namespace DTXMania.Test.Stage
             // database constructor has no filesystem side effects) so tests that
             // exercise real operations get one, while the virtual seams stay in
             // control for the controlled-stage subclasses.
-            ReflectionHelpers.SetPrivateField(stage, "_songLibrary", new SongLibrary(new SongDatabaseService(
+            ReflectionHelpers.SetPrivateField(stage, "_songLibrary", new SongLibrary(new SongDatabase(
                 System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"startup_logic_{Guid.NewGuid():N}.db"))));
             ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(effectiveConfigData));
             ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<StartupStage>.Instance);

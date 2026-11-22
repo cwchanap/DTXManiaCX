@@ -8,8 +8,8 @@ using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Test.TestData
 {
     /// <summary>
-    /// Test-owned SQLite/EF seeding for SongDatabaseService fixtures. Replaces the
-    /// removed production seeding helper <c>SongDatabaseService.AddSongAsync(Song, SongChart)</c>
+    /// Test-owned SQLite/EF seeding for song-database fixtures. Replaces the
+    /// removed production seeding helper <c>AddSongAsync(Song, SongChart)</c>
     /// (HPA-801 Decision 0): inserts one new song and its chart, links them, and creates
     /// an empty initial score row per instrument the chart declares (level &gt; 0),
     /// matching the seeding semantics the migrated tests relied on.
@@ -17,7 +17,7 @@ namespace DTXMania.Test.TestData
     internal static class SongDbSeeder
     {
         public static async Task<int> SeedSongAsync(
-            this SongDatabaseService databaseService,
+            this SongDatabase databaseService,
             SongEntity song,
             SongChart chart)
         {
@@ -42,7 +42,7 @@ namespace DTXMania.Test.TestData
         }
 
         public static async Task<(int SongId, SongChart Chart)> SeedSongReturningChartAsync(
-            this SongDatabaseService databaseService,
+            this SongDatabase databaseService,
             SongEntity song,
             SongChart chart)
         {

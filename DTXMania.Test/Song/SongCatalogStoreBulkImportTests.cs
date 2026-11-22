@@ -13,7 +13,7 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    public sealed class SongDatabaseServiceBulkImportTests : IDisposable
+    public sealed class SongCatalogStoreBulkImportTests : IDisposable
     {
         private sealed class CountingSongDbContext : SongDbContext
         {
@@ -46,12 +46,12 @@ namespace DTXMania.Test.Song
 
         private readonly SqliteConnection _connection;
         private readonly DbContextOptions<SongDbContext> _options;
-        private readonly SongDatabaseService _service;
+        private readonly SongDatabase _service;
         private CountingSongDbContext _countingContext = null!;
         private Func<CancellationToken, Task>? _beforeSaveAsync;
         private int _createdContexts;
 
-        public SongDatabaseServiceBulkImportTests()
+        public SongCatalogStoreBulkImportTests()
         {
             _connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
             _connection.Open();
@@ -61,7 +61,7 @@ namespace DTXMania.Test.Song
             using (var schema = new SongDbContext(_options))
                 schema.Database.EnsureCreated();
 
-            _service = new SongDatabaseService(_options, () =>
+            _service = new SongDatabase(_options, () =>
             {
                 _createdContexts++;
                 _countingContext = new CountingSongDbContext(_options)
@@ -394,7 +394,7 @@ namespace DTXMania.Test.Song
             var progress = new InlineProgress<SongBulkImportProgress>(
                 update => milestones.Add(update.Milestone));
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request,
                 progress,
                 CancellationToken.None);
@@ -508,7 +508,7 @@ namespace DTXMania.Test.Song
                 "dir|owned",
                 0));
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request,
                 progress: null,
                 CancellationToken.None);
@@ -580,7 +580,7 @@ namespace DTXMania.Test.Song
                 path: seeded.Chart.FilePath,
                 drumLevel: 75);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate),
                 progress: null,
                 CancellationToken.None);
@@ -634,9 +634,9 @@ namespace DTXMania.Test.Song
             candidate.ParsedChart.HasGuitarChart = true;
             candidate.ParsedChart.GuitarLevel = 70;
 
-            await _service.ImportSongsAsync(
+            await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate), progress: null, CancellationToken.None);
-            await _service.ImportSongsAsync(
+            await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate), progress: null, CancellationToken.None);
 
             var after = await LoadScoreSnapshotsAsync(seeded.Chart.Id);
@@ -655,10 +655,10 @@ namespace DTXMania.Test.Song
         {
             var candidate = Candidate(
                 "Same", "dir|same", 0, "/songs/same/chart.dtx", 50);
-            await _service.ImportSongsAsync(
+            await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate), progress: null, CancellationToken.None);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate), progress: null, CancellationToken.None);
 
             Assert.Equal(0, result.Added);
@@ -677,7 +677,7 @@ namespace DTXMania.Test.Song
                 Candidate(
                     "Same", "dir|b", 0, "/songs/b/chart.dtx", 40));
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.Equal(
@@ -705,7 +705,7 @@ namespace DTXMania.Test.Song
                     "/songs/group/extreme.dtx",
                     80));
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.Single(result.ChartsByPath.Values
@@ -723,7 +723,7 @@ namespace DTXMania.Test.Song
                 activeRoots: new[] { "/songs/active" },
                 discoveredPaths: Array.Empty<string>());
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.Equal(1, result.StaleCharts);
@@ -740,7 +740,7 @@ namespace DTXMania.Test.Song
                 activeRoots: new[] { "/songs/current" },
                 discoveredPaths: Array.Empty<string>());
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.Equal(0, result.StaleCharts);
@@ -776,7 +776,7 @@ namespace DTXMania.Test.Song
                     "/songs/group/master.dtx",
                     95));
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.Equal(
@@ -808,7 +808,7 @@ namespace DTXMania.Test.Song
                 "/songs/active/chart.dtx",
                 60);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate), progress: null, CancellationToken.None);
 
             var migrated = result.ChartsByPath[candidate.NormalizedChartPath];
@@ -835,7 +835,7 @@ namespace DTXMania.Test.Song
                 "/songs/active/CASE/chart.dtx",
                 60);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(candidate), progress: null, CancellationToken.None);
 
             Assert.True(await ChartExistsAsync(first.Id));
@@ -869,7 +869,7 @@ namespace DTXMania.Test.Song
                 second.FilePath,
                 50);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(firstCandidate, secondCandidate),
                 progress: null,
                 CancellationToken.None);
@@ -904,7 +904,7 @@ namespace DTXMania.Test.Song
                     SongPathIdentity.CanonicalComparer),
                 new[] { candidate });
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.True(await ChartExistsAsync(legacy.Id));
@@ -938,7 +938,7 @@ namespace DTXMania.Test.Song
                 "/songs/active/CHART.dtx",
                 60);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(exactCandidate, aliasCandidate),
                 progress: null,
                 CancellationToken.None);
@@ -989,13 +989,15 @@ namespace DTXMania.Test.Song
                 0,
                 "/songs/active/chart.dtx",
                 60);
-            var service = new SongDatabaseService(
+            var service = new SongDatabase(
                 _options,
-                () => new SongDbContext(_options),
+                () => new SongDbContext(_options));
+            var catalog = new SongCatalogStore(
+                service,
                 activeChartIdentityFilter:
                     chartId => chartId != target.Id);
 
-            var result = await service.ImportSongsAsync(
+            var result = await catalog.ImportSongsAsync(
                 CreateRequest(candidate),
                 progress: null,
                 CancellationToken.None);
@@ -1032,7 +1034,7 @@ namespace DTXMania.Test.Song
                 activeRoots: new[] { "/songs" },
                 discoveredPaths: Array.Empty<string>());
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.True(await ChartExistsAsync(malformed.Id));
@@ -1048,7 +1050,7 @@ namespace DTXMania.Test.Song
                 activeRoots: new[] { "/songs/active" },
                 discoveredPaths: new[] { chart.FilePath });
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.True(await ChartExistsAsync(chart.Id));
@@ -1064,7 +1066,7 @@ namespace DTXMania.Test.Song
                 activeRoots: new[] { "/songs/active" },
                 discoveredPaths: Array.Empty<string>());
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.False(await ChartExistsAsync(stale.Id));
@@ -1123,7 +1125,7 @@ namespace DTXMania.Test.Song
                 activeRoots: new[] { "/songs/active" },
                 discoveredPaths: Array.Empty<string>());
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.False(await ChartExistsAsync(activeChartId));
@@ -1146,7 +1148,7 @@ namespace DTXMania.Test.Song
                     SongPathIdentity.CanonicalComparer),
                 new[] { candidate, candidate });
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 request, progress: null, CancellationToken.None);
 
             Assert.Equal(1, result.Added);
@@ -1176,7 +1178,7 @@ namespace DTXMania.Test.Song
                         throw new InvalidOperationException("callback exploded");
                 });
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(OneCandidate()),
                 progress,
                 CancellationToken.None);
@@ -1197,7 +1199,7 @@ namespace DTXMania.Test.Song
                 Task.FromException(new OperationCanceledException(token));
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                _service.ImportSongsAsync(
+                new SongCatalogStore(_service).ImportSongsAsync(
                     CreateRequest(OneCandidate()),
                     progress: null,
                     cancellation.Token));
@@ -1213,7 +1215,7 @@ namespace DTXMania.Test.Song
                 "BEGIN SELECT RAISE(ABORT, 'forced import failure'); END;");
 
             await Assert.ThrowsAsync<DbUpdateException>(() =>
-                _service.ImportSongsAsync(
+                new SongCatalogStore(_service).ImportSongsAsync(
                     CreateRequest(OneCandidate()),
                     progress: null,
                     CancellationToken.None));
@@ -1241,7 +1243,7 @@ namespace DTXMania.Test.Song
                 path: "/songs/played/newchart.dtx",
                 drumLevel: 90);
 
-            var result = await _service.ImportSongsAsync(
+            var result = await new SongCatalogStore(_service).ImportSongsAsync(
                 CreateRequest(existingCandidate, newCandidate),
                 progress: null,
                 CancellationToken.None);

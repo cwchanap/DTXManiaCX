@@ -23,7 +23,7 @@ namespace DTXMania.Test.Song
             _root = Path.Combine(Path.GetTempPath(), $"nximport_{Guid.NewGuid()}");
             Directory.CreateDirectory(_root);
             _dbPath = Path.Combine(_root, "songs.db");
-            _manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            _manager = new SongLibrary(new SongDatabase(_dbPath));
         }
 
         public void Dispose()
@@ -37,7 +37,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService ManagerDatabaseService => _manager.Database;
+        private SongDatabase ManagerDatabaseService => _manager.Database;
 
 
         private string WriteChartAndScore(string fileName, int playCount, int score, bool withScoreIni = true)
