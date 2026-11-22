@@ -35,3 +35,15 @@ __pycache__/
 /Library/
 .local/
 DTXMania.Game/Library/
+
+# Generated task verification captures and logs (keep curated examples)
+/docs/evidence/hpa-509/*.png
+!/docs/evidence/hpa-509/before-tab.png
+!/docs/evidence/hpa-509/final-tab.png
+/docs/evidence/hpa-800/*.png
+!/docs/evidence/hpa-800/baseline-lanes.png
+!/docs/evidence/hpa-800/implementation-lanes.png
+/docs/evidence/hpa-800/*.log
+/docs/evidence/hpa-800/*.jsonl
+/docs/superpowers/evidence/issue-215/cxneon-*.png
+!/docs/superpowers/evidence/issue-215/cxneon-result-normal-pair.png
