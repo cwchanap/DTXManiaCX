@@ -85,7 +85,7 @@ namespace DTXMania.Test.Song
             };
 
             // The persisted chart label wins over the SET.def recovery so re-reading the disk is skipped.
-            Assert.Equal("EXTREME", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 0));
+            Assert.Equal("EXTREME", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 0));
         }
 
         [Trait("Category", "Unit")]
@@ -101,7 +101,7 @@ namespace DTXMania.Test.Song
             };
 
             // Legacy databases stored an empty label; recover the authentic name by chart file name.
-            Assert.Equal("ADVANCED", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 1));
+            Assert.Equal("ADVANCED", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 1));
         }
 
         [Trait("Category", "Unit")]
@@ -114,7 +114,7 @@ namespace DTXMania.Test.Song
                 ["mas.dtx"] = "MASTER"
             };
 
-            Assert.Equal("MASTER", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 3));
+            Assert.Equal("MASTER", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 3));
         }
 
         [Trait("Category", "Unit")]
@@ -128,7 +128,7 @@ namespace DTXMania.Test.Song
             };
 
             // scoreIndex 2 -> "Level 3" (one-based for display).
-            Assert.Equal("Level 3", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 2));
+            Assert.Equal("Level 3", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 2));
         }
 
         [Trait("Category", "Unit")]
@@ -138,7 +138,7 @@ namespace DTXMania.Test.Song
             // An unlabeled #L3FILE persists DifficultyLevel 3; the scan shows it as "Level 3".
             var chart = new SongChart { FilePath = "/songs/song/ext.dtx", DifficultyLabel = "", DifficultyLevel = 3 };
 
-            Assert.Equal("Level 3", SongLibrary.ResolveDifficultyLabel(chart, null!, 0));
+            Assert.Equal("Level 3", SongHierarchyBuilder.ResolveDifficultyLabel(chart, null!, 0));
         }
 
         [Trait("Category", "Unit")]
@@ -147,7 +147,7 @@ namespace DTXMania.Test.Song
         {
             var chart = new SongChart { FilePath = "/songs/song/bas.dtx", DifficultyLabel = "" };
 
-            Assert.Equal("Level 1", SongLibrary.ResolveDifficultyLabel(chart, null!, 0));
+            Assert.Equal("Level 1", SongHierarchyBuilder.ResolveDifficultyLabel(chart, null!, 0));
         }
 
         #endregion
@@ -164,7 +164,7 @@ namespace DTXMania.Test.Song
                 ["bas.dtx"] = "BASIC"
             };
 
-            Assert.Equal("BASIC", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 0));
+            Assert.Equal("BASIC", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 0));
         }
 
         #region Database-load path (normal launch)
@@ -338,8 +338,7 @@ namespace DTXMania.Test.Song
                 }
             };
 
-            var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(
-                _songManager, "CreateSongNodeFromDatabaseEntities", song, charts);
+            var result = _songManager.Hierarchy.CreateSongNodeFromDatabaseEntities(song, charts);
 
             Assert.NotNull(result);
             Assert.Equal("BASIC", result!.DifficultyLabels[0]);
