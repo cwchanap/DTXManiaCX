@@ -3,6 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -28,15 +30,35 @@ namespace DTXMania.Test.Song
             }
         }
 
+        // One played PerformanceSummary: a cleared run whose save stamps
+        // LastPlayedAt = UtcNow through the live score-save path.
+        private static PerformanceSummary CreatePlaySummary(int score)
+        {
+            return new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                PlaySpeedPercent = 100,
+                Score = score,
+                MaxCombo = 100,
+                ClearFlag = true,
+                PerfectCount = 100,
+                TotalNotes = 100,
+                PlayingSkill = 90.0,
+                GameSkill = 90.0,
+                ChartLevel = 30,
+                CompletionReason = CompletionReason.SongComplete,
+            };
+        }
+
         // Adds a song with one drum chart and records a play (sets LastPlayedAt = UtcNow).
         private async Task<int> AddAndPlayAsync(string title)
         {
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await _db.AddSongAsync(song, chart);
+            await _db.SeedSongAsync(song, chart);
             var stored = (await _db.GetSongsAsync()).Single(s => s.Title == title);
             var chartId = stored.Charts.Single().Id;
-            await _db.UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, 100000, 0.9, true);
+            await _db.UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, CreatePlaySummary(100000));
             return stored.Id;
         }
 
@@ -73,7 +95,7 @@ namespace DTXMania.Test.Song
             // Replay A so it becomes the most recent, diverging from insertion order.
             await _db.UpdateScoreAsync(
                 (await _db.GetSongsAsync()).Single(s => s.Id == idA).Charts.Single().Id,
-                EInstrumentPart.DRUMS, 200000, 0.95, true);
+                EInstrumentPart.DRUMS, CreatePlaySummary(200000));
 
             var recent = await _db.GetRecentlyPlayedSongsAsync(20);
 
@@ -87,7 +109,7 @@ namespace DTXMania.Test.Song
             await AddAndPlayAsync("Played");
             // A song with a chart but no recorded play:
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Unplayed", Artist = "A" };
-            await _db.AddSongAsync(song, new SongChart { FilePath = "/c/unplayed.dtx", HasDrumChart = true, DrumLevel = 20 });
+            await _db.SeedSongAsync(song, new SongChart { FilePath = "/c/unplayed.dtx", HasDrumChart = true, DrumLevel = 20 });
 
             var recent = await _db.GetRecentlyPlayedSongsAsync(20);
 
@@ -114,18 +136,23 @@ namespace DTXMania.Test.Song
         public async Task GetRecentlyPlayedSongsAsync_GroupsMultiChartSongIntoSingleRow()
         {
             await _db.InitializeDatabaseAsync();
-            // Same title+artist => grouped into one Song with two charts.
-            var s1 = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Multi", Artist = "A" };
-            var s2 = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Multi", Artist = "A" };
-            await _db.AddSongAsync(s1, new SongChart { FilePath = "/c/multi-bas.dtx", HasDrumChart = true, DrumLevel = 30 });
-            await _db.AddSongAsync(s2, new SongChart { FilePath = "/c/multi-adv.dtx", HasDrumChart = true, DrumLevel = 60 });
-            var stored = (await _db.GetSongsAsync()).Single(s => s.Title == "Multi");
-            var charts = stored.Charts.OrderBy(c => c.DrumLevel).ToArray();
+            // One song with two drum charts (two difficulties of the same song).
+            var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Multi", Artist = "A" };
+            var bas = new SongChart { Song = song, FilePath = "/c/multi-bas.dtx", HasDrumChart = true, DrumLevel = 30 };
+            var adv = new SongChart { Song = song, FilePath = "/c/multi-adv.dtx", HasDrumChart = true, DrumLevel = 60 };
+            using (var ctx = _db.CreateContext())
+            {
+                ctx.Songs.Add(song);
+                ctx.SongCharts.AddRange(bas, adv);
+                await ctx.SaveChangesAsync();
+            }
+            var charts = (await _db.GetSongsAsync()).Single(s => s.Title == "Multi")
+                .Charts.OrderBy(c => c.DrumLevel).ToArray();
 
             // Play the easier chart, then later the harder chart.
-            await _db.UpdateScoreAsync(charts[0].Id, EInstrumentPart.DRUMS, 50000, 0.5, false);
+            await _db.UpdateScoreAsync(charts[0].Id, EInstrumentPart.DRUMS, CreatePlaySummary(50000));
             await Task.Delay(50);
-            await _db.UpdateScoreAsync(charts[1].Id, EInstrumentPart.DRUMS, 90000, 0.9, true);
+            await _db.UpdateScoreAsync(charts[1].Id, EInstrumentPart.DRUMS, CreatePlaySummary(90000));
 
             var recent = await _db.GetRecentlyPlayedSongsAsync(20);
 

@@ -105,7 +105,7 @@ namespace DTXMania.Test.Song
             await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
             // Act
-            var databaseService = _manager.DatabaseService;
+            var databaseService = ManagerDatabaseService;
 
             // Assert
             Assert.NotNull(databaseService);
@@ -119,7 +119,7 @@ namespace DTXMania.Test.Song
                 purgeDatabaseFirst: false);
 
             Assert.True(result);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
         }
 
         [Fact]
@@ -130,7 +130,7 @@ namespace DTXMania.Test.Song
                 purgeDatabaseFirst: false);
 
             Assert.True(result);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
         }
 
         [Fact]
@@ -139,14 +139,14 @@ namespace DTXMania.Test.Song
             Assert.True(await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
                 purgeDatabaseFirst: false));
-            var service = _manager.DatabaseService;
+            var service = ManagerDatabaseService;
 
             var result = await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
                 purgeDatabaseFirst: false);
 
             Assert.True(result);
-            Assert.Same(service, _manager.DatabaseService);
+            Assert.Same(service, ManagerDatabaseService);
         }
 
         [Fact]
@@ -157,17 +157,18 @@ namespace DTXMania.Test.Song
                 purgeDatabaseFirst: true);
 
             Assert.True(result);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
         }
 
         [Fact]
         public async Task EnumerateAndClear_ShouldRoundTrip()
         {
             // Arrange
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             var initialCount = _manager.RootSongs.Count;
 
             // Act - Enumerate
-            await _manager.EnumerateSongsAsync(new[] { "NonExistentPath" }); // This will create empty structure
+            await _manager.EnumerateAndImportSongsAsync(new[] { "NonExistentPath" }); // This will create empty structure
 
             // Clear
             _manager.Clear();
@@ -192,50 +193,53 @@ namespace DTXMania.Test.Song
         #region Enumeration Tests
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithNonExistentPaths_ShouldReturnZero()
+        public async Task EnumerateAndImportSongsAsync_WithNonExistentPaths_ShouldImportNoCandidates()
         {
             // Arrange
             var paths = new[] { "NonExistent1", "NonExistent2" };
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
             // Act
-            var result = await _manager.EnumerateSongsAsync(paths);
+            var result = await _manager.EnumerateAndImportSongsAsync(paths);
 
             // Assert
-            Assert.Equal(0, result);
+            Assert.Equal(0, result.Batch.Candidates.Count);
             Assert.Equal(0, _manager.DiscoveredScoreCount);
-            Assert.False(_manager.IsEnumerating);
+            Assert.Empty(_manager.RootSongs);
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithEmptyArray_ShouldReturnZero()
+        public async Task EnumerateAndImportSongsAsync_WithEmptyArray_ShouldImportNoCandidates()
         {
             // Arrange
             var paths = new string[0];
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
             // Act
-            var result = await _manager.EnumerateSongsAsync(paths);
+            var result = await _manager.EnumerateAndImportSongsAsync(paths);
 
             // Assert
-            Assert.Equal(0, result);
+            Assert.Equal(0, result.Batch.Candidates.Count);
             Assert.Equal(0, _manager.DiscoveredScoreCount);
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithNullPaths_ShouldHandleGracefully()
+        public async Task EnumerateAndImportSongsAsync_WithNullPaths_ShouldHandleGracefully()
         {
             // Arrange
             var paths = new string[] { null!, "", "NonExistent" };
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
             // Act
-            var result = await _manager.EnumerateSongsAsync(paths);
+            var result = await _manager.EnumerateAndImportSongsAsync(paths);
 
             // Assert
-            Assert.Equal(0, result);
+            Assert.Equal(0, result.Batch.Candidates.Count);
             Assert.Equal(0, _manager.DiscoveredScoreCount);
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithRealDirectory_ShouldEnumerateFiles()
+        public async Task EnumerateAndImportSongsAsync_WithRealDirectory_ShouldEnumerateFiles()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest");
@@ -253,12 +257,11 @@ namespace DTXMania.Test.Song
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act - Now enumerate the specific directory
-                var result = await _manager.EnumerateSongsAsync(new[] { tempDir });
+                var result = await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
-                Assert.Equal(1, result);
+                Assert.Equal(1, result.Batch.Candidates.Count);
                 Assert.Equal(1, _manager.DiscoveredScoreCount);
-                Assert.True(await _manager.GetDatabaseScoreCountAsync() > 0);
                 Assert.True(_manager.RootSongs.Count > 0);
             }
             finally
@@ -269,7 +272,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithDTXFilesPrefix_ShouldCreateBoxNodes()
+        public async Task EnumerateAndImportSongsAsync_WithDTXFilesPrefix_ShouldCreateBoxNodes()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest");
@@ -288,10 +291,10 @@ namespace DTXMania.Test.Song
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
-                var result = await _manager.EnumerateSongsAsync(new[] { tempDir });
+                var result = await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
-                Assert.Equal(1, result);
+                Assert.Equal(1, result.Batch.Candidates.Count);
                 Assert.Contains(_manager.RootSongs, n => n.Type == NodeType.Box);
 
                 var boxNode = _manager.RootSongs.First(n => n.Type == NodeType.Box);
@@ -332,10 +335,9 @@ namespace DTXMania.Test.Song
 
                 // Initialize database service
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Act - Test that enumeration worked
-                Assert.True(await _manager.GetDatabaseScoreCountAsync() >= 0);
                 Assert.True(_manager.RootSongs.Count >= 0);
             }
             finally
@@ -357,7 +359,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetSongsByGenre_WithMatchingGenre_ShouldReturnSongs()
+        public async Task Enumeration_WithGenreMetadata_ShouldPersistGenreToDatabase()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest");
@@ -383,17 +385,17 @@ namespace DTXMania.Test.Song
 
                 // Initialize database service
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Act
-                var rockSongs = await _manager.GetSongsByGenreAsync("Rock");
-                var popSongs = await _manager.GetSongsByGenreAsync("Pop");
+                await using var context = ManagerDatabaseService!.CreateContext();
+                var songs = await context.Songs.ToListAsync();
 
                 // Assert
+                var rockSongs = songs.Where(s => s.Genre == "Rock").ToList();
+                var popSongs = songs.Where(s => s.Genre == "Pop").ToList();
                 Assert.Equal(2, rockSongs.Count);
                 Assert.Single(popSongs);
-                Assert.All(rockSongs, s => Assert.Equal("Rock", s.Genre));
-                Assert.All(popSongs, s => Assert.Equal("Pop", s.Genre));
             }
             finally
             {
@@ -416,7 +418,7 @@ namespace DTXMania.Test.Song
 
                 // Initialize database service and enumerate to populate data
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Verify we have data
                 var initialRootSongCount = _manager.RootSongs.Count;
@@ -426,7 +428,6 @@ namespace DTXMania.Test.Song
                 _manager.Clear();
 
                 // Assert
-                Assert.Equal(0, await _manager.GetDatabaseScoreCountAsync());
                 Assert.Empty(_manager.RootSongs);
                 Assert.Equal(0, _manager.DiscoveredScoreCount);
                 Assert.Equal(0, _manager.EnumeratedFileCount);
@@ -441,75 +442,11 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        #region Event Tests
-
-        [Fact]
-        public async Task EnumerateSongsAsync_ShouldFireEnumerationCompleted()
-        {
-            // Arrange
-            var eventFired = false;
-            _manager.EnumerationCompleted += (sender, args) => eventFired = true;
-            var directory = Path.Combine(
-                Path.GetTempPath(),
-                $"SongManagerEvent_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(directory);
-            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-
-            try
-            {
-                // Act
-                await _manager.EnumerateSongsAsync(new[] { directory });
-
-                // Assert
-                Assert.True(eventFired);
-            }
-            finally
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-        }
-
-        [Fact]
-        public async Task EnumerateSongsAsync_WithRealSong_ShouldFireSongDiscovered()
-        {
-            // Arrange
-            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest");
-            var dtxFile = Path.Combine(tempDir, "test.dtx");
-            SongListNode? discoveredSong = null;
-
-            _manager.SongDiscovered += (sender, args) => discoveredSong = args.Song;
-
-            try
-            {
-                Directory.CreateDirectory(tempDir);
-                await File.WriteAllTextAsync(dtxFile, @"#TITLE: Event Test Song
-#DLEVEL: 50
-");
-
-                // Initialize database service
-                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-
-                // Act
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
-
-                // Assert
-                Assert.NotNull(discoveredSong);
-                Assert.Equal("Event Test Song", discoveredSong.DisplayTitle);
-            }
-            finally
-            {
-                if (Directory.Exists(tempDir))
-                    Directory.Delete(tempDir, true);
-            }
-        }
-
-        #endregion
-
 
         #region Song Grouping Tests
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithMultipleDTXFilesFromSameSong_ShouldGroupIntoSingleSong()
+        public async Task EnumerateAndImportSongsAsync_WithMultipleDTXFilesFromSameSong_ShouldGroupIntoSingleSong()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongGroupingTest");
@@ -559,7 +496,7 @@ namespace DTXMania.Test.Song
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _manager.RootSongs;
@@ -595,7 +532,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithDifferentSongsFromSameArtist_ShouldCreateSeparateSongs()
+        public async Task EnumerateAndImportSongsAsync_WithDifferentSongsFromSameArtist_ShouldCreateSeparateSongs()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongSeparationTest");
@@ -624,7 +561,7 @@ namespace DTXMania.Test.Song
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _manager.RootSongs;
@@ -653,7 +590,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithSameMetadataInDifferentDirectories_ShouldKeepSeparateSongs()
+        public async Task EnumerateAndImportSongsAsync_WithSameMetadataInDifferentDirectories_ShouldKeepSeparateSongs()
         {
             // Arrange - Same song scattered across different directories
             var tempDir = Path.Combine(Path.GetTempPath(), "SongScatterTest");
@@ -682,7 +619,7 @@ namespace DTXMania.Test.Song
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _manager.RootSongs;
@@ -713,84 +650,7 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Unit")]
         [Fact]
-        public async Task BuildSongListsAsync_WithNoSongs_ShouldReturnFalse()
-        {
-            var result = await _manager.BuildSongListsAsync();
-
-            Assert.False(result);
-        }
-
-        [Trait("Category", "Unit")]
-        [Fact]
-        public async Task BuildSongListsAsync_WithExistingRootSongs_ShouldReturnTrue()
-        {
-            var rootSongs = GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
-            Assert.NotNull(rootSongs);
-            rootSongs!.Add(new SongListNode { Title = "Existing Song", Type = NodeType.Score });
-
-            var result = await _manager.BuildSongListsAsync();
-
-            Assert.True(result);
-        }
-
-        [Trait("Category", "Unit")]
-        [Theory]
-        [InlineData("none", false)]
-        [InlineData("initialized", true)]
-        [InlineData("broken", false)]
-        public async Task SaveSongsDBAsync_WithDatabaseServiceState_ShouldReturnExpectedResult(
-            string databaseServiceState,
-            bool expectedResult)
-        {
-            var result = await WithDatabaseServiceStateAsync(
-                databaseServiceState,
-                () => _manager.SaveSongsDBAsync());
-
-            Assert.Equal(expectedResult, result);
-        }
-
-        [Trait("Category", "Unit")]
-        [Theory]
-        [InlineData("none", false)]
-        [InlineData("initialized", true)]
-        [InlineData("broken", false)]
-        public async Task DatabaseExistsAsync_WithDatabaseServiceState_ShouldReturnExpectedResult(
-            string databaseServiceState,
-            bool expectedResult)
-        {
-            var result = await WithDatabaseServiceStateAsync(
-                databaseServiceState,
-                () => _manager.DatabaseExistsAsync());
-
-            Assert.Equal(expectedResult, result);
-        }
-
-        [Trait("Category", "Unit")]
-        [Theory]
-        [InlineData("none", false)]
-        [InlineData("initialized", true)]
-        [InlineData("broken", false)]
-        public async Task GetDatabaseStatsAsync_WithDatabaseServiceState_ShouldReturnExpectedAvailability(
-            string databaseServiceState,
-            bool expectStats)
-        {
-            var stats = await WithDatabaseServiceStateAsync(
-                databaseServiceState,
-                () => _manager.GetDatabaseStatsAsync());
-
-            if (expectStats)
-            {
-                Assert.NotNull(stats);
-                Assert.Equal(0, stats!.ScoreCount);
-                return;
-            }
-
-            Assert.Null(stats);
-        }
-
-        [Trait("Category", "Unit")]
-        [Fact]
-        public async Task EnumerateSongsOnlyAsync_WithMultipleSongs_ShouldPopulateRootSongs()
+        public async Task EnumerateAndImportSongsAsync_WithMultipleSongs_ShouldPopulateRootSongs()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), $"SongManagerEnumerateOnly_{Guid.NewGuid():N}");
 
@@ -809,9 +669,9 @@ namespace DTXMania.Test.Song
 
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-                var result = await _manager.EnumerateSongsOnlyAsync(new[] { tempDir });
+                var result = await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
-                Assert.Equal(3, result);
+                Assert.Equal(3, result.Batch.Candidates.Count);
                 Assert.Equal(3, _manager.RootSongs.Count);
                 Assert.All(_manager.RootSongs, node => Assert.Equal(NodeType.Score, node.Type));
             }
@@ -824,7 +684,7 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Unit")]
         [Fact]
-        public async Task BuildSongListFromDatabasePublicAsync_WithNestedBoxesAndManyRootSongs_ShouldRestoreHierarchy()
+        public async Task BuildHierarchyFromDatabaseOnceAsync_WithNestedBoxesAndManyRootSongs_ShouldRestoreHierarchy()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), $"SongManagerRebuild_{Guid.NewGuid():N}");
             var parentBoxDir = Path.Combine(tempDir, "DTXFiles.Parent");
@@ -858,13 +718,13 @@ namespace DTXMania.Test.Song
 ");
 
                 await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-                await _manager.EnumerateSongsAsync(new[] { tempDir });
+                await _manager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 var rootSongs = GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
                 Assert.NotNull(rootSongs);
                 rootSongs!.Clear();
 
-                await _manager.BuildSongListFromDatabasePublicAsync(new[] { tempDir });
+                await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { tempDir });
 
                 Assert.True(_manager.RootSongs.Count > 5);
                 var parentBox = Assert.Single(_manager.RootSongs, n => n.Type == NodeType.Box && n.Title == "DTXFiles.Parent");
@@ -881,15 +741,15 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Unit")]
         [Fact]
-        public async Task BuildSongListFromDatabasePublicAsync_WithBrokenDatabaseService_ShouldLeaveRootSongsEmpty()
+        public async Task BuildHierarchyFromDatabaseOnceAsync_WithBrokenDatabaseService_ShouldLeaveRootSongsEmpty()
         {
-            var originalDatabaseService = _manager.DatabaseService;
+            var originalDatabaseService = ManagerDatabaseService;
 
             try
             {
                 SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
 
-                await _manager.BuildSongListFromDatabasePublicAsync(new[] { Path.GetTempPath() });
+                await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { Path.GetTempPath() });
 
                 Assert.Empty(_manager.RootSongs);
             }
@@ -947,43 +807,19 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        private async Task<T> WithDatabaseServiceStateAsync<T>(
-            string databaseServiceState,
-            Func<Task<T>> action)
-        {
-            var originalDatabaseService = _manager.DatabaseService;
-
-            try
-            {
-                switch (databaseServiceState)
-                {
-                    case "none":
-                        break;
-                    case "initialized":
-                        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-                        break;
-                    case "broken":
-                        SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException(nameof(databaseServiceState), databaseServiceState, null);
-                }
-
-                return await action();
-            }
-            finally
-            {
-                if (databaseServiceState == "broken")
-                {
-                    SetPrivateField(_manager, "_databaseService", originalDatabaseService);
-                }
-            }
-        }
-
         private static SongDatabaseService CreateBrokenDatabaseService()
         {
             return (SongDatabaseService)RuntimeHelpers.GetUninitializedObject(typeof(SongDatabaseService));
         }
+
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private SongDatabaseService? ManagerDatabaseService =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
 
         private readonly string _testRoot = Path.Combine(
             Path.GetTempPath(),
@@ -992,7 +828,7 @@ namespace DTXMania.Test.Song
             Guid.NewGuid().ToString("N"));
 
         [Fact]
-        public async Task BuildSongListFromDatabasePublicAsync_WithBoxAndMultipleCharts_ShouldRebuildHierarchy()
+        public async Task BuildHierarchyFromDatabaseOnceAsync_WithBoxAndMultipleCharts_ShouldRebuildHierarchy()
         {
             var songsRoot = Path.Combine(_testRoot, "Songs");
             var boxFolder = Path.Combine(songsRoot, "DTXFiles.Favorites");
@@ -1010,7 +846,7 @@ namespace DTXMania.Test.Song
             await InitializeAndEnumerateAsync(songsRoot);
             ClearRootSongs();
 
-            await _manager.BuildSongListFromDatabasePublicAsync(new[] { songsRoot });
+            await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { songsRoot });
 
             var boxNode = Assert.Single(_manager.RootSongs);
             Assert.Equal(NodeType.Box, boxNode.Type);
@@ -1028,23 +864,23 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task BuildSongListFromDatabasePublicAsync_WithoutDatabaseService_ShouldLeaveRootSongsEmpty()
+        public async Task BuildHierarchyFromDatabaseOnceAsync_WithoutDatabaseService_ShouldLeaveRootSongsEmpty()
         {
             var songsRoot = Path.Combine(_testRoot, "NoDatabaseSongs");
             Directory.CreateDirectory(songsRoot);
 
-            await _manager.BuildSongListFromDatabasePublicAsync(new[] { songsRoot });
+            await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { songsRoot });
 
             Assert.Empty(_manager.RootSongs);
         }
 
         [Fact]
-        public async Task BuildSongListFromDatabasePublicAsync_WithInvalidSearchPath_ShouldSkipPath()
+        public async Task BuildHierarchyFromDatabaseOnceAsync_WithInvalidSearchPath_ShouldSkipPath()
         {
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
 
-            await _manager.BuildSongListFromDatabasePublicAsync(new[] { Path.Combine(_testRoot, "missing") });
+            await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { Path.Combine(_testRoot, "missing") });
 
             Assert.Empty(_manager.RootSongs);
         }
@@ -1117,42 +953,6 @@ namespace DTXMania.Test.Song
 
             Assert.False(shortHexResult);
             Assert.False(invalidHexResult);
-        }
-
-        [Fact]
-        public async Task LoadScoreCacheAsync_WithWarmDatabase_ShouldRebuildRootSongs()
-        {
-            var songsRoot = Path.Combine(_testRoot, "CacheSongs");
-            var songFolder = Path.Combine(songsRoot, "Cached Song");
-
-            Directory.CreateDirectory(songFolder);
-            await CreateDtxFileAsync(Path.Combine(songFolder, "cached.dtx"), "Cached Song", "Coverage Bot", "Fusion", 35);
-
-            await InitializeAndEnumerateAsync(songsRoot);
-            await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
-            ClearRootSongs();
-
-            var loaded = await _manager.LoadScoreCacheAsync(new[] { songsRoot });
-
-            Assert.True(loaded);
-            var rebuiltSong = Assert.Single(_manager.RootSongs);
-            Assert.Equal("Cached Song", rebuiltSong.Title);
-            Assert.NotNull(rebuiltSong.DatabaseSong);
-        }
-
-        [Fact]
-        public async Task LoadScoreCacheAsync_WithEmptyDatabase_ShouldReturnFalse()
-        {
-            var songsRoot = Path.Combine(_testRoot, "EmptyCacheSongs");
-            Directory.CreateDirectory(songsRoot);
-
-            var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-            Assert.True(initialized);
-
-            var loaded = await _manager.LoadScoreCacheAsync(new[] { songsRoot });
-
-            Assert.False(loaded);
-            Assert.Empty(_manager.RootSongs);
         }
 
         [Fact]
@@ -1258,7 +1058,7 @@ namespace DTXMania.Test.Song
             await CreateDtxFileAsync(chartPath, "Core Timestamp Song", "Coverage Bot", "Jazz", 40);
             SetFilesystemTimes(chartPath, DateTime.UtcNow.AddMinutes(-1));
 
-            // EnumerateSongsAsync routes through EnumerateAndImportSongsCoreAsync
+            // The live enumeration routes through EnumerateAndImportSongsCoreAsync
             // — the same core used by EnumerateAndImportSongsAsync (startup/reload).
             // No manual SetLastEnumerationTimestampAsync: the core must set it.
             await InitializeAndEnumerateAsync(songsRoot);
@@ -1367,8 +1167,8 @@ namespace DTXMania.Test.Song
 
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            var initialEnumeration = await _manager.EnumerateSongsAsync(new[] { rootA, rootB });
-            Assert.True(initialEnumeration >= 2);
+            var initialEnumeration = await _manager.EnumerateAndImportSongsAsync(new[] { rootA, rootB });
+            Assert.True(initialEnumeration.Batch.Candidates.Count >= 2);
 
             // Establish a known per-root baseline before simulating the unavailable
             // root. The root-B edit below is newer than this baseline but older than
@@ -1380,8 +1180,8 @@ namespace DTXMania.Test.Song
 
             // Omit B from this enumeration to model the configured root being
             // unavailable. Its database rows remain retained while A advances.
-            var partialEnumeration = await _manager.EnumerateSongsAsync(new[] { rootA });
-            Assert.True(partialEnumeration >= 1);
+            var partialEnumeration = await _manager.EnumerateAndImportSongsAsync(new[] { rootA });
+            Assert.True(partialEnumeration.Batch.Candidates.Count >= 1);
 
             var editedAtUtc = DateTime.UtcNow.AddMinutes(-1);
             await File.AppendAllTextAsync(chartB, "#COMMENT: edited\n");
@@ -1406,7 +1206,7 @@ namespace DTXMania.Test.Song
 
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
 
             var watermark = DateTime.UtcNow.AddHours(-1);
             var canonicalA = _manager.RootPolicy
@@ -1418,19 +1218,19 @@ namespace DTXMania.Test.Song
             // every supplied per-root watermark. A partial commit (global only)
             // would leave per-root rows absent, forcing a conservative full rescan
             // on every startup until the per-root rows catch up.
-            var success = await _manager.DatabaseService!
+            var success = await ManagerDatabaseService!
                 .SetEnumerationWatermarkAtomicallyAsync(
                     watermark,
                     new[] { canonicalA, canonicalB });
 
             Assert.True(success);
-            var global = await _manager.DatabaseService!
+            var global = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(watermark.ToUniversalTime(), global!.Value.ToUniversalTime());
-            var perRootA = await _manager.DatabaseService!
+            var perRootA = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(watermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
-            var perRootB = await _manager.DatabaseService!
+            var perRootB = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
             Assert.Equal(watermark.ToUniversalTime(), perRootB!.Value.ToUniversalTime());
         }
@@ -1450,30 +1250,30 @@ namespace DTXMania.Test.Song
 
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
 
             // Seed a legacy global-only watermark (no per-root rows).
             var legacyGlobal = DateTime.UtcNow.AddHours(-3);
-            await _manager.DatabaseService!
+            await ManagerDatabaseService!
                 .SetLastSuccessfulEnumerationUtcAsync(legacyGlobal);
-            Assert.Null(await _manager.DatabaseService!
+            Assert.Null(await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync(rootA));
 
             var canonicalA = _manager.RootPolicy
                 .Validate(new[] { rootA }).CanonicalRoots.Single();
             var newWatermark = DateTime.UtcNow.AddHours(-1);
 
-            var success = await _manager.DatabaseService!
+            var success = await ManagerDatabaseService!
                 .SetEnumerationWatermarkAtomicallyAsync(
                     newWatermark,
                     new[] { canonicalA });
 
             Assert.True(success);
             // Both global and per-root must be at the new watermark — no partial state.
-            var global = await _manager.DatabaseService!
+            var global = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(newWatermark.ToUniversalTime(), global!.Value.ToUniversalTime());
-            var perRootA = await _manager.DatabaseService!
+            var perRootA = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(newWatermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
         }
@@ -1492,19 +1292,19 @@ namespace DTXMania.Test.Song
 
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
 
             // Establish a known baseline watermark.
             var baseline = DateTime.UtcNow.AddHours(-2);
             var canonicalA = _manager.RootPolicy
                 .Validate(new[] { rootA }).CanonicalRoots.Single();
-            Assert.True(await _manager.DatabaseService!
+            Assert.True(await ManagerDatabaseService!
                 .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
 
             // Swap in a broken service that cannot create contexts, simulating a
             // mid-write crash or storage failure. The atomic method must return
             // false and leave the baseline watermark intact.
-            var originalService = _manager.DatabaseService;
+            var originalService = ManagerDatabaseService;
             var brokenService = CreateBrokenDatabaseService();
             ReflectionHelpers.SetPrivateField(_manager, "_databaseService", brokenService);
             try
@@ -1550,20 +1350,20 @@ namespace DTXMania.Test.Song
 
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
 
             // Establish a known baseline watermark (both global and per-root).
             var baseline = DateTime.UtcNow.AddHours(-2);
             var canonicalA = _manager.RootPolicy
                 .Validate(new[] { rootA }).CanonicalRoots.Single();
-            Assert.True(await _manager.DatabaseService!
+            Assert.True(await ManagerDatabaseService!
                 .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
 
             // Install a SQLite trigger that aborts any INSERT on
             // __EnumerationMetadata when the key starts with the per-root prefix.
             // This causes the per-root INSERT OR REPLACE to fail AFTER the global
             // INSERT OR REPLACE has already executed within the same transaction.
-            await using (var triggerContext = _manager.DatabaseService!.CreateContext())
+            await using (var triggerContext = ManagerDatabaseService!.CreateContext())
             {
                 await triggerContext.Database.ExecuteSqlRawAsync(
                     """
@@ -1577,7 +1377,7 @@ namespace DTXMania.Test.Song
             }
 
             var newWatermark = DateTime.UtcNow.AddHours(-1);
-            var success = await _manager.DatabaseService!
+            var success = await ManagerDatabaseService!
                 .SetEnumerationWatermarkAtomicallyAsync(
                     newWatermark,
                     new[] { canonicalA });
@@ -1587,12 +1387,12 @@ namespace DTXMania.Test.Song
 
             // The global watermark must still be the baseline — the preceding
             // global-key INSERT was rolled back, not left committed.
-            var global = await _manager.DatabaseService!
+            var global = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync();
             Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
 
             // The per-root watermark must also still be the baseline.
-            var perRootA = await _manager.DatabaseService!
+            var perRootA = await ManagerDatabaseService!
                 .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
             Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
         }
@@ -1664,9 +1464,9 @@ namespace DTXMania.Test.Song
             // Enumerate both roots so the database holds rows for each.
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            var enumerated = await _manager.EnumerateSongsAsync(new[] { retainedRoot, removedRoot });
-            Assert.True(enumerated >= 2);
-            Assert.NotNull(_manager.DatabaseService);
+            var enumerated = await _manager.EnumerateAndImportSongsAsync(new[] { retainedRoot, removedRoot });
+            Assert.True(enumerated.Batch.Candidates.Count >= 2);
+            Assert.NotNull(ManagerDatabaseService);
 
             // The removed root's files still exist on disk; only the configured root
             // set changes. Its rows remain in the database (the import path only
@@ -1702,9 +1502,9 @@ namespace DTXMania.Test.Song
             // Enumerate both roots so the database holds rows for each.
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
-            var enumerated = await _manager.EnumerateSongsAsync(new[] { retainedRoot, removedRoot });
-            Assert.True(enumerated >= 2);
-            Assert.NotNull(_manager.DatabaseService);
+            var enumerated = await _manager.EnumerateAndImportSongsAsync(new[] { retainedRoot, removedRoot });
+            Assert.True(enumerated.Batch.Candidates.Count >= 2);
+            Assert.NotNull(ManagerDatabaseService);
 
             // The removed root's files are gone (deleted/unmounted/detached) but its
             // rows remain in the database (the import path only purges stale charts
@@ -1733,7 +1533,7 @@ namespace DTXMania.Test.Song
             Directory.CreateDirectory(songFolder);
             await CreateDtxFileAsync(songPath, "Edit Song", "Coverage Bot", "Rock", 35);
             await InitializeAndEnumerateAsync(songsRoot);
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
 
             // Simulate an enumeration that finished 10 minutes ago. Pin both the
             // metadata threshold and the directory mtimes to that moment so the only
@@ -1750,8 +1550,8 @@ namespace DTXMania.Test.Song
             // DB-mtime-based threshold, this advanced the threshold to ~now, which is
             // after the chart edit, masking it (the 5-minutes-ago edit would appear
             // older than the now-1minute threshold).
-            var song = (await _manager.DatabaseService!.GetSongsAsync()).Single();
-            await _manager.DatabaseService.SetBookmarkAsync(song.Id, true);
+            var song = (await ManagerDatabaseService!.GetSongsAsync()).Single();
+            await ManagerDatabaseService!.SetBookmarkAsync(song.Id, true);
 
             var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
 
@@ -1780,7 +1580,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsOnlyAsync_WithEmptyDirectory_ShouldReturnZero()
+        public async Task EnumerateAndImportSongsAsync_WithEmptyDirectory_ShouldImportNoCandidates()
         {
             var songsRoot = Path.Combine(_testRoot, "EnumerateOnlyEmpty");
             Directory.CreateDirectory(songsRoot);
@@ -1788,15 +1588,15 @@ namespace DTXMania.Test.Song
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
 
-            var result = await _manager.EnumerateSongsOnlyAsync(new[] { songsRoot });
+            var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });
 
-            Assert.Equal(0, result);
+            Assert.Equal(0, result.Batch.Candidates.Count);
             Assert.Equal(0, _manager.DiscoveredScoreCount);
             Assert.Empty(_manager.RootSongs);
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithCancelledToken_ShouldThrowOperationCanceledException()
+        public async Task EnumerateAndImportSongsAsync_WithCancelledToken_ShouldThrowOperationCanceledException()
         {
             var songsRoot = Path.Combine(_testRoot, "CancelledSongs");
             Directory.CreateDirectory(songsRoot);
@@ -1807,23 +1607,23 @@ namespace DTXMania.Test.Song
             cancellation.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                _manager.EnumerateSongsAsync(
+                _manager.EnumerateAndImportSongsAsync(
                     new[] { songsRoot },
                     cancellationToken: cancellation.Token));
             Assert.Empty(_manager.RootSongs);
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithEmptyBox_ShouldSkipEmptyBox()
+        public async Task EnumerateAndImportSongsAsync_WithEmptyBox_ShouldSkipEmptyBox()
         {
             var songsRoot = Path.Combine(_testRoot, "EmptyBoxSongs");
             Directory.CreateDirectory(Path.Combine(songsRoot, "DTXFiles.Empty"));
 
             await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-            var result = await _manager.EnumerateSongsAsync(new[] { songsRoot });
+            var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });
 
-            Assert.Equal(0, result);
+            Assert.Equal(0, result.Batch.Candidates.Count);
             Assert.Empty(_manager.RootSongs);
         }
 
@@ -1850,66 +1650,10 @@ namespace DTXMania.Test.Song
             Assert.NotNull(checkTask);
 
             var changeDetected = await checkTask!;
-            var songs = await _manager.DatabaseService!.GetSongsAsync();
+            var songs = await ManagerDatabaseService!.GetSongsAsync();
 
             Assert.True(changeDetected);
             Assert.Equal(movedPath, songs.Single().Charts.Single().FilePath);
-        }
-
-        [Fact]
-        public async Task PublicDatabaseHelpers_ShouldReturnStatsSearchResultsAndScores()
-        {
-            var songsRoot = Path.Combine(_testRoot, "HelperSongs");
-            var rockFolder = Path.Combine(songsRoot, "Blue Sky");
-            var popFolder = Path.Combine(songsRoot, "Red Moon");
-
-            Directory.CreateDirectory(rockFolder);
-            Directory.CreateDirectory(popFolder);
-
-            await CreateDtxFileAsync(Path.Combine(rockFolder, "blue.dtx"), "Blue Sky", "Alice", "Rock", 30);
-            await CreateDtxFileAsync(Path.Combine(popFolder, "red.dtx"), "Red Moon", "Bob", "Pop", 45);
-
-            await InitializeAndEnumerateAsync(songsRoot);
-
-            Assert.True(await _manager.DatabaseExistsAsync());
-
-            var stats = await _manager.GetDatabaseStatsAsync();
-            Assert.NotNull(stats);
-            Assert.Equal(2, stats!.SongCount);
-            Assert.Equal(2, stats.ScoreCount);
-
-            var rockSongs = await _manager.GetSongsByGenreAsync("Rock");
-            var foundSongs = await _manager.FindSongsBySearchAsync("Blue");
-
-            var rockSong = Assert.Single(rockSongs);
-            var foundSong = Assert.Single(foundSongs);
-            Assert.Equal("Blue Sky", rockSong.Title);
-            Assert.Equal("Blue Sky", foundSong.Title);
-
-            var chartId = rockSong.Charts.Single().Id;
-            var scoreUpdated = await _manager.UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, 950_000, 98.5, fullCombo: true);
-            var topScores = await _manager.GetTopScoresAsync(EInstrumentPart.DRUMS, limit: 1);
-
-            Assert.True(scoreUpdated);
-            Assert.Single(topScores);
-            Assert.Equal(chartId, topScores[0].ChartId);
-            Assert.Equal(950_000, topScores[0].BestScore);
-
-            Assert.True(await _manager.SaveSongsDBAsync());
-            Assert.True(await _manager.BuildSongListsAsync());
-        }
-
-        [Fact]
-        public async Task PublicHelpers_WithUninitializedDatabaseServiceInstance_ShouldReturnSafeFallbacks()
-        {
-            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", new SongDatabaseService(_testDbPath));
-
-            Assert.Equal(0, await _manager.GetDatabaseScoreCountAsync());
-            Assert.Null(await _manager.GetDatabaseStatsAsync());
-            Assert.Empty(await _manager.GetTopScoresAsync(EInstrumentPart.DRUMS));
-            Assert.False(await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, 123, 45.6, fullCombo: false));
-            Assert.Empty(await _manager.FindSongsBySearchAsync("anything"));
-            Assert.Empty(await _manager.GetSongsByGenreAsync("anything"));
         }
 
         [Fact]
@@ -1931,11 +1675,11 @@ namespace DTXMania.Test.Song
             await InitializeAndEnumerateAsync(songsRoot);
 
             var reinitialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath, purgeDatabaseFirst: true);
-            var stats = await _manager.GetDatabaseStatsAsync();
 
             Assert.True(reinitialized);
-            Assert.NotNull(stats);
-            Assert.True(await _manager.DatabaseExistsAsync());
+            Assert.NotNull(ManagerDatabaseService);
+            // The purge must have emptied the previously seeded database.
+            Assert.False(await ManagerDatabaseService!.HasAnySongsAsync());
         }
 
         [Fact]
@@ -1947,20 +1691,6 @@ namespace DTXMania.Test.Song
             _manager.SetInitialized();
 
             Assert.True(_manager.IsInitialized);
-        }
-
-        [Fact]
-        public async Task PublicDatabaseHelpers_WithoutInitializedService_ShouldReturnSafeDefaults()
-        {
-            Assert.False(await _manager.DatabaseExistsAsync());
-            Assert.Null(await _manager.GetDatabaseStatsAsync());
-            Assert.False(await _manager.LoadScoreCacheAsync(new[] { Path.Combine(_testRoot, "none") }));
-            Assert.False(await _manager.SaveSongsDBAsync());
-            Assert.Empty(await _manager.GetTopScoresAsync(EInstrumentPart.DRUMS));
-            Assert.False(await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, 1, 1.0, fullCombo: false));
-            Assert.Empty(await _manager.FindSongsBySearchAsync("anything"));
-            Assert.Empty(await _manager.GetSongsByGenreAsync("anything"));
-            Assert.False(await _manager.BuildSongListsAsync());
         }
 
         [Fact]
@@ -2254,17 +1984,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WhenEnumerationAlreadyInProgress_ShouldReturnZero()
-        {
-            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-            ReflectionHelpers.SetPrivateField(_manager, "_enumCancellation", new CancellationTokenSource());
-
-            var result = await _manager.EnumerateSongsAsync(new[] { _testRoot });
-
-            Assert.Equal(0, result);
-        }
-
-        [Fact]
         public async Task CheckDatabaseFilesStillExist_WithoutDatabaseService_ShouldReturnFalse()
         {
             var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
@@ -2275,7 +1994,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task CheckDatabaseFilesStillExist_WithBrokenDatabaseService_ShouldReturnFalse()
         {
-            var originalDatabaseService = _manager.DatabaseService;
+            var originalDatabaseService = ManagerDatabaseService;
 
             try
             {
@@ -2392,7 +2111,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WhenCancelledAfterFirstProgressReport_ShouldThrowAndNotPublishPartialCount()
+        public async Task EnumerateAndImportSongsAsync_WhenCancelledAfterFirstProgressReport_ShouldThrowAndNotPublishPartialCount()
         {
             var songsRoot = Path.Combine(_testRoot, "CancelledMidEnumeration");
             Directory.CreateDirectory(songsRoot);
@@ -2412,7 +2131,7 @@ namespace DTXMania.Test.Song
             });
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                _manager.EnumerateSongsAsync(
+                _manager.EnumerateAndImportSongsAsync(
                     new[] { songsRoot },
                     progress,
                     cancellation.Token));
@@ -2420,7 +2139,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldReportPostCommitPublicationFailure()
+        public async Task EnumerateAndImportSongsAsync_WhenRootSongCacheIsUnavailable_ShouldReportPostCommitPublicationFailure()
         {
             var songsRoot = Path.Combine(_testRoot, "BrokenRootSongs");
             Directory.CreateDirectory(songsRoot);
@@ -2434,7 +2153,7 @@ namespace DTXMania.Test.Song
                 ReflectionHelpers.SetPrivateField(_manager, "_rootSongs", null!);
 
                 var exception = await Assert.ThrowsAsync<SongEnumerationPostCommitException>(() =>
-                    _manager.EnumerateSongsAsync(new[] { songsRoot }));
+                    _manager.EnumerateAndImportSongsAsync(new[] { songsRoot }));
 
                 Assert.Equal(SongEnumerationPostCommitPhase.Publication, exception.Phase);
                 Assert.True(exception.Batch.IsComplete);
@@ -2443,7 +2162,7 @@ namespace DTXMania.Test.Song
                 Assert.Single(exception.Import.ChartsByPath);
                 Assert.IsType<NullReferenceException>(exception.InnerException);
 
-                var committedSong = Assert.Single(await _manager.DatabaseService!.GetSongsAsync());
+                var committedSong = Assert.Single(await ManagerDatabaseService!.GetSongsAsync());
                 Assert.Equal("Broken Root Song", committedSong.Title);
                 Assert.Single(committedSong.Charts);
             }
@@ -2454,28 +2173,9 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task BuildSongListsAsync_WhenRootSongCacheIsUnavailable_ShouldReturnFalse()
-        {
-            var originalRootSongs = ReflectionHelpers.GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
-
-            try
-            {
-                ReflectionHelpers.SetPrivateField(_manager, "_rootSongs", null!);
-
-                var result = await _manager.BuildSongListsAsync();
-
-                Assert.False(result);
-            }
-            finally
-            {
-                ReflectionHelpers.SetPrivateField(_manager, "_rootSongs", originalRootSongs);
-            }
-        }
-
-        [Fact]
         public async Task NeedsEnumerationAsync_WithBrokenDatabaseService_ShouldReturnTrue()
         {
-            var originalDatabaseService = _manager.DatabaseService;
+            var originalDatabaseService = ManagerDatabaseService;
 
             try
             {
@@ -2660,7 +2360,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task UpdateChartFilePathAsync_WithBrokenDatabaseService_ShouldCompleteSuccessfully()
         {
-            var originalDatabaseService = _manager.DatabaseService;
+            var originalDatabaseService = ManagerDatabaseService;
 
             try
             {
@@ -2717,8 +2417,8 @@ namespace DTXMania.Test.Song
             // Simulate a player who has recorded results at multiple play speeds.
             // The import seeded one DRUMS score row at 100%; add two more variants
             // at canonical speeds (105, 110) so the chart now has 3 score rows.
-            Assert.NotNull(_manager.DatabaseService);
-            using (var context = _manager.DatabaseService!.CreateContext())
+            Assert.NotNull(ManagerDatabaseService);
+            using (var context = ManagerDatabaseService!.CreateContext())
             {
                 var chart = Assert.Single(context.SongCharts.ToList());
                 context.SongScores.Add(new SongScore
@@ -2977,7 +2677,7 @@ namespace DTXMania.Test.Song
     #BPM: 120
     """);
 
-            var originalDatabaseService = _manager.DatabaseService;
+            var originalDatabaseService = ManagerDatabaseService;
 
             try
             {
@@ -3012,7 +2712,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetLastEnumerationTimestampAsync_WithInvalidDatabasePath_ShouldReturnNull()
         {
-            var originalDatabaseService = _manager.DatabaseService;
+            var originalDatabaseService = ManagerDatabaseService;
 
             try
             {
@@ -3036,9 +2736,9 @@ namespace DTXMania.Test.Song
             var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
             Assert.True(initialized);
 
-            var result = await _manager.EnumerateSongsAsync(new[] { songsRoot });
-            Assert.True(result >= 1);
-            Assert.NotNull(_manager.DatabaseService);
+            var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });
+            Assert.True(result.Batch.Candidates.Count >= 1);
+            Assert.NotNull(ManagerDatabaseService);
         }
 
         private async Task CreateDtxFileAsync(string path, string title, string artist, string genre, int drumLevel)
@@ -3090,9 +2790,9 @@ namespace DTXMania.Test.Song
         /// </summary>
         private async Task SetLastEnumerationTimestampAsync(DateTime localTimestamp)
         {
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
             var utcTimestamp = localTimestamp.ToUniversalTime();
-            await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(utcTimestamp);
+            await ManagerDatabaseService!.SetLastSuccessfulEnumerationUtcAsync(utcTimestamp);
 
             var currentRoots = ReflectionHelpers.GetPrivateField<string[]>(
                 _manager,
@@ -3106,13 +2806,13 @@ namespace DTXMania.Test.Song
 
         private async Task SetRootEnumerationTimestampAsync(string root, DateTime utcTimestamp)
         {
-            Assert.NotNull(_manager.DatabaseService);
+            Assert.NotNull(ManagerDatabaseService);
             var canonicalRoot = _manager.RootPolicy
                 .Validate(new[] { root })
                 .CanonicalRoots
                 .Single();
 
-            await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(
+            await ManagerDatabaseService!.SetLastSuccessfulEnumerationUtcAsync(
                 new[] { canonicalRoot },
                 utcTimestamp.ToUniversalTime());
         }

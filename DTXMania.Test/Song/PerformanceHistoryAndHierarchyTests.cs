@@ -6,7 +6,7 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     /// <summary>
-    /// Tests for PerformanceHistory, SongHierarchy, and DatabaseStats entities
+    /// Tests for PerformanceHistory and SongHierarchy entities
     /// </summary>
     [Trait("Category", "Unit")]
     public class PerformanceHistoryTests
@@ -167,78 +167,4 @@ namespace DTXMania.Test.Song
         }
     }
 
-    /// <summary>
-    /// Tests for DatabaseStats
-    /// </summary>
-    public class DatabaseStatsTests
-    {
-        [Fact]
-        public void DatabaseStats_DefaultValues_ShouldBeZero()
-        {
-            var stats = new DatabaseStats();
-
-            Assert.Equal(0, stats.SongCount);
-            Assert.Equal(0, stats.DifficultyCount);
-            Assert.Equal(0, stats.ScoreCount);
-            Assert.Equal(0, stats.HierarchyNodeCount);
-            Assert.Equal(0, stats.PerformanceHistoryCount);
-            Assert.Equal(0, stats.DatabaseSizeBytes);
-        }
-
-        [Fact]
-        public void FormattedSize_Bytes_ShouldDisplayB()
-        {
-            var stats = new DatabaseStats { DatabaseSizeBytes = 512 };
-            Assert.Contains("B", stats.FormattedSize);
-            Assert.Contains("512", stats.FormattedSize);
-        }
-
-        [Fact]
-        public void FormattedSize_Kilobytes_ShouldDisplayKB()
-        {
-            var stats = new DatabaseStats { DatabaseSizeBytes = 2048 }; // 2 KB
-            Assert.Contains("KB", stats.FormattedSize);
-        }
-
-        [Fact]
-        public void FormattedSize_Megabytes_ShouldDisplayMB()
-        {
-            var stats = new DatabaseStats { DatabaseSizeBytes = 2 * 1024 * 1024 }; // 2 MB
-            Assert.Contains("MB", stats.FormattedSize);
-        }
-
-        [Fact]
-        public void FormattedSize_Gigabytes_ShouldDisplayGB()
-        {
-            var stats = new DatabaseStats { DatabaseSizeBytes = 2L * 1024 * 1024 * 1024 }; // 2 GB
-            Assert.Contains("GB", stats.FormattedSize);
-        }
-
-        [Fact]
-        public void FormattedSize_ZeroBytes_ShouldDisplayZeroB()
-        {
-            var stats = new DatabaseStats { DatabaseSizeBytes = 0 };
-            Assert.Contains("B", stats.FormattedSize);
-        }
-
-        [Fact]
-        public void DatabaseStats_SetProperties_ShouldRetainValues()
-        {
-            var stats = new DatabaseStats
-            {
-                SongCount = 100,
-                DifficultyCount = 250,
-                ScoreCount = 500,
-                HierarchyNodeCount = 30,
-                PerformanceHistoryCount = 1000,
-                DatabaseSizeBytes = 1024 * 512
-            };
-
-            Assert.Equal(100, stats.SongCount);
-            Assert.Equal(250, stats.DifficultyCount);
-            Assert.Equal(500, stats.ScoreCount);
-            Assert.Equal(30, stats.HierarchyNodeCount);
-            Assert.Equal(1000, stats.PerformanceHistoryCount);
-        }
-    }
 }

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -32,11 +33,20 @@ namespace DTXMania.Test.Song
             }
         }
 
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private SongDatabaseService? ManagerDatabaseService =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+
         private async Task<int> AddSong(SongDatabaseService db, string title)
         {
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(song, chart);
+            await db.SeedSongAsync(song, chart);
             return (await db.GetSongsAsync()).Single(s => s.Title == title).Id;
         }
 
@@ -44,7 +54,7 @@ namespace DTXMania.Test.Song
         public async Task GetBookmarkedNodesAsync_ReturnsScoreNodesAlphabetically()
         {
             await _manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
-            var db = _manager.DatabaseService!;
+            var db = ManagerDatabaseService!;
             var b = await AddSong(db, "Bravo");
             var a = await AddSong(db, "Alpha");
             await db.SetBookmarkAsync(b, true);
@@ -70,7 +80,7 @@ namespace DTXMania.Test.Song
         public async Task SetBookmarkAsync_PersistsThroughManager()
         {
             await _manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
-            var db = _manager.DatabaseService!;
+            var db = ManagerDatabaseService!;
             var id = await AddSong(db, "Song");
 
             await _manager.SetBookmarkAsync(id, true);

@@ -13,7 +13,7 @@ namespace DTXMania.Test.Song;
 
 /// <summary>
 /// Integration tests verifying that BestAchievementRate survives the full DB load-back
-/// path: UpdateScoreAsync (PerformanceSummary) → BuildSongListFromDatabasePublicAsync
+/// path: UpdateScoreAsync (PerformanceSummary) → BuildHierarchyFromDatabaseOnceAsync
 /// → CreateSongNodeFromDatabaseEntities → PopulatePlayHistoryFromCharts
 /// → SongListNode.Scores[i].BestAchievementRate.
 /// </summary>
@@ -41,7 +41,7 @@ public class AchievementRateRoundTripTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildSongListFromDatabasePublicAsync_AfterPerformanceSummary_ShouldLoadBackBestAchievementRate()
+    public async Task BuildHierarchyFromDatabaseOnceAsync_AfterPerformanceSummary_ShouldLoadBackBestAchievementRate()
     {
         // Arrange: create a multi-chart song (two .dtx files with the same title)
         var songsRoot = Path.Combine(_testRoot, "Songs");
@@ -58,7 +58,7 @@ public class AchievementRateRoundTripTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         // Get the chart IDs from the database so we can record a performance
-        var songs = await _manager.DatabaseService!.GetSongsAsync();
+        var songs = await ManagerDatabaseService!.GetSongsAsync();
         var song = Assert.Single(songs);
         Assert.Equal(2, song.Charts.Count);
 
@@ -90,7 +90,7 @@ public class AchievementRateRoundTripTests : IDisposable
 
         // Clear the in-memory song list and rebuild from the database
         ClearRootSongs();
-        await _manager.BuildSongListFromDatabasePublicAsync(new[] { songsRoot });
+        await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { songsRoot });
 
         // Assert: the loaded SongListNode should carry the persisted BestAchievementRate
         var loadedSong = Assert.Single(_manager.RootSongs);
@@ -104,7 +104,7 @@ public class AchievementRateRoundTripTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildSongListFromDatabasePublicAsync_AfterLowerGameSkill_ShouldNotOverwriteBestAchievementRate()
+    public async Task BuildHierarchyFromDatabaseOnceAsync_AfterLowerGameSkill_ShouldNotOverwriteBestAchievementRate()
     {
         // Arrange: multi-chart song
         var songsRoot = Path.Combine(_testRoot, "Songs");
@@ -120,7 +120,7 @@ public class AchievementRateRoundTripTests : IDisposable
 
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var songs = await _manager.DatabaseService!.GetSongsAsync();
+        var songs = await ManagerDatabaseService!.GetSongsAsync();
         var song = Assert.Single(songs);
         var advancedChart = song.Charts.Single(c => c.DrumLevel == 70);
 
@@ -147,7 +147,7 @@ public class AchievementRateRoundTripTests : IDisposable
 
         // Clear and reload from DB
         ClearRootSongs();
-        await _manager.BuildSongListFromDatabasePublicAsync(new[] { songsRoot });
+        await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { songsRoot });
 
         // Assert: BestAchievementRate should still be the first (higher) value
         var loadedSong = Assert.Single(_manager.RootSongs);
@@ -173,6 +173,16 @@ public class AchievementRateRoundTripTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The initialized database service is stored in a private field swapped
+    /// under the manager lock; tests read it via the established reflection
+    /// seam after the test-only DatabaseService accessor was removed
+    /// (HPA-801 Decision 0).
+    /// </summary>
+    private SongDatabaseService? ManagerDatabaseService =>
+        ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+
+
     #region Helpers
 
     private async Task InitializeAndEnumerateAsync(string songsRoot)
@@ -180,9 +190,9 @@ public class AchievementRateRoundTripTests : IDisposable
         var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
         Assert.True(initialized);
 
-        var result = await _manager.EnumerateSongsAsync(new[] { songsRoot });
-        Assert.True(result >= 1);
-        Assert.NotNull(_manager.DatabaseService);
+        var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });
+        Assert.True(result.Batch.Candidates.Count >= 1);
+        Assert.NotNull(ManagerDatabaseService);
     }
 
     private async Task CreateDtxFileAsync(string path, string title, string artist, string genre, int drumLevel)

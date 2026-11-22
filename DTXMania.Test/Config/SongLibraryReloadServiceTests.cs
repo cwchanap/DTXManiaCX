@@ -8,7 +8,9 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Config;
+using DTXMania.Test.TestData;
 using Xunit;
 namespace DTXMania.Test.Config;
 
@@ -119,7 +121,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
         Assert.False(result.RetainsCurrentSnapshot);
         Assert.Contains("finalization failed after commit", result.FailureMessage);
         // The default service scans the bundled practice songs after the configured roots.
-        var titles = (await manager.DatabaseService!.GetSongsAsync())
+        var titles = (await DatabaseServiceOf(manager)!.GetSongsAsync())
             .Select(song => song.Title)
             .ToList();
         Assert.Contains("Committed Reload", titles);
@@ -232,7 +234,17 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
                 // SQLite can briefly retain a sidecar file after disposal.
             }
         }
+
     }
+
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private static SongDatabaseService? DatabaseServiceOf(SongManager manager) =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(manager, "_databaseService");
 
     private static SongEnumerationResult CreateResult(
         SongEnumerationOutcome outcome,

@@ -265,44 +265,6 @@ namespace DTXMania.Test.Song
             Assert.Equal(1, await context.ScoreSaveReceipts.CountAsync());
         }
 
-        [Fact]
-        public async Task PrimitiveCompatibilityWrite_ShouldUpdateOnlyDefaultSpeed()
-        {
-            var chartId = await InitializeAndSeedChartAsync();
-            using (var context = _service.CreateContext())
-            {
-                context.SongScores.AddRange(
-                    new SongScore
-                    {
-                        ChartId = chartId,
-                        Instrument = EInstrumentPart.DRUMS,
-                        PlaySpeedPercent = 75
-                    },
-                    new SongScore
-                    {
-                        ChartId = chartId,
-                        Instrument = EInstrumentPart.DRUMS,
-                        PlaySpeedPercent = 100
-                    });
-                await context.SaveChangesAsync();
-            }
-
-            await _service.UpdateScoreAsync(
-                chartId,
-                EInstrumentPart.DRUMS,
-                newScore: 123456,
-                achievementRate: 12.34,
-                fullCombo: false);
-
-            using var verify = _service.CreateContext();
-            var variants = await verify.SongScores
-                .OrderBy(score => score.PlaySpeedPercent)
-                .ToListAsync();
-            Assert.Equal(0, variants[0].PlayCount);
-            Assert.Equal(1, variants[1].PlayCount);
-            Assert.Equal(123456, variants[1].LastScore);
-        }
-
         private async Task<int> InitializeAndSeedChartAsync()
         {
             await _service.InitializeDatabaseAsync();

@@ -109,7 +109,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetTopScores_ShouldRequireExplicitSpeedOrUseDefaultCompatibility()
+        public async Task GetTopScoresForSpeedAsync_ShouldReturnOnlyRequestedSpeedBucket()
         {
             await _service.InitializeDatabaseAsync();
             await SeedSongAsync(
@@ -117,15 +117,16 @@ namespace DTXMania.Test.Song
                 (100, 100000, 0, DateTime.UtcNow.AddMinutes(-1)),
                 (75, 900000, 0, DateTime.UtcNow));
 
-            var compatibilityDefault = await _service.GetTopScoresAsync(
-                EInstrumentPart.DRUMS);
+            var defaultBucket = await _service.GetTopScoresForSpeedAsync(
+                EInstrumentPart.DRUMS,
+                playSpeedPercent: 100);
             var slower = await _service.GetTopScoresForSpeedAsync(
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 75);
 
-            Assert.Single(compatibilityDefault);
-            Assert.Equal(100, compatibilityDefault[0].PlaySpeedPercent);
-            Assert.Equal(100000, compatibilityDefault[0].BestScore);
+            Assert.Single(defaultBucket);
+            Assert.Equal(100, defaultBucket[0].PlaySpeedPercent);
+            Assert.Equal(100000, defaultBucket[0].BestScore);
             Assert.Single(slower);
             Assert.Equal(75, slower[0].PlaySpeedPercent);
             Assert.Equal(900000, slower[0].BestScore);
