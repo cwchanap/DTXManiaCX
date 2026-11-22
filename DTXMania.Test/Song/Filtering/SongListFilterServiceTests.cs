@@ -369,7 +369,7 @@ namespace DTXMania.Test.Song.Filtering
         [Fact]
         public void PlayedStatusCleared_WithClearCountAndFRank_ShouldCountAsCleared()
         {
-            // Songs persisted via SongDatabaseService.UpdateScoreAsync have ClearCount > 0
+            // Songs persisted via SongScoreStore.UpdateScoreAsync have ClearCount > 0
             // but BestRank stays at 0 (F). These should still be considered cleared.
             var roots = new List<SongListNode>
             {

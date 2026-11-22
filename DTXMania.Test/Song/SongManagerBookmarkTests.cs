@@ -19,7 +19,7 @@ namespace DTXMania.Test.Song
         public SongManagerBookmarkTests()
         {
             _dbPath = Path.Combine(Path.GetTempPath(), $"mgr_bookmark_{Guid.NewGuid()}.db");
-            _manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            _manager = new SongLibrary(new SongDatabase(_dbPath));
         }
 
         public void Dispose()
@@ -37,14 +37,14 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService ManagerDatabaseService => _manager.Database;
+        private SongDatabase ManagerDatabaseService => _manager.Database;
 
-        private async Task<int> AddSong(SongDatabaseService db, string title)
+        private async Task<int> AddSong(SongDatabase db, string title)
         {
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(song, chart);
-            return (await db.GetSongsAsync()).Single(s => s.Title == title).Id;
+            return (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == title).Id;
         }
 
         [Fact]
@@ -54,8 +54,8 @@ namespace DTXMania.Test.Song
             var db = ManagerDatabaseService!;
             var b = await AddSong(db, "Bravo");
             var a = await AddSong(db, "Alpha");
-            await db.SetBookmarkAsync(b, true);
-            await db.SetBookmarkAsync(a, true);
+            await new SongCatalogStore(db).SetBookmarkAsync(b, true);
+            await new SongCatalogStore(db).SetBookmarkAsync(a, true);
 
             var nodes = await _manager.GetBookmarkedNodesAsync();
 
@@ -83,7 +83,7 @@ namespace DTXMania.Test.Song
 
             await _manager.SetBookmarkAsync(id, true);
 
-            Assert.True((await db.GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
+            Assert.True((await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
         }
 
         [Fact]

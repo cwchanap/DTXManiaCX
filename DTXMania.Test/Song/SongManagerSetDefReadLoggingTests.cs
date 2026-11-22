@@ -26,7 +26,7 @@ public class SongManagerSetDefReadLoggingTests : IDisposable
 
     public SongManagerSetDefReadLoggingTests()
     {
-        _library = new SongLibrary(new SongDatabaseService(_databasePath), _logger.Object);
+        _library = new SongLibrary(new SongDatabase(_databasePath), _logger.Object);
     }
 
     public void Dispose()

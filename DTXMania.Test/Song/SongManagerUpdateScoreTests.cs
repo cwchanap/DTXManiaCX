@@ -22,7 +22,7 @@ public class SongManagerUpdateScoreTests : IDisposable
 
     public SongManagerUpdateScoreTests()
     {
-        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+        _manager = new SongLibrary(new SongDatabase(Path.Combine(
             Path.GetTempPath(), $"score_{Guid.NewGuid()}.db")));
 
         _testRoot = Path.Combine(
@@ -62,7 +62,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var songs = await db.GetSongsAsync();
+        var songs = await new SongCatalogStore(db).GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
         var summary = new PerformanceSummary
@@ -86,7 +86,7 @@ public class SongManagerUpdateScoreTests : IDisposable
 
         Assert.True(result.IsSuccess);
 
-        var scores = await ManagerDatabaseService!.GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 1);
+        var scores = await new SongScoreStore(ManagerDatabaseService!).GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 1);
         var score = Assert.Single(scores);
         Assert.Equal(chart.Id, score.ChartId);
         Assert.Equal(800_000, score.BestScore);
@@ -130,7 +130,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var songs = await db.GetSongsAsync();
+        var songs = await new SongCatalogStore(db).GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
         // Find the in-memory score node and capture a reference to its score object.
@@ -184,7 +184,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var songs = await db.GetSongsAsync();
+        var songs = await new SongCatalogStore(db).GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
         var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
@@ -250,7 +250,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         var secondDifficultyIndex = Array.IndexOf(secondNode.Scores, secondScore);
 
         var db = ManagerDatabaseService!;
-        var persistedSongs = await db.GetSongsAsync();
+        var persistedSongs = await new SongCatalogStore(db).GetSongsAsync();
         var firstSong = persistedSongs.Single(
             song => song.Title == "First SetDef Song");
         var secondSong = persistedSongs.Single(
@@ -303,7 +303,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+        var chart = Assert.Single(await new SongCatalogStore(db).GetSongsAsync()).Charts.First();
         var (canonicalNode, metadata) = FindScoreByChartId(_manager.RootSongs, chart.Id);
         Assert.NotNull(canonicalNode);
         Assert.NotNull(metadata);
@@ -452,7 +452,7 @@ public class SongManagerUpdateScoreTests : IDisposable
     /// seam after the test-only DatabaseService accessor was removed
     /// (HPA-801 Decision 0).
     /// </summary>
-    private SongDatabaseService ManagerDatabaseService => _manager.Database;
+    private SongDatabase ManagerDatabaseService => _manager.Database;
 
     private static async Task CreateDtxFileAsync(string path, string title, string artist, string genre, int drumLevel)
     {
@@ -513,7 +513,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+        var chart = Assert.Single(await new SongCatalogStore(db).GetSongsAsync()).Charts.First();
 
         // Simulate the in-memory list being empty (cleared/rebuilt between save
         // and refresh) so PublishNodeScoreVariant finds no matching node.
@@ -565,7 +565,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+        var chart = Assert.Single(await new SongCatalogStore(db).GetSongsAsync()).Charts.First();
 
         var summary = new PerformanceSummary
         {
@@ -610,7 +610,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+        var chart = Assert.Single(await new SongCatalogStore(db).GetSongsAsync()).Charts.First();
 
         // Two real saves so the DB and the in-memory node both reach PlayCount=2.
         // This is the state the winning concurrent caller would have published.
@@ -698,7 +698,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await InitializeAndEnumerateAsync(songsRoot);
 
         var db = ManagerDatabaseService!;
-        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+        var chart = Assert.Single(await new SongCatalogStore(db).GetSongsAsync()).Charts.First();
 
         var barrier = new Barrier(participantCount: 2);
 
@@ -727,7 +727,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             $"Both concurrent saves should succeed; saw status={r.Status} message={r.ErrorMessage}"));
 
         // The database must reflect both plays.
-        var dbScore = await db.GetScoreWithHistoryAsync(chart.Id, EInstrumentPart.DRUMS, 100);
+        var dbScore = await new SongScoreStore(db).GetScoreWithHistoryAsync(chart.Id, EInstrumentPart.DRUMS, 100);
         Assert.NotNull(dbScore);
         Assert.Equal(2, dbScore!.PlayCount);
 

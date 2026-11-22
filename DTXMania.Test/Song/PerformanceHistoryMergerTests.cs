@@ -13,7 +13,7 @@ namespace DTXMania.Test.Song
     /// <summary>
     /// Direct unit tests for <see cref="PerformanceHistoryMerger"/>.
     /// The merger is also exercised indirectly through NxScoreImporter and
-    /// SongDatabaseService.UpdateScoreAsync, but these tests target edge cases
+    /// SongScoreStore.UpdateScoreAsync, but these tests target edge cases
     /// (arg validation, empty incoming, whitespace rejection, date tie-breaks)
     /// that are hard to reach through the higher-level callers.
     /// </summary>

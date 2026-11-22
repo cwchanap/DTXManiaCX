@@ -20,7 +20,7 @@ namespace DTXMania.Test.Song
         public SongManagerRecentPlaysTests()
         {
             _dbPath = Path.Combine(Path.GetTempPath(), $"mgr_recent_{Guid.NewGuid()}.db");
-            _manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            _manager = new SongLibrary(new SongDatabase(_dbPath));
         }
 
         public void Dispose()
@@ -35,7 +35,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetRecentlyPlayedNodesAsync_ReturnsScoreNodesNewestFirst()
         {
-            var manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            var manager = new SongLibrary(new SongDatabase(_dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = manager.Database;
 
@@ -44,8 +44,8 @@ namespace DTXMania.Test.Song
                 var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
                 var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
                 await db.SeedSongAsync(song, chart);
-                var stored = (await db.GetSongsAsync()).Single(s => s.Title == title);
-                await db.UpdateScoreAsync(stored.Charts.Single().Id, EInstrumentPart.DRUMS, CreateSummary(100, pitchSemitones: 0, score: 100000));
+                var stored = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == title);
+                await new SongScoreStore(db).UpdateScoreAsync(stored.Charts.Single().Id, EInstrumentPart.DRUMS, CreateSummary(100, pitchSemitones: 0, score: 100000));
             }
 
             await AddAndPlay("Older");
@@ -63,7 +63,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetRecentlyPlayedNodesAsync_WhenNothingPlayed_ReturnsEmptyList()
         {
-            var manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            var manager = new SongLibrary(new SongDatabase(_dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
 
             var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
@@ -77,7 +77,7 @@ namespace DTXMania.Test.Song
             // HPA-801: the library's database exists from construction but is
             // unusable until Startup's InitializeAsync runs; queries read as
             // empty instead of throwing (pre-rename contract).
-            var manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            var manager = new SongLibrary(new SongDatabase(_dbPath));
             // Deliberately not initializing the database.
 
             var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
@@ -137,7 +137,7 @@ namespace DTXMania.Test.Song
         }
 
         private static SongLibrary CreateFaultingManager() => new(
-            new SongDatabaseService(
+            new SongDatabase(
                 new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<
                     DTXMania.Game.Lib.Song.Entities.SongDbContext>()
                     .UseSqlite("Data Source=:memory:")
@@ -163,14 +163,14 @@ namespace DTXMania.Test.Song
             };
             await db.SeedSongAsync(song, chart);
             var storedChart = Assert.Single(
-                Assert.Single(await db.GetSongsAsync()).Charts);
+                Assert.Single(await new SongCatalogStore(db).GetSongsAsync()).Charts);
 
-            await db.UpdateScoreAsync(
+            await new SongScoreStore(db).UpdateScoreAsync(
                 storedChart.Id,
                 EInstrumentPart.DRUMS,
                 CreateSummary(100, pitchSemitones: 2, score: 800000));
             await Task.Delay(20);
-            await db.UpdateScoreAsync(
+            await new SongScoreStore(db).UpdateScoreAsync(
                 storedChart.Id,
                 EInstrumentPart.DRUMS,
                 CreateSummary(75, pitchSemitones: -4, score: 900000));
@@ -196,7 +196,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private static SongDatabaseService ManagerDatabaseService(SongLibrary manager) =>
+        private static SongDatabase ManagerDatabaseService(SongLibrary manager) =>
             manager.Database;
 
         private static PerformanceSummary CreateSummary(

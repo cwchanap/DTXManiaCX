@@ -13,18 +13,18 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     /// <summary>
-    /// Coverage for the idempotent score-save path in SongDatabaseService:
+    /// Coverage for the idempotent score-save path in SongDatabase:
     /// receipt-based deduplication, non-default-speed bucket isolation,
     /// and argument validation for the PerformanceSummary-based overload.
     /// </summary>
     [Trait("Category", "Unit")]
-    public class SongDatabaseServiceIdempotencyTests : System.IDisposable
+    public class SongScoreStoreIdempotencyTests : System.IDisposable
     {
         private readonly SqliteConnection _connection;
         private readonly DbContextOptions<SongDbContext> _options;
-        private readonly SongDatabaseService _svc;
+        private readonly SongDatabase _svc;
 
-        public SongDatabaseServiceIdempotencyTests()
+        public SongScoreStoreIdempotencyTests()
         {
             _connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
             _connection.Open();
@@ -36,7 +36,7 @@ namespace DTXMania.Test.Song
             try { setupCtx.Database.EnsureCreated(); }
             finally { setupCtx.Dispose(); }
 
-            _svc = new SongDatabaseService(_options);
+            _svc = new SongDatabase(_options);
         }
 
         public void Dispose() { _connection.Dispose(); }
@@ -121,7 +121,7 @@ namespace DTXMania.Test.Song
             var chart = await SeedChartAsync();
 
             await Assert.ThrowsAsync<ArgumentNullException>(
-                () => _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, null!));
+                () => new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, null!));
         }
 
         [Theory]
@@ -136,7 +136,7 @@ namespace DTXMania.Test.Song
             var summary = SavableSummary(playSpeedPercent: invalidSpeed);
 
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-                () => _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary));
+                () => new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary));
         }
 
         #endregion
@@ -150,9 +150,9 @@ namespace DTXMania.Test.Song
             var runId = Guid.NewGuid();
             var summary = SavableSummary(runId: runId);
 
-            var first = await _svc.UpdateScoreAsync(
+            var first = await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id, EInstrumentPart.DRUMS, summary);
-            var second = await _svc.UpdateScoreAsync(
+            var second = await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id, EInstrumentPart.DRUMS, summary);
 
             Assert.Equal(ScoreSaveStatus.Saved, first.Status);
@@ -168,7 +168,7 @@ namespace DTXMania.Test.Song
             var runId = Guid.NewGuid();
             var summary = SavableSummary(runId: runId, playSpeedPercent: 75);
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var receipt = await LoadReceiptAsync(runId);
             Assert.NotNull(receipt);
@@ -185,10 +185,10 @@ namespace DTXMania.Test.Song
             var runId = Guid.NewGuid();
             var summary = SavableSummary(runId: runId, score: 900_000);
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
             // Retry with different score — should be ignored (AlreadySaved)
             var retrySummary = SavableSummary(runId: runId, score: 950_000);
-            var result = await _svc.UpdateScoreAsync(
+            var result = await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id, EInstrumentPart.DRUMS, retrySummary);
 
             Assert.Equal(ScoreSaveStatus.AlreadySaved, result.Status);
@@ -215,13 +215,13 @@ namespace DTXMania.Test.Song
             var chart = await SeedChartAsync();
 
             // Save at default speed
-            await _svc.UpdateScoreAsync(
+            await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id,
                 EInstrumentPart.DRUMS,
                 SavableSummary(playSpeedPercent: 100, score: 900_000));
 
             // Save at 75% speed
-            await _svc.UpdateScoreAsync(
+            await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id,
                 EInstrumentPart.DRUMS,
                 SavableSummary(playSpeedPercent: 75, score: 750_000));
@@ -242,12 +242,12 @@ namespace DTXMania.Test.Song
             var chart = await SeedChartAsync();
             var speed = 75;
 
-            await _svc.UpdateScoreAsync(
+            await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id,
                 EInstrumentPart.DRUMS,
                 SavableSummary(playSpeedPercent: speed, score: 700_000));
 
-            await _svc.UpdateScoreAsync(
+            await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id,
                 EInstrumentPart.DRUMS,
                 SavableSummary(playSpeedPercent: speed, score: 850_000));
@@ -280,7 +280,7 @@ namespace DTXMania.Test.Song
             cts.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => _svc.UpdateScoreAsync(
+                () => new SongScoreStore(_svc).UpdateScoreAsync(
                     chart.Id,
                     EInstrumentPart.DRUMS,
                     summary,
@@ -298,7 +298,7 @@ namespace DTXMania.Test.Song
             var summary = SavableSummary(runId: Guid.Empty);
 
             // Should not throw — legacy callers with empty RunId get a generated one
-            var result = await _svc.UpdateScoreAsync(
+            var result = await new SongScoreStore(_svc).UpdateScoreAsync(
                 chart.Id, EInstrumentPart.DRUMS, summary);
 
             Assert.True(result.IsSuccess);

@@ -1579,7 +1579,7 @@ namespace DTXMania.Test.Stage
                 .Options;
             using (var schema = new SongDbContext(options))
                 schema.Database.EnsureCreated();
-            return (connection, new SongLibrary(new SongDatabaseService(options)));
+            return (connection, new SongLibrary(new SongDatabase(options)));
         }
 
         // HPA-796: fixture-owned managed pixel — acquisition is observed through an

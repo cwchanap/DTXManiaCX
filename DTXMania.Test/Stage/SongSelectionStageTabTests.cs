@@ -533,7 +533,7 @@ namespace DTXMania.Test.Stage
             var updateThreadId = Environment.CurrentManagedThreadId;
             int? loaderThreadId = null;
             using var loaderInvoked = new ManualResetEventSlim(false);
-            using var dbService = new SongDatabaseService(options, () =>
+            using var dbService = new SongDatabase(options, () =>
             {
                 loaderThreadId = Environment.CurrentManagedThreadId;
                 loaderInvoked.Set();
@@ -658,7 +658,7 @@ namespace DTXMania.Test.Stage
         /// connection pooling keeps deleted files readable).
         /// </summary>
         private static SongLibrary CreateFaultingManager() => new(
-            new SongDatabaseService(
+            new SongDatabase(
                 new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<
                     DTXMania.Game.Lib.Song.Entities.SongDbContext>()
                     .UseSqlite("Data Source=:memory:")
@@ -670,7 +670,7 @@ namespace DTXMania.Test.Stage
         public async Task BeginRecentPlaysLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             // Break the initialized database: every context creation now faults,
             // so the load/write paths surface their failure states.
@@ -703,7 +703,7 @@ namespace DTXMania.Test.Stage
         public async Task BeginRecentPlaysLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_stale_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             // Break the initialized database: every context creation now faults,
             // so the load/write paths surface their failure states.
@@ -914,7 +914,7 @@ namespace DTXMania.Test.Stage
         public async Task BeginBookmarksLoad_WhenDbThrows_ShouldSetLoadFailedAndFlagsRefresh()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             // Break the initialized database: every context creation now faults,
             // so the load/write paths surface their failure states.
@@ -947,7 +947,7 @@ namespace DTXMania.Test.Stage
         public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             // Break the initialized database: every context creation now faults,
             // so the load/write paths surface their failure states.
@@ -1055,7 +1055,7 @@ namespace DTXMania.Test.Stage
         public async Task BeginBookmarksLoad_WhenFaultedAndLoadVersionSuperseded_ShouldDiscardStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_load_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            var manager = new SongLibrary(new SongDatabase(dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
             // Break the initialized database: every context creation now faults,
             // so the load/write paths surface their failure states.

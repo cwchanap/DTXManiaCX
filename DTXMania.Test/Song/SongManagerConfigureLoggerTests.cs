@@ -47,7 +47,7 @@ public class SongManagerConfigureLoggerTests : IDisposable
     {
         var logger = new Mock<ILogger<SongLibrary>>();
         var thrown = new InvalidOperationException("subscriber blew up");
-        using var library = new SongLibrary(new SongDatabaseService(_databasePath), logger.Object);
+        using var library = new SongLibrary(new SongDatabase(_databasePath), logger.Object);
 
         InvokeSafeInvokeWithThrowingHandler(library, (_, _) => throw thrown, "SongLibraryPublished");
 
@@ -65,7 +65,7 @@ public class SongManagerConfigureLoggerTests : IDisposable
     [Fact]
     public void NullLogger_ShouldKeepFailurePathSilentAndNonThrowing()
     {
-        using var library = new SongLibrary(new SongDatabaseService(_databasePath));
+        using var library = new SongLibrary(new SongDatabase(_databasePath));
 
         var exception = Record.Exception(() =>
             InvokeSafeInvokeWithThrowingHandler(library, (_, _) => throw new InvalidOperationException("boom"), "SongLibraryPublished"));

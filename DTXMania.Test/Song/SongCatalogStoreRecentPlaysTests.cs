@@ -10,15 +10,15 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    public class SongDatabaseServiceRecentPlaysTests : IDisposable
+    public class SongCatalogStoreRecentPlaysTests : IDisposable
     {
-        private readonly SongDatabaseService _db;
+        private readonly SongDatabase _db;
         private readonly string _dbPath;
 
-        public SongDatabaseServiceRecentPlaysTests()
+        public SongCatalogStoreRecentPlaysTests()
         {
             _dbPath = Path.Combine(Path.GetTempPath(), $"recent_db_{Guid.NewGuid()}.db");
-            _db = new SongDatabaseService(_dbPath);
+            _db = new SongDatabase(_dbPath);
         }
 
         public void Dispose()
@@ -56,9 +56,9 @@ namespace DTXMania.Test.Song
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await _db.SeedSongAsync(song, chart);
-            var stored = (await _db.GetSongsAsync()).Single(s => s.Title == title);
+            var stored = (await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Title == title);
             var chartId = stored.Charts.Single().Id;
-            await _db.UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, CreatePlaySummary(100000));
+            await new SongScoreStore(_db).UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, CreatePlaySummary(100000));
             return stored.Id;
         }
 
@@ -72,7 +72,7 @@ namespace DTXMania.Test.Song
             await Task.Delay(50);
             await AddAndPlayAsync("Third");
 
-            var recent = await _db.GetRecentlyPlayedSongsAsync(20);
+            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
 
             Assert.Equal(new[] { "Third", "Second", "First" }, recent.Select(s => s.Title).ToArray());
         }
@@ -93,11 +93,11 @@ namespace DTXMania.Test.Song
             await Task.Delay(50);
 
             // Replay A so it becomes the most recent, diverging from insertion order.
-            await _db.UpdateScoreAsync(
-                (await _db.GetSongsAsync()).Single(s => s.Id == idA).Charts.Single().Id,
+            await new SongScoreStore(_db).UpdateScoreAsync(
+                (await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Id == idA).Charts.Single().Id,
                 EInstrumentPart.DRUMS, CreatePlaySummary(200000));
 
-            var recent = await _db.GetRecentlyPlayedSongsAsync(20);
+            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
 
             Assert.Equal(new[] { "A", "C", "B" }, recent.Select(s => s.Title).ToArray());
         }
@@ -111,7 +111,7 @@ namespace DTXMania.Test.Song
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Unplayed", Artist = "A" };
             await _db.SeedSongAsync(song, new SongChart { FilePath = "/c/unplayed.dtx", HasDrumChart = true, DrumLevel = 20 });
 
-            var recent = await _db.GetRecentlyPlayedSongsAsync(20);
+            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
 
             Assert.Single(recent);
             Assert.Equal("Played", recent[0].Title);
@@ -127,7 +127,7 @@ namespace DTXMania.Test.Song
                 await Task.Delay(2);
             }
 
-            var recent = await _db.GetRecentlyPlayedSongsAsync(20);
+            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
 
             Assert.Equal(20, recent.Count);
         }
@@ -146,15 +146,15 @@ namespace DTXMania.Test.Song
                 ctx.SongCharts.AddRange(bas, adv);
                 await ctx.SaveChangesAsync();
             }
-            var charts = (await _db.GetSongsAsync()).Single(s => s.Title == "Multi")
+            var charts = (await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Title == "Multi")
                 .Charts.OrderBy(c => c.DrumLevel).ToArray();
 
             // Play the easier chart, then later the harder chart.
-            await _db.UpdateScoreAsync(charts[0].Id, EInstrumentPart.DRUMS, CreatePlaySummary(50000));
+            await new SongScoreStore(_db).UpdateScoreAsync(charts[0].Id, EInstrumentPart.DRUMS, CreatePlaySummary(50000));
             await Task.Delay(50);
-            await _db.UpdateScoreAsync(charts[1].Id, EInstrumentPart.DRUMS, CreatePlaySummary(90000));
+            await new SongScoreStore(_db).UpdateScoreAsync(charts[1].Id, EInstrumentPart.DRUMS, CreatePlaySummary(90000));
 
-            var recent = await _db.GetRecentlyPlayedSongsAsync(20);
+            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
 
             Assert.Single(recent);
             Assert.Equal("Multi", recent[0].Title);
@@ -172,7 +172,7 @@ namespace DTXMania.Test.Song
             // short-circuit before any query is issued.
             await AddAndPlayAsync("Played");
 
-            var recent = await _db.GetRecentlyPlayedSongsAsync(limit);
+            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(limit);
 
             Assert.Empty(recent);
         }

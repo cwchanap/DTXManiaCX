@@ -20,7 +20,7 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
     {
         // Snapshot tests operate on published in-memory state; the database
         // path is never initialized and construction is side-effect free.
-        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+        _manager = new SongLibrary(new SongDatabase(Path.Combine(
             Path.GetTempPath(), $"snapshot_{Guid.NewGuid()}.db")));
     }
 

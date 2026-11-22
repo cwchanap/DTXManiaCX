@@ -383,7 +383,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         // through IStageGame.SongLibrary. Construction has no filesystem side
         // effects; the database directory/schema materialize in Startup's
         // InitializeAsync phase.
-        var songDatabase = new SongDatabaseService(AppPaths.GetSongsDatabasePath());
+        var songDatabase = new SongDatabase(AppPaths.GetSongsDatabasePath());
         var songLibrary = new SongLibrary(
             songDatabase,
             _loggerFactory.CreateLogger<SongLibrary>());

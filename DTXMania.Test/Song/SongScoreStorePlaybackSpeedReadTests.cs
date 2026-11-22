@@ -10,17 +10,17 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    public sealed class SongDatabaseServicePlaybackSpeedReadTests : IDisposable
+    public sealed class SongScoreStorePlaybackSpeedReadTests : IDisposable
     {
-        private readonly SongDatabaseService _service;
+        private readonly SongDatabase _service;
         private readonly string _dbPath;
 
-        public SongDatabaseServicePlaybackSpeedReadTests()
+        public SongScoreStorePlaybackSpeedReadTests()
         {
             _dbPath = Path.Combine(
                 Path.GetTempPath(),
                 $"speed_read_{Guid.NewGuid()}.db");
-            _service = new SongDatabaseService(_dbPath);
+            _service = new SongDatabase(_dbPath);
         }
 
         public void Dispose()
@@ -42,19 +42,19 @@ namespace DTXMania.Test.Song
                 (100, 100000, -2, DateTime.UtcNow.AddMinutes(-2)),
                 (75, 750000, 4, DateTime.UtcNow));
 
-            var defaultSpeed = await _service.GetScoreWithHistoryAsync(
+            var defaultSpeed = await new SongScoreStore(_service).GetScoreWithHistoryAsync(
                 seeded.ChartId,
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 100);
-            var slowerSpeed = await _service.GetScoreWithHistoryAsync(
+            var slowerSpeed = await new SongScoreStore(_service).GetScoreWithHistoryAsync(
                 seeded.ChartId,
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 75);
-            var unplayedSpeed = await _service.GetScoreWithHistoryAsync(
+            var unplayedSpeed = await new SongScoreStore(_service).GetScoreWithHistoryAsync(
                 seeded.ChartId,
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 125);
-            var compatibilityDefault = await _service.GetScoreWithHistoryAsync(
+            var compatibilityDefault = await new SongScoreStore(_service).GetScoreWithHistoryAsync(
                 seeded.ChartId,
                 EInstrumentPart.DRUMS);
 
@@ -86,7 +86,7 @@ namespace DTXMania.Test.Song
                 "Default middle",
                 (100, 500000, 0, now.AddMinutes(-5)));
 
-            var recent = await _service.GetRecentlyPlayedSongsAsync();
+            var recent = await new SongCatalogStore(_service).GetRecentlyPlayedSongsAsync();
 
             Assert.Equal(
                 new[] { "Variant latest", "Default middle" },
@@ -117,10 +117,10 @@ namespace DTXMania.Test.Song
                 (100, 100000, 0, DateTime.UtcNow.AddMinutes(-1)),
                 (75, 900000, 0, DateTime.UtcNow));
 
-            var defaultBucket = await _service.GetTopScoresForSpeedAsync(
+            var defaultBucket = await new SongScoreStore(_service).GetTopScoresForSpeedAsync(
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 100);
-            var slower = await _service.GetTopScoresForSpeedAsync(
+            var slower = await new SongScoreStore(_service).GetTopScoresForSpeedAsync(
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 75);
 

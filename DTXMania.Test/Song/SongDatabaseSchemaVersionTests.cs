@@ -50,12 +50,12 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task InitializeDatabaseAsync_WhenFresh_ShouldCreateSchemaMetadataAndStampVersion()
         {
-            using var service = new SongDatabaseService(_dbPath);
+            using var service = new SongDatabase(_dbPath);
 
             await service.InitializeDatabaseAsync();
 
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
             foreach (var table in new[]
             {
@@ -95,7 +95,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task InitializeDatabaseAsync_JapaneseTitleAndPath_ShouldRoundTrip()
         {
-            using var service = new SongDatabaseService(_dbPath);
+            using var service = new SongDatabase(_dbPath);
             await service.InitializeDatabaseAsync();
 
             var songFolder = Path.Combine(_tempRoot, "楽曲");
@@ -117,7 +117,7 @@ namespace DTXMania.Test.Song
                     DrumLevel = 45
                 });
 
-            var stored = Assert.Single(await service.GetSongsAsync());
+            var stored = Assert.Single(await new SongCatalogStore(service).GetSongsAsync());
             Assert.Equal("桜色のメロディ", stored.Title);
             Assert.Equal("夢見るドラマー", stored.Artist);
             var storedChart = Assert.Single(stored.Charts);
@@ -148,8 +148,8 @@ namespace DTXMania.Test.Song
                     new SongEntity { Title = "Retain Me", Artist = "Keeper" },
                     chart);
                 chartId = chart.Id;
-                await first.SetBookmarkAsync(songId, true);
-                await first.UpdateScoreAsync(
+                await new SongCatalogStore(first).SetBookmarkAsync(songId, true);
+                await new SongScoreStore(first).UpdateScoreAsync(
                     chartId,
                     EInstrumentPart.DRUMS,
                     new PerformanceSummary
@@ -183,9 +183,9 @@ namespace DTXMania.Test.Song
                     await context.SaveChangesAsync();
                 }
 
-                Assert.True(await first.SetEnumerationWatermarkAtomicallyAsync(
+                Assert.True(await new SongCatalogStore(first).SetEnumerationWatermarkAtomicallyAsync(
                     watermark, new[] { canonicalRoot }));
-                await first.SetRejectedChartCountsAsync(
+                await new SongCatalogStore(first).SetRejectedChartCountsAsync(
                     new Dictionary<string, int> { [canonicalRoot] = 3 });
             }
 
@@ -195,10 +195,10 @@ namespace DTXMania.Test.Song
 
                 Assert.Equal(0, second.PurgeCalls);
                 Assert.Equal(
-                    SongDatabaseService.CurrentSongSchemaVersion,
+                    SongDatabase.CurrentSongSchemaVersion,
                     await ReadUserVersionAsync(_dbPath));
 
-                var songs = await second.GetSongsAsync();
+                var songs = await new SongCatalogStore(second).GetSongsAsync();
                 var reloaded = Assert.Single(songs, saved => saved.Id == songId);
                 Assert.True(reloaded.IsBookmarked);
                 var reloadedChart = Assert.Single(reloaded.Charts);
@@ -224,13 +224,13 @@ namespace DTXMania.Test.Song
 
                 Assert.Equal(
                     watermark,
-                    await second.GetLastSuccessfulEnumerationUtcAsync());
+                    await new SongCatalogStore(second).GetLastSuccessfulEnumerationUtcAsync());
                 Assert.Equal(
                     watermark,
-                    await second.GetLastSuccessfulEnumerationUtcAsync(canonicalRoot));
+                    await new SongCatalogStore(second).GetLastSuccessfulEnumerationUtcAsync(canonicalRoot));
                 Assert.Equal(
                     3,
-                    await second.GetRejectedChartCountAsync(new[] { canonicalRoot }));
+                    await new SongCatalogStore(second).GetRejectedChartCountAsync(new[] { canonicalRoot }));
             }
         }
 
@@ -244,7 +244,7 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(1, service.PurgeCalls);
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
             Assert.Equal(0, await TableCountAsync(_dbPath, "__DatabaseVersion"));
             Assert.Equal(0, await TableCountAsync(_dbPath, "LegacySentinel"));
@@ -259,14 +259,14 @@ namespace DTXMania.Test.Song
                     HasDrumChart = true,
                     DrumLevel = 40
                 });
-            var songs = await service.GetSongsAsync();
+            var songs = await new SongCatalogStore(service).GetSongsAsync();
             Assert.Single(songs, saved => saved.Id == songId);
         }
 
         [Fact]
         public async Task InitializeDatabaseAsync_WhenVersionMismatch_ShouldPurgeAndRebuild()
         {
-            using (var first = new SongDatabaseService(_dbPath))
+            using (var first = new SongDatabase(_dbPath))
             {
                 await first.InitializeDatabaseAsync();
                 await first.SeedSongAsync(
@@ -285,7 +285,7 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(1, service.PurgeCalls);
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
             Assert.Equal(0, await ScalarAsync(_dbPath, "SELECT COUNT(*) FROM Songs"));
         }
@@ -300,15 +300,15 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(1, service.PurgeCalls);
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
-            Assert.True(await service.DatabaseExistsAsync());
+            Assert.True(await service.CanConnectAsync());
         }
 
         [Fact]
         public async Task InitializeDatabaseAsync_WhenDatabaseCorruptInLaterPages_ShouldPurgeAndRebuild()
         {
-            using (var first = new SongDatabaseService(_dbPath))
+            using (var first = new SongDatabase(_dbPath))
             {
                 await first.InitializeDatabaseAsync();
                 for (int i = 0; i < 20; i++)
@@ -337,7 +337,7 @@ namespace DTXMania.Test.Song
 
             // Verify user_version header on page 1 is still 1
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
 
             using var service = new CountingPurgeService(_dbPath);
@@ -345,15 +345,15 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(1, service.PurgeCalls);
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
-            Assert.True(await service.DatabaseExistsAsync());
+            Assert.True(await service.CanConnectAsync());
         }
 
         [Fact]
         public async Task InitializeDatabaseAsync_WhenProbeFailsWithNonCorruptionError_ShouldPropagate()
         {
-            using (var first = new SongDatabaseService(_dbPath))
+            using (var first = new SongDatabase(_dbPath))
             {
                 await first.InitializeDatabaseAsync();
             }
@@ -369,7 +369,7 @@ namespace DTXMania.Test.Song
             Assert.Same(probeError, thrown);
             Assert.Equal(0, service.PurgeCalls);
             Assert.Equal(
-                SongDatabaseService.CurrentSongSchemaVersion,
+                SongDatabase.CurrentSongSchemaVersion,
                 await ReadUserVersionAsync(_dbPath));
             Assert.Throws<InvalidOperationException>(() => service.CreateContext());
         }
@@ -400,7 +400,7 @@ namespace DTXMania.Test.Song
             var directoryDbPath = Path.Combine(_tempRoot, "not-a-db");
             Directory.CreateDirectory(directoryDbPath);
 
-            using var service = new SongDatabaseService(directoryDbPath);
+            using var service = new SongDatabase(directoryDbPath);
             var exception = await Record.ExceptionAsync(
                 () => service.InitializeDatabaseAsync());
 
@@ -421,7 +421,7 @@ namespace DTXMania.Test.Song
             });
 
             await CreateLegacyVersionZeroDatabaseAsync();
-            using var service = new SongDatabaseService(_dbPath);
+            using var service = new SongDatabase(_dbPath);
             await service.InitializeDatabaseAsync();
 
             var entries = configStore.Load();
@@ -432,7 +432,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task CurrentSongSchemaHash_WhenSchemaChanges_ShouldFailWithBumpInstruction()
         {
-            Assert.Equal(1, SongDatabaseService.CurrentSongSchemaVersion);
+            Assert.Equal(1, SongDatabase.CurrentSongSchemaVersion);
 
             var options = new DbContextOptionsBuilder<SongDbContext>()
                 .UseSqlite("Data Source=:memory:")
@@ -440,7 +440,7 @@ namespace DTXMania.Test.Song
             await using var context = new SongDbContext(options);
             var createScript = context.Database.GenerateCreateScript()
                 .Replace("\r\n", "\n", StringComparison.Ordinal);
-            var metadataDdl = SongDatabaseService.EnumerationMetadataTableDdl
+            var metadataDdl = SongDatabase.EnumerationMetadataTableDdl
                 .Replace("\r\n", "\n", StringComparison.Ordinal);
             var hash = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(createScript + metadataDdl)));
@@ -531,7 +531,7 @@ namespace DTXMania.Test.Song
             await command.ExecuteNonQueryAsync();
         }
 
-        private sealed class CountingPurgeService : SongDatabaseService
+        private sealed class CountingPurgeService : SongDatabase
         {
             private readonly Func<long>? _readVersion;
             private readonly Func<Task>? _purgeBehavior;

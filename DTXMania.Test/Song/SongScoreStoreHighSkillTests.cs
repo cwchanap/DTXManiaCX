@@ -12,13 +12,13 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    public class SongDatabaseServiceHighSkillTests : System.IDisposable
+    public class SongScoreStoreHighSkillTests : System.IDisposable
     {
         private readonly SqliteConnection _connection;
         private readonly DbContextOptions<SongDbContext> _options;
-        private readonly SongDatabaseService _svc;
+        private readonly SongDatabase _svc;
 
-        public SongDatabaseServiceHighSkillTests()
+        public SongScoreStoreHighSkillTests()
         {
             _connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
             _connection.Open();
@@ -29,7 +29,7 @@ namespace DTXMania.Test.Song
             try { setupCtx.Database.EnsureCreated(); }
             finally { setupCtx.Dispose(); }
 
-            _svc = new SongDatabaseService(_options);
+            _svc = new SongDatabase(_options);
         }
 
         public void Dispose() { _connection.Dispose(); }
@@ -100,7 +100,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(900000, saved.BestScore);
@@ -139,7 +139,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(150.0, saved.HighSkill, 4);
@@ -170,7 +170,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(180.0, saved.HighSkill, 4);
@@ -203,7 +203,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(950000, saved.BestScore);
@@ -236,7 +236,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.False(saved.FullCombo);
@@ -273,7 +273,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(850000, saved.BestScore);
@@ -306,7 +306,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(3, saved.ClearCount);
@@ -331,7 +331,7 @@ namespace DTXMania.Test.Song
                 GameSkill = 142.0
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             using var ctx = new SongDbContext(_options);
             var score = await ctx.SongScores.AsNoTracking().SingleAsync(s => s.ChartId == chart.Id);
@@ -363,7 +363,7 @@ namespace DTXMania.Test.Song
                 GameSkill = 127.8
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             using var ctx = new SongDbContext(_options);
             var score = await ctx.SongScores.AsNoTracking().SingleAsync(s => s.ChartId == chart.Id);
@@ -380,7 +380,7 @@ namespace DTXMania.Test.Song
 
             for (int i = 0; i < 6; i++)
             {
-                await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
+                await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
                 {
                     Score = 100000 + i,
                     ClearFlag = i % 2 == 0,
@@ -436,7 +436,7 @@ namespace DTXMania.Test.Song
                 ChartLevelDec = 33
             };
 
-            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            await new SongScoreStore(_svc).UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(950_000, saved.BestScore);

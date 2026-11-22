@@ -52,7 +52,7 @@ public class ConfigStageNxImportTests : IDisposable
         SongLibrary? library = null;
         if (wireLibrary)
         {
-            library = new SongLibrary(new SongDatabaseService(_dbPath));
+            library = new SongLibrary(new SongDatabase(_dbPath));
             ReflectionHelpers.SetPrivateField(game, "_songLibrary", library);
         }
         var availability = new FfmpegRuntimeAvailability(

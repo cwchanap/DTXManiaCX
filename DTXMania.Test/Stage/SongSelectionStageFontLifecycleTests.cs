@@ -39,7 +39,7 @@ namespace DTXMania.Test.Stage
             var game = ReflectionHelpers.CreateGame(mockResourceManager.Object);
             // Activation subscribes to library publications (HPA-801); wire a
             // throwaway game-owned library so the render-target failure surfaces.
-            ReflectionHelpers.SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabaseService(Path.Combine(
+            ReflectionHelpers.SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabase(Path.Combine(
                 Path.GetTempPath(), $"songselect_font_{Guid.NewGuid():N}.db"))));
             var stage = new TestableSongSelectionStage(game, new InvalidOperationException("RT init failed"));
             ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResourceManager.Object);

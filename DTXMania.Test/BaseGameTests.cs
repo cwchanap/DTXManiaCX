@@ -1285,7 +1285,7 @@ namespace DTXMania.Test
         /// A game-style library for LoadContentServices wiring; these tests never
         /// touch song data, so a never-initialized temp database suffices (HPA-801).
         /// </summary>
-        private static SongLibrary NullSongLibrary() => new(new SongDatabaseService(Path.Combine(
+        private static SongLibrary NullSongLibrary() => new(new SongDatabase(Path.Combine(
             Path.GetTempPath(), $"basegame_tests_{Guid.NewGuid():N}.db")));
 
         private static LoadContentTestableBaseGame CreateGameForInitialization(

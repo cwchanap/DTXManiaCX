@@ -38,7 +38,7 @@ namespace DTXMania.Test.Stage
 
         public SongSelectionStageTests()
         {
-            _songLibrary = new SongLibrary(new SongDatabaseService(Path.Combine(
+            _songLibrary = new SongLibrary(new SongDatabase(Path.Combine(
                 Path.GetTempPath(), $"songselect_tests_{Guid.NewGuid():N}.db")));
             _graphicsDeviceService = new TestGraphicsDeviceService();
             try

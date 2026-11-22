@@ -23,26 +23,26 @@ using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Test.Song
 {
     /// <summary>
-    /// Unit tests for SongDatabaseService class
+    /// Unit tests for SongDatabase class
     /// Tests song grouping functionality and database operations
     /// </summary>
     [Trait("Category", "Unit")]
-    public class SongDatabaseServiceTests : IDisposable
+    public class SongDatabaseTests : IDisposable
     {
-        private readonly SongDatabaseService _databaseService;
+        private readonly SongDatabase _databaseService;
         private readonly string _testDbPath;
         private readonly string _tempRoot = Path.Combine(
             Path.GetTempPath(),
             "DTXManiaCX_Tests",
-            nameof(SongDatabaseServiceTests),
+            nameof(SongDatabaseTests),
             Guid.NewGuid().ToString("N"));
 
-        public SongDatabaseServiceTests()
+        public SongDatabaseTests()
         {
             // Isolate chart files and the database per test and per process.
             Directory.CreateDirectory(_tempRoot);
             _testDbPath = Path.Combine(_tempRoot, "songs.db");
-            _databaseService = new SongDatabaseService(_testDbPath);
+            _databaseService = new SongDatabase(_testDbPath);
         }
 
         public void Dispose()
@@ -68,21 +68,21 @@ namespace DTXMania.Test.Song
         {
             await _databaseService.InitializeDatabaseAsync();
 
-            Assert.True(await _databaseService.DatabaseExistsAsync());
+            Assert.True(await _databaseService.CanConnectAsync());
         }
 
         [Fact]
         public async Task InitializeDatabaseAsync_WhenPreinitialized_ShouldReuseDatabase()
         {
-            using (var initializer = new SongDatabaseService(_testDbPath))
+            using (var initializer = new SongDatabase(_testDbPath))
             {
                 await initializer.InitializeDatabaseAsync();
             }
-            using var service = new SongDatabaseService(_testDbPath);
+            using var service = new SongDatabase(_testDbPath);
 
             await service.InitializeDatabaseAsync();
 
-            Assert.True(await service.DatabaseExistsAsync());
+            Assert.True(await service.CanConnectAsync());
         }
 
         [Fact]
@@ -92,7 +92,7 @@ namespace DTXMania.Test.Song
 
             await _databaseService.InitializeDatabaseAsync();
 
-            Assert.True(await _databaseService.DatabaseExistsAsync());
+            Assert.True(await _databaseService.CanConnectAsync());
         }
 
         [Fact]
@@ -156,7 +156,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
         }
 
-        private sealed class ScriptedInitializationService : SongDatabaseService
+        private sealed class ScriptedInitializationService : SongDatabase
         {
             private readonly Func<SongDbContext> _initializationContextFactory;
             private readonly Func<SongDbContext, int, Task> _ensureCreated;
@@ -285,7 +285,7 @@ namespace DTXMania.Test.Song
 
             await _databaseService.InitializeDatabaseAsync();
 
-            Assert.True(await _databaseService.DatabaseExistsAsync());
+            Assert.True(await _databaseService.CanConnectAsync());
 
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
@@ -294,7 +294,7 @@ namespace DTXMania.Test.Song
             await using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA user_version;";
             Assert.Equal(
-                (long)SongDatabaseService.CurrentSongSchemaVersion,
+                (long)SongDatabase.CurrentSongSchemaVersion,
                 (long)(await command.ExecuteScalarAsync())!);
         }
 
@@ -322,7 +322,7 @@ namespace DTXMania.Test.Song
             await SaveScoreAsync(chart.Id, 850_000, 88.0, fullCombo: false);
             var savedScore = await LoadScoreAsync(chart.Id, EInstrumentPart.DRUMS);
 
-            var songs = await _databaseService.GetSongsAsync();
+            var songs = await new SongCatalogStore(_databaseService).GetSongsAsync();
 
             var loadedSong = Assert.Single(songs, song => song.Id == songId);
             var loadedChart = Assert.Single(loadedSong.Charts);
@@ -400,7 +400,7 @@ namespace DTXMania.Test.Song
             await SaveScoreAsync(secondChart.Id, 950_000, 98.0, fullCombo: true);
             await SaveScoreAsync(thirdChart.Id, 800_000, 83.0, fullCombo: false);
 
-            var topScores = await _databaseService.GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 2);
+            var topScores = await new SongScoreStore(_databaseService).GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 2);
 
             Assert.Equal(2, topScores.Count);
             Assert.Equal(950_000, topScores[0].BestScore);
@@ -433,7 +433,7 @@ namespace DTXMania.Test.Song
             double achievementRate,
             bool fullCombo)
         {
-            return await _databaseService.UpdateScoreAsync(
+            return await new SongScoreStore(_databaseService).UpdateScoreAsync(
                 chartId,
                 EInstrumentPart.DRUMS,
                 new PerformanceSummary
