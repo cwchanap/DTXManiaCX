@@ -677,9 +677,7 @@ namespace DTXMania.Test.Song
                     (new SongEntity { Title = "Missing File", Artist = "Tester" }, new SongChart { FilePath = Path.Combine(tempDir, "missing.dtx") })
                 };
 
-                var result = await InvokePrivateMethodAsync<List<SongListNode>>(
-                    _manager,
-                    "BuildHierarchyFromCharts",
+                var result = await _manager.Hierarchy.BuildHierarchyFromCharts(
                     tempDir,
                     charts);
 
@@ -1662,7 +1660,7 @@ namespace DTXMania.Test.Song
             // so the string part is the song's only chart here.
             var charts = new[] { primaryChart };
 
-            var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+            var result = _manager.Hierarchy.CreateSongNodeFromDatabaseEntities(song, charts);
 
             Assert.NotNull(result);
             var stringPartScore = Assert.Single(result!.Scores, s => s != null);
@@ -1687,7 +1685,7 @@ namespace DTXMania.Test.Song
                 DrumLevel = i * 10
             }).ToArray();
 
-            var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+            var result = _manager.Hierarchy.CreateSongNodeFromDatabaseEntities(song, charts);
 
             Assert.NotNull(result);
             Assert.Equal(5, result!.Scores.Count(s => s != null));
@@ -1716,7 +1714,7 @@ namespace DTXMania.Test.Song
                 new SongChart { FilePath = Path.Combine(_testRoot, "adv.dtx"), HasDrumChart = true, DrumLevel = 60, DifficultyLabel = "" }
             };
 
-            var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+            var result = _manager.Hierarchy.CreateSongNodeFromDatabaseEntities(song, charts);
 
             Assert.NotNull(result);
             // Slot ordering must match GetCurrentDifficultyChart: ascending drum level.
@@ -1731,7 +1729,7 @@ namespace DTXMania.Test.Song
         {
             var charts = new[] { new SongChart { FilePath = "dummy.dtx", HasDrumChart = true, DrumLevel = 50 } };
 
-            var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", null!, charts);
+            var result = _manager.Hierarchy.CreateSongNodeFromDatabaseEntities(null!, charts);
 
             Assert.Null(result);
         }

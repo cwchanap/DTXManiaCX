@@ -790,7 +790,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                 batch.Candidates),
             progress: null,
             CancellationToken.None);
-        _manager.FinalizePendingNodes(batch, import.ChartsByPath);
+        _manager.Hierarchy.FinalizePendingNodes(batch, import.ChartsByPath);
         _manager.PublishEnumeration(batch);
 
         var publishedBox = Assert.Single(_manager.RootSongs);
@@ -863,8 +863,9 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     {
         // Startup loads the cached library instead of rescanning when nothing changed,
         // so a cached launch must show exactly what the scan published. Folder names
-        // and titles sort in opposite orders to catch title-ordered rebuilds.
-        await _manager.InitializeAsync();
+        // and titles sort in opposite orders to catch title-ordered rebuilds. The gate
+        // covers two configured roots (each boxed, headers carrying box.def skin and
+        // colour), the bundled root's top-level merge, SET.def songs and nested BOXes.
         WriteChart("Songs/Zeta Folder/zeta.dtx", "Alpha Title", 10);
         WriteChart("Songs/Alpha Folder/alpha.dtx", "Zulu Title", 20);
         WriteChart("Songs/root.dtx", "Middle Root File", 30);
@@ -874,7 +875,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         WriteChart("Songs/Boxed/S/song.dtx", "Boxed Song", 50);
         await File.WriteAllTextAsync(
             Path.Combine(_songsRoot, "Boxed", "box.def"),
-            "#TITLE: Custom Box\n#GENRE: Rock\n#TEXTCOLOR: #FF8000\n");
+            "#TITLE: Custom Box\n#GENRE: Rock\n#SKINPATH: skins/boxed\n#TEXTCOLOR: #FF8000\n");
         WriteChart("Songs/Set Song/basic.dtx", "Set Song", 25);
         WriteChart("Songs/Set Song/extreme.dtx", "Set Song", 85);
         await File.WriteAllTextAsync(
@@ -925,28 +926,78 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // Six charts for five slots, the easiest one last by file name.
         foreach (var (file, level) in new[] { ("a", 60), ("b", 50), ("c", 40), ("d", 30), ("e", 20), ("f", 10) })
             WriteChart($"Songs/Six Charts/{file}.dtx", "Six Charts", level);
-        var roots = new[] { _songsRoot };
+        // A second configured root gets its own BOX header carrying its box.def
+        // skin and colour, plus a nested skinned BOX of its own.
+        var secondRoot = Path.Combine(_testRoot, "MoreSongs");
+        Directory.CreateDirectory(Path.Combine(secondRoot, "DTXFiles.Pack"));
+        await File.WriteAllTextAsync(
+            Path.Combine(secondRoot, "box.def"),
+            "#TITLE: More Box\n#SKINPATH: skins/more\n#TEXTCOLOR: #00AAFF\n");
+        await File.WriteAllTextAsync(
+            Path.Combine(secondRoot, "DTXFiles.Pack", "box.def"),
+            "#TITLE: More Pack\n#GENRE: Electronica\n#SKINPATH: skins/pack\n#TEXTCOLOR: #101010\n");
+        WriteChart("MoreSongs/DTXFiles.Pack/B/more.dtx", "Packed More", 55);
+        // The bundled root merges into the top level without a root header.
+        var bundledRoot = PrepareBundledPracticeBox();
+        var roots = new[] { _songsRoot, secondRoot, bundledRoot };
 
+        _manager = CreateManager(bundledSongsRoot: bundledRoot);
+        await _manager.InitializeAsync();
         await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
         var enumerated = DescribeHierarchy(_manager.RootSongs);
-        Assert.Contains(enumerated, line => line.StartsWith("Score 'Nested Set'"));
+        Assert.Contains(enumerated, line => line.Contains("Score 'Nested Set'"));
+        Assert.Contains(enumerated, line => line.Contains("skin='skins/boxed'"));
         AssertSlotsMatchPlayedCharts(_manager.RootSongs);
+        AssertBoxDefinitionPresentation(_manager.RootSongs);
+        var coldSnapshot = _manager.GetLibrarySnapshot();
 
         // A cached launch is a new process that starts with an empty library:
         // construct a fresh library over the same database file (HPA-801).
-        var cached = new SongLibrary(new SongDatabase(_databasePath));
+        var cached = CreateManager(bundledSongsRoot: bundledRoot);
         await cached.InitializeAsync();
         await cached.BuildHierarchyFromDatabaseOnceAsync(roots);
 
         Assert.Equal(enumerated, DescribeHierarchy(cached.RootSongs));
         AssertSlotsMatchPlayedCharts(cached.RootSongs);
+        AssertBoxDefinitionPresentation(cached.RootSongs);
+        Assert.Equal(coldSnapshot.ActiveRoots, cached.GetLibrarySnapshot().ActiveRoots);
+        Assert.Equal(_manager.EnumeratedFileCount, cached.EnumeratedFileCount);
+
+        // Both paths must carry box.def skin, genre and colour onto root headers,
+        // nested BOXes and the bundled root's placement.
+        static void AssertBoxDefinitionPresentation(IReadOnlyList<SongListNode> publishedRoots)
+        {
+            var moreBox = Assert.Single(publishedRoots, node => node.Title == "More Box");
+            Assert.True(moreBox.IsSongRoot);
+            Assert.Equal("skins/more", moreBox.SkinPath);
+            Assert.Equal(new Microsoft.Xna.Framework.Color(0x00, 0xAA, 0xFF), moreBox.TextColor);
+            var morePack = Assert.Single(moreBox.Children);
+            Assert.Equal(NodeType.Box, morePack.Type);
+            Assert.Equal("More Pack", morePack.Title);
+            Assert.Equal("Electronica", morePack.Genre);
+            Assert.Equal("skins/pack", morePack.SkinPath);
+            Assert.Equal(new Microsoft.Xna.Framework.Color(0x10, 0x10, 0x10), morePack.TextColor);
+            Assert.Equal("Packed More", Assert.Single(morePack.Children).Title);
+            var boxed = AllNodes(publishedRoots).Single(node => node.Title == "Custom Box");
+            Assert.Equal("skins/boxed", boxed.SkinPath);
+
+            static IEnumerable<SongListNode> AllNodes(IEnumerable<SongListNode> nodes)
+            {
+                foreach (var node in nodes)
+                {
+                    yield return node;
+                    foreach (var descendant in AllNodes(node.Children))
+                        yield return descendant;
+                }
+            }
+        }
 
         // Each difficulty slot shows the chart that difficulty plays.
         static void AssertSlotsMatchPlayedCharts(IEnumerable<SongListNode> roots)
         {
             foreach (var (title, slots) in new[] { ("Inverted", 2), ("Inverted Set", 2), ("Mixed", 2) })
             {
-                var song = roots.Single(node => node.Title == title);
+                var song = FlattenScoreNodes(roots).Single(node => node.Title == title);
                 Assert.Equal(slots, song.Scores.Count(score => score != null));
                 for (var difficulty = 0; difficulty < slots; difficulty++)
                 {
@@ -1034,7 +1085,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             .Where(pair => !pair.Key.StartsWith(rejectedPrefix, StringComparison.OrdinalIgnoreCase))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
-        _manager.FinalizePendingNodes(batch, keptCharts);
+        _manager.Hierarchy.FinalizePendingNodes(batch, keptCharts);
 
         // The rejected root's pack box and root box both end up empty and are dropped.
         var keptBox = Assert.Single(batch.RootNodes);
@@ -1049,7 +1100,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var second = Path.Combine(_testRoot, "DriveB", "songs");
         var unique = Path.Combine(_testRoot, "Other");
 
-        var titles = SongLibrary.DisambiguateSongRootTitles(
+        var titles = SongHierarchyBuilder.DisambiguateSongRootTitles(
             new[] { first, second, unique },
             new[] { "Songs", "songs", "Other" });
 
@@ -1064,7 +1115,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var third = Path.Combine(_testRoot, "Custom");
 
         // The third root's box.def #TITLE is the first root's full path.
-        var titles = SongLibrary.DisambiguateSongRootTitles(
+        var titles = SongHierarchyBuilder.DisambiguateSongRootTitles(
             new[] { first, second, third },
             new[] { "Songs", "Songs", first });
 
@@ -2439,7 +2490,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Contains(placeholder, batch.RootNodes);
 
         var emptyCharts = new Dictionary<string, SongChart>();
-        _manager.FinalizePendingNodes(batch, emptyCharts);
+        _manager.Hierarchy.FinalizePendingNodes(batch, emptyCharts);
 
         // Each missing chart path must have its placeholder score slot nulled.
         for (var index = 0; index < chartPathCount; index++)
@@ -2683,7 +2734,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                     $"{slot.score.DifficultyLabel}/{node.DifficultyLabels[slot.index]}"));
             lines.Add(
                 $"{new string(' ', depth * 2)}{node.Type} '{node.Title}' genre='{node.Genre}' " +
-                $"color={node.TextColor.PackedValue:X8} root={node.IsSongRoot} " +
+                $"skin='{node.SkinPath}' color={node.TextColor.PackedValue:X8} root={node.IsSongRoot} " +
                 $"crumb='{node.BreadcrumbPath}' song={node.DatabaseSongId} [{slots}]");
             lines.AddRange(DescribeHierarchy(node.Children, depth + 1));
         }
