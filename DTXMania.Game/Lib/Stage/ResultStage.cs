@@ -504,7 +504,7 @@ namespace DTXMania.Game.Lib.Stage
             var library = _game.SongLibrary ?? throw new InvalidOperationException(
                 "Result score save requires the game-owned song library, but the game exposes none " +
                 "(BaseGame.CreateLoadContentServices must construct it before the StageManager).");
-            return library.UpdateScoreAsync(
+            return library.Scores.UpdateScoreAsync(
                 chartId,
                 instrument,
                 summary);
@@ -571,8 +571,8 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Report the timeout as FAILED but retain the task so a
                     // late completion can still reconcile the UI to SAVED.
-                    // The save is not cancelled (SongLibrary.UpdateScoreAsync
-                    // does not accept a CancellationToken), so the database
+                    // The save is not cancelled (the score service's
+                    // UpdateScoreAsync does not accept a CancellationToken), so the database
                     // write may still commit after the deadline; clearing the
                     // task here would orphan that write and leave the player
                     // looking at a permanent FAILED for a save that succeeded.

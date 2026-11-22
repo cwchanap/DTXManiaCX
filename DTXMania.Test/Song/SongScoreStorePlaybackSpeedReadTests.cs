@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -32,6 +33,16 @@ namespace DTXMania.Test.Song
                 try { File.Delete(_dbPath); } catch { /* ignore */ }
             }
         }
+
+        // The recent-play SQL lives on SongQueryService since HPA-801 Task 7.
+        private SongQueryService CreateQueryService() => new(
+            _service,
+            new SongHierarchyBuilder(
+                new SongCatalogStore(_service),
+                new SongDefinitionReader(),
+                SongRootPolicy.ForCurrentPlatform(),
+                BundledSongs.Root),
+            readsAsNeverInitialized: () => false);
 
         [Fact]
         public async Task GetScoreWithHistoryAsync_ShouldReturnOnlyRequestedSpeedVariant()
@@ -86,7 +97,7 @@ namespace DTXMania.Test.Song
                 "Default middle",
                 (100, 500000, 0, now.AddMinutes(-5)));
 
-            var recent = await new SongCatalogStore(_service).GetRecentlyPlayedSongsAsync();
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync();
 
             Assert.Equal(
                 new[] { "Variant latest", "Default middle" },

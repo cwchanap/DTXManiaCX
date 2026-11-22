@@ -1396,7 +1396,7 @@ namespace DTXMania.Test.Song
             // after the chart edit, masking it (the 5-minutes-ago edit would appear
             // older than the now-1minute threshold).
             var song = (await new SongCatalogStore(ManagerDatabaseService!).GetSongsAsync()).Single();
-            await new SongCatalogStore(ManagerDatabaseService!).SetBookmarkAsync(song.Id, true);
+            await _manager.Queries.SetBookmarkAsync(song.Id, true);
 
             var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
 

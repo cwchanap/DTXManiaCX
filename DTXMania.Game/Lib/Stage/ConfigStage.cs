@@ -279,7 +279,7 @@ namespace DTXMania.Game.Lib.Stage
             CancellationToken cancellationToken)
         {
             var library = ResolveLibrary(game);
-            return await library.ImportNxScoresAsync(progress, cancellationToken)
+            return await library.Scores.ImportNxScoresAsync(progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 

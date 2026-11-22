@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.TestData;
@@ -10,12 +11,12 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    public class SongCatalogStoreRecentPlaysTests : IDisposable
+    public class SongQueryServiceRecentPlaysTests : IDisposable
     {
         private readonly SongDatabase _db;
         private readonly string _dbPath;
 
-        public SongCatalogStoreRecentPlaysTests()
+        public SongQueryServiceRecentPlaysTests()
         {
             _dbPath = Path.Combine(Path.GetTempPath(), $"recent_db_{Guid.NewGuid()}.db");
             _db = new SongDatabase(_dbPath);
@@ -50,6 +51,17 @@ namespace DTXMania.Test.Song
             };
         }
 
+        // The recent-play SQL lives on SongQueryService since HPA-801 Task 7;
+        // these tests exercise it directly over a real SQLite database.
+        private SongQueryService CreateQueryService() => new(
+            _db,
+            new SongHierarchyBuilder(
+                new SongCatalogStore(_db),
+                new SongDefinitionReader(),
+                SongRootPolicy.ForCurrentPlatform(),
+                BundledSongs.Root),
+            readsAsNeverInitialized: () => false);
+
         // Adds a song with one drum chart and records a play (sets LastPlayedAt = UtcNow).
         private async Task<int> AddAndPlayAsync(string title)
         {
@@ -72,7 +84,7 @@ namespace DTXMania.Test.Song
             await Task.Delay(50);
             await AddAndPlayAsync("Third");
 
-            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync(20);
 
             Assert.Equal(new[] { "Third", "Second", "First" }, recent.Select(s => s.Title).ToArray());
         }
@@ -97,7 +109,7 @@ namespace DTXMania.Test.Song
                 (await new SongCatalogStore(_db).GetSongsAsync()).Single(s => s.Id == idA).Charts.Single().Id,
                 EInstrumentPart.DRUMS, CreatePlaySummary(200000));
 
-            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync(20);
 
             Assert.Equal(new[] { "A", "C", "B" }, recent.Select(s => s.Title).ToArray());
         }
@@ -111,7 +123,7 @@ namespace DTXMania.Test.Song
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Unplayed", Artist = "A" };
             await _db.SeedSongAsync(song, new SongChart { FilePath = "/c/unplayed.dtx", HasDrumChart = true, DrumLevel = 20 });
 
-            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync(20);
 
             Assert.Single(recent);
             Assert.Equal("Played", recent[0].Title);
@@ -127,7 +139,7 @@ namespace DTXMania.Test.Song
                 await Task.Delay(2);
             }
 
-            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync(20);
 
             Assert.Equal(20, recent.Count);
         }
@@ -154,7 +166,7 @@ namespace DTXMania.Test.Song
             await Task.Delay(50);
             await new SongScoreStore(_db).UpdateScoreAsync(charts[1].Id, EInstrumentPart.DRUMS, CreatePlaySummary(90000));
 
-            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(20);
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync(20);
 
             Assert.Single(recent);
             Assert.Equal("Multi", recent[0].Title);
@@ -172,7 +184,7 @@ namespace DTXMania.Test.Song
             // short-circuit before any query is issued.
             await AddAndPlayAsync("Played");
 
-            var recent = await new SongCatalogStore(_db).GetRecentlyPlayedSongsAsync(limit);
+            var recent = await CreateQueryService().GetRecentlyPlayedSongsAsync(limit);
 
             Assert.Empty(recent);
         }

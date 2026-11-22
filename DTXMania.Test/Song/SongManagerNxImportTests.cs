@@ -79,7 +79,7 @@ namespace DTXMania.Test.Song
             var dtx = WriteChartAndScore("mas.dtx", playCount: 79, score: 958247);
             var chartId = await SeedChartAsync(dtx, "Against The Wind");
 
-            var result = await _manager.ImportNxScoresAsync();
+            var result = await _manager.Scores.ImportNxScoresAsync();
 
             Assert.Equal(1, result.Scanned);
             Assert.Equal(1, result.Imported);
@@ -97,7 +97,7 @@ namespace DTXMania.Test.Song
             var dtx = WriteChartAndScore("no.dtx", 0, 0, withScoreIni: false);
             await SeedChartAsync(dtx, "Lonely");
 
-            var result = await _manager.ImportNxScoresAsync();
+            var result = await _manager.Scores.ImportNxScoresAsync();
 
             Assert.Equal(1, result.Scanned);
             Assert.Equal(0, result.Imported);
@@ -111,8 +111,8 @@ namespace DTXMania.Test.Song
             var dtx = WriteChartAndScore("mas.dtx", playCount: 79, score: 958247);
             var chartId = await SeedChartAsync(dtx, "Against The Wind");
 
-            await _manager.ImportNxScoresAsync();
-            await _manager.ImportNxScoresAsync();
+            await _manager.Scores.ImportNxScoresAsync();
+            await _manager.Scores.ImportNxScoresAsync();
 
             using var ctx = ManagerDatabaseService!.CreateContext();
             var s = ctx.SongScores.AsNoTracking().First(x => x.ChartId == chartId);
@@ -123,7 +123,7 @@ namespace DTXMania.Test.Song
         public async Task NoDatabaseService_ShouldReturnEmptyResult()
         {
             // Do not initialize the database service.
-            var result = await _manager.ImportNxScoresAsync();
+            var result = await _manager.Scores.ImportNxScoresAsync();
             Assert.Equal(0, result.Scanned);
             Assert.Equal(0, result.Imported);
             Assert.Equal(0, result.Skipped);
@@ -144,7 +144,7 @@ namespace DTXMania.Test.Song
             ctx.SongCharts.Add(chart);
             await ctx.SaveChangesAsync();
 
-            var result = await _manager.ImportNxScoresAsync();
+            var result = await _manager.Scores.ImportNxScoresAsync();
 
             Assert.Equal(1, result.Scanned);
             Assert.Equal(0, result.Imported);
@@ -164,7 +164,7 @@ namespace DTXMania.Test.Song
             Assert.False(File.Exists(dtx));
             Assert.True(File.Exists(dtx + ".score.ini"));
 
-            var result = await _manager.ImportNxScoresAsync();
+            var result = await _manager.Scores.ImportNxScoresAsync();
 
             Assert.Equal(1, result.Scanned);
             Assert.Equal(0, result.Imported);
@@ -179,7 +179,7 @@ namespace DTXMania.Test.Song
             cts.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => _manager.ImportNxScoresAsync(cancellationToken: cts.Token));
+                () => _manager.Scores.ImportNxScoresAsync(cancellationToken: cts.Token));
         }
 
         private sealed class ImmediateProgress : IProgress<NxImportProgress>
@@ -197,7 +197,7 @@ namespace DTXMania.Test.Song
 
             var progress = new ImmediateProgress();
 
-            await _manager.ImportNxScoresAsync(progress);
+            await _manager.Scores.ImportNxScoresAsync(progress);
 
             Assert.NotEmpty(progress.Reports);
             var last = progress.Reports[^1];
@@ -220,7 +220,7 @@ namespace DTXMania.Test.Song
             var id2 = await SeedChartAsync(dtx2, "Song B");
             var id3 = await SeedChartAsync(dtx3, "Song C");
 
-            var result = await _manager.ImportNxScoresAsync();
+            var result = await _manager.Scores.ImportNxScoresAsync();
 
             Assert.Equal(3, result.Scanned);
             Assert.Equal(3, result.Imported);

@@ -269,7 +269,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             _navigationStack = new Stack<SongListNode>();
             // Lazy library resolution (HPA-801): resolved when a bookmarks load executes.
-            _loadBookmarkedNodesAsync = () => Library.GetBookmarkedNodesAsync();
+            _loadBookmarkedNodesAsync = () => Library.Queries.GetBookmarkedNodesAsync();
             AssignInputManager(game.InputManager);
         }
 
@@ -3445,7 +3445,7 @@ namespace DTXMania.Game.Lib.Stage
                     // order: a slower older load can land after (and overwrite) a newer
                     // one, unlike the version-guarded bookmark load.
                     return CopyTabLoadNodes(
-                        Library.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
+                        Library.Queries.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
                             .GetAwaiter().GetResult());
                 },
                 onSuccess: nodes =>
@@ -3594,7 +3594,7 @@ namespace DTXMania.Game.Lib.Stage
             var originScope = BackgroundWork;
             var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
             var write = prior.ContinueWith(
-                _ => Library.SetBookmarkAsync(songId, newState),
+                _ => Library.Queries.SetBookmarkAsync(songId, newState),
                 TaskScheduler.Default).Unwrap();
             _pendingBookmarkWrites[songId] = write;
 
