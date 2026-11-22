@@ -56,6 +56,15 @@ public class ConfigStageNxImportTests : IDisposable
         return (new ConfigStage(game, () => availability), configManager, inputManager);
     }
 
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private static SongDatabaseService? DatabaseServiceOf(SongManager manager) =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(manager, "_databaseService");
+
     private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStage(
         IConfigManager configManager,
         ISongLibraryReloadService reloadService,
@@ -95,6 +104,7 @@ public class ConfigStageNxImportTests : IDisposable
         {
             stage.InstallTestBackgroundScope();
         }
+
         ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
         if (includePanels)
         {
@@ -568,7 +578,7 @@ public class ConfigStageNxImportTests : IDisposable
         var manager = SongManager.Instance;
         Assert.True(await manager.InitializeDatabaseServiceAsync(_dbPath));
 
-        using (var ctx = manager.DatabaseService!.CreateContext())
+        using (var ctx = DatabaseServiceOf(manager)!.CreateContext())
         {
             ctx.SongCharts.Add(new SongChart
             {

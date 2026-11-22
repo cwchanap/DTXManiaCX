@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -101,7 +103,7 @@ namespace DTXMania.Test.Song
             var chartPath = Path.Combine(songFolder, "桜色のメロディ.dtx");
             await File.WriteAllTextAsync(chartPath, "#TITLE:桜色のメロディ");
 
-            var songId = await service.AddSongAsync(
+            await service.SeedSongAsync(
                 new SongEntity
                 {
                     Title = "桜色のメロディ",
@@ -115,11 +117,10 @@ namespace DTXMania.Test.Song
                     DrumLevel = 45
                 });
 
-            var result = await service.GetSongWithChartsAsync(songId);
-            Assert.NotNull(result);
-            Assert.Equal("桜色のメロディ", result!.Value.song.Title);
-            Assert.Equal("夢見るドラマー", result.Value.song.Artist);
-            var storedChart = Assert.Single(result.Value.charts);
+            var stored = Assert.Single(await service.GetSongsAsync());
+            Assert.Equal("桜色のメロディ", stored.Title);
+            Assert.Equal("夢見るドラマー", stored.Artist);
+            var storedChart = Assert.Single(stored.Charts);
             Assert.Equal(chartPath, storedChart.FilePath);
         }
 
@@ -143,13 +144,28 @@ namespace DTXMania.Test.Song
                     HasDrumChart = true,
                     DrumLevel = 50
                 };
-                songId = await first.AddSongAsync(
+                songId = await first.SeedSongAsync(
                     new SongEntity { Title = "Retain Me", Artist = "Keeper" },
                     chart);
                 chartId = chart.Id;
                 await first.SetBookmarkAsync(songId, true);
                 await first.UpdateScoreAsync(
-                    chartId, EInstrumentPart.DRUMS, 900_000, 95.0, fullCombo: true);
+                    chartId,
+                    EInstrumentPart.DRUMS,
+                    new PerformanceSummary
+                    {
+                        RunId = Guid.NewGuid(),
+                        PlaySpeedPercent = 100,
+                        Score = 900_000,
+                        MaxCombo = 100,
+                        ClearFlag = true,
+                        PerfectCount = 100,
+                        TotalNotes = 100,
+                        PlayingSkill = 95.0,
+                        GameSkill = 95.0,
+                        ChartLevel = 50,
+                        CompletionReason = CompletionReason.SongComplete,
+                    });
 
                 using (var context = first.CreateContext())
                 {
@@ -195,8 +211,16 @@ namespace DTXMania.Test.Song
                 Assert.Equal(1, score.ClearCount);
                 Assert.True(score.FullCombo);
                 Assert.Equal(
-                    "retained run",
-                    Assert.Single(score.PerformanceHistory).HistoryLine);
+                    95,
+                    score.BestRank);
+                Assert.Equal(1, score.PlayCount);
+                Assert.Equal(1, score.ClearCount);
+                Assert.True(score.FullCombo);
+                // The summary save also records its own run line; the seeded
+                // retained run must survive the reopen alongside it.
+                Assert.Contains(
+                    score.PerformanceHistory,
+                    entry => entry.HistoryLine == "retained run");
 
                 Assert.Equal(
                     watermark,
@@ -227,7 +251,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(0, await ScalarAsync(_dbPath, "SELECT COUNT(*) FROM Songs"));
             Assert.Equal(1, await TableCountAsync(_dbPath, "__EnumerationMetadata"));
 
-            var songId = await service.AddSongAsync(
+            var songId = await service.SeedSongAsync(
                 new SongEntity { Title = "Rebuilt", Artist = "Fresh" },
                 new SongChart
                 {
@@ -245,7 +269,7 @@ namespace DTXMania.Test.Song
             using (var first = new SongDatabaseService(_dbPath))
             {
                 await first.InitializeDatabaseAsync();
-                await first.AddSongAsync(
+                await first.SeedSongAsync(
                     new SongEntity { Title = "Old Data", Artist = "Old" },
                     new SongChart
                     {
@@ -289,7 +313,7 @@ namespace DTXMania.Test.Song
                 await first.InitializeDatabaseAsync();
                 for (int i = 0; i < 20; i++)
                 {
-                    await first.AddSongAsync(
+                    await first.SeedSongAsync(
                         new SongEntity { Title = $"Song {i}", Artist = "Artist" },
                         new SongChart
                         {

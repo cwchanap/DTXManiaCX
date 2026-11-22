@@ -57,6 +57,16 @@ namespace DTXMania.Test.Song
             }
         }
 
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private SongDatabaseService? ManagerDatabaseService =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_songManager, "_databaseService");
+
+
         private string CreateTempDirectory()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -339,11 +349,11 @@ namespace DTXMania.Test.Song
             }
 
             await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
-            await _songManager.EnumerateSongsAsync(new[] { dir });
+            await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
 
             // Force the database-load path used on a normal launch (clears in-memory nodes and
             // rebuilds them from persisted entities via CreateSongNodeFromDatabaseEntities).
-            await _songManager.BuildSongListFromDatabasePublicAsync(new[] { dir });
+            await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
             SongListNode? song = null;
             foreach (var node in _songManager.RootSongs)
@@ -377,8 +387,8 @@ namespace DTXMania.Test.Song
             File.WriteAllText(Path.Combine(dir, "bas.dtx"), "#TITLE: Clamp test\n#DLEVEL: 36", Encoding.UTF8);
 
             await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
-            await _songManager.EnumerateSongsAsync(new[] { dir });
-            await _songManager.BuildSongListFromDatabasePublicAsync(new[] { dir });
+            await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
+            await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
             SongListNode? song = null;
             foreach (var node in _songManager.RootSongs)
@@ -420,11 +430,11 @@ namespace DTXMania.Test.Song
 
             // First launch: enumerate, persisting the recovered labels to the database.
             await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
-            await _songManager.EnumerateSongsAsync(new[] { dir });
+            await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
 
             // Simulate a subsequent launch where SET.def is gone (renamed/moved) but the DB persists.
             File.Delete(Path.Combine(dir, "set.def"));
-            await _songManager.BuildSongListFromDatabasePublicAsync(new[] { dir });
+            await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
             SongListNode? song = null;
             foreach (var node in _songManager.RootSongs)

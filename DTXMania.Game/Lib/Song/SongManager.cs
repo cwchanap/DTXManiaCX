@@ -77,7 +77,6 @@ namespace DTXMania.Game.Lib.Song
         private CancellationTokenSource? _enumCancellation;
         private SongDatabaseService? _databaseService;
         private string[] _currentSearchPaths = Array.Empty<string>();
-        private string[] _pendingSearchPaths = Array.Empty<string>();
         private long _publicationVersion;
 
         // Wired once from Game1.CreateLoadContentServices via ConfigureLogger;
@@ -144,10 +143,6 @@ namespace DTXMania.Game.Lib.Song
         internal Action<SongEnumerationBatch> PublishEnumerationCore
             { get; set; }
 
-        internal Func<SongDatabaseService, Task<DatabaseStats?>>
-            GetDatabaseStatsCoreAsync { get; set; } =
-                static database => database.GetDatabaseStatsAsync();
-
         // Initialization state tracking
         private bool _isInitialized = false;
 
@@ -181,47 +176,11 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
-        /// <summary>
-        /// Gets the database service instance. Returns null if not initialized.
-        /// </summary>
-        public SongDatabaseService? DatabaseService
-        {
-            get
-            {
-                lock (_lockObject)
-                {
-                    return _databaseService;
-                }
-            }
-        }
-
         private SongDatabaseService? GetDatabaseServiceSnapshot()
         {
             lock (_lockObject)
             {
                 return _databaseService;
-            }
-        }
-
-        internal void SetCurrentSearchPaths(IReadOnlyList<string> searchPaths)
-        {
-            ArgumentNullException.ThrowIfNull(searchPaths);
-            var distinct = RootPolicy.Validate(searchPaths)
-                .CanonicalRoots
-                .ToArray();
-
-            // A non-empty set is input for a future database rebuild, not a partial
-            // publication. Publishing roots without matching hierarchy/count data
-            // would make a snapshot internally inconsistent.
-            if (distinct.Length == 0)
-            {
-                PublishEmptyLibrary();
-                return;
-            }
-
-            lock (_lockObject)
-            {
-                _pendingSearchPaths = distinct;
             }
         }
 
@@ -248,30 +207,6 @@ namespace DTXMania.Game.Lib.Song
         {
             lock (_lockObject)
                 return CreateSnapshotLocked();
-        }
-
-        /// <summary>
-        /// Number of scores in the database
-        /// </summary>
-        public async Task<int> GetDatabaseScoreCountAsync()
-        {
-            // Copy reference under lock to avoid race with Clear()
-            SongDatabaseService? dbService;
-            lock (_lockObject)
-            {
-                dbService = _databaseService;
-            }
-
-            if (dbService == null) return 0;
-            try
-            {
-                var stats = await dbService.GetDatabaseStatsAsync();
-                return stats.ScoreCount;
-            }
-            catch
-            {
-                return 0;
-            }
         }
 
         /// <summary>
@@ -315,38 +250,9 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public int EnumeratedFileCount { get; private set; }
 
-        /// <summary>
-        /// Whether enumeration is currently in progress
-        /// </summary>
-        public bool IsEnumerating
-        {
-            get
-            {
-                lock (_lockObject)
-                {
-                    // The slot is occupied for as long as an enumeration task is
-                    // in flight, including the cancellation-winddown window
-                    // before EndEnumeration clears the source. This stays in sync
-                    // with TryBeginEnumeration's occupancy rule: any non-null
-                    // source means busy, even if it has already been cancelled.
-                    return _enumCancellation != null;
-                }
-            }
-        }
-
         #endregion
 
         #region Events
-
-        /// <summary>
-        /// Fired when a song is discovered during enumeration
-        /// </summary>
-        public event EventHandler<SongDiscoveredEventArgs>? SongDiscovered;
-
-        /// <summary>
-        /// Fired when enumeration completes
-        /// </summary>
-        public event EventHandler? EnumerationCompleted;
 
         /// <summary>
         /// Fired after a complete library snapshot has been published. Subscribers run
@@ -399,123 +305,6 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Loads existing songs from database (LoadScoreCache phase)
-        /// </summary>
-        public async Task<bool> LoadScoreCacheAsync(string[] searchPaths)
-        {
-            try
-            {
-                var db = GetDatabaseServiceSnapshot();
-                if (db == null)
-                {
-                    return false;
-                }
-
-                // Check if we need to enumerate or can build from database
-                bool needsEnumeration = await GetDatabaseScoreCountAsync().ConfigureAwait(false) == 0 || await NeedsEnumerationAsync(searchPaths).ConfigureAwait(false);
-
-                if (!needsEnumeration)
-                {
-                    await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
-                    return true;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during score cache loading");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Enumerates songs from file system (EnumerateSongs phase)
-        /// </summary>
-        public async Task<int> EnumerateSongsOnlyAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
-        {
-            var result = await EnumerateSongsOnlyWithPublicationAsync(
-                searchPaths,
-                progress,
-                cancellationToken).ConfigureAwait(false);
-            return result.SongCount;
-        }
-
-        internal async Task<(int SongCount, bool Published)>
-            EnumerateSongsOnlyWithPublicationAsync(
-                string[] searchPaths,
-                IProgress<EnumerationProgress>? progress = null,
-                CancellationToken cancellationToken = default)
-        {
-            if (GetDatabaseServiceSnapshot() == null)
-                return (0, false);
-
-            // Acquire atomically so a concurrent enumeration returns (0, false)
-            // instead of racing into the throwing acquire path.
-            if (!TryBeginEnumeration(cancellationToken, out var linked))
-                return (0, false);
-
-            var result = await EnumerateAndImportSongsCoreAsync(
-                searchPaths,
-                progress,
-                cancellationToken,
-                linked).ConfigureAwait(false);
-
-            return (
-                result.Batch.Candidates.Count,
-                result.Outcome == SongEnumerationOutcome.ImportedAndPublished);
-        }
-
-        /// <summary>
-        /// Builds final song lists from enumerated data (BuildSongLists phase)
-        /// </summary>
-        public async Task<bool> BuildSongListsAsync()
-        {
-            try
-            {
-                lock (_lockObject)
-                {
-                    if (_rootSongs.Count == 0)
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during song list building");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Saves song data to database (SaveSongsDB phase)
-        /// </summary>
-        public async Task<bool> SaveSongsDBAsync()
-        {
-            try
-            {
-                if (_databaseService == null)
-                {
-                    return false;
-                }
-
-                // Enumeration persists transactionally. Keep the legacy save phase as
-                // a lightweight availability confirmation without aggregate statistics.
-                return await _databaseService.DatabaseExistsAsync()
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during songs DB save");
-                return false;
-            }
-        }
-
         /// <summary>
         /// Marks the song manager as fully initialized
         /// </summary>
@@ -528,14 +317,6 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Public compatibility wrapper for the cleanup-free database hierarchy builder.
-        /// </summary>
-        public async Task BuildSongListFromDatabasePublicAsync(string[] searchPaths)
-        {
-            await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
-        }
-
-        /// <summary>
         /// Refreshes the in-memory <see cref="RootSongs"/> list from the database using
         /// the current search paths. Call this after database mutations (e.g. NX score
         /// import, score updates) to keep the song list in sync without a full restart.
@@ -545,9 +326,7 @@ namespace DTXMania.Game.Lib.Song
             string[] searchPaths;
             lock (_lockObject)
             {
-                searchPaths = _pendingSearchPaths.Length > 0
-                    ? _pendingSearchPaths.ToArray()
-                    : _currentSearchPaths.ToArray();
+                searchPaths = _currentSearchPaths.ToArray();
             }
 
             if (searchPaths.Length > 0)
@@ -564,69 +343,9 @@ namespace DTXMania.Game.Lib.Song
         #region Initialization and Database Management
 
 
-        /// <summary>
-        /// Checks if the database exists and is accessible
-        /// </summary>
-        public async Task<bool> DatabaseExistsAsync()
-        {
-            var db = GetDatabaseServiceSnapshot();
-            if (db == null) return false;
-
-            try
-            {
-                return await db.DatabaseExistsAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error checking database existence");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Gets database statistics
-        /// </summary>
-        public async Task<DatabaseStats?> GetDatabaseStatsAsync()
-        {
-            var db = GetDatabaseServiceSnapshot();
-            if (db == null) return null;
-
-            try
-            {
-                return await GetDatabaseStatsCoreAsync(db).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error getting database stats");
-                return null;
-            }
-        }
-
         #endregion
 
         #region Song Enumeration
-
-        /// <summary>
-        /// Enumerates songs from specified search paths
-        /// Should primarily be called during initialization
-        /// </summary>
-        public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
-        {
-            if (GetDatabaseServiceSnapshot() == null)
-                return 0;
-
-            // Acquire atomically so a concurrent enumeration returns 0 instead of
-            // racing into the throwing acquire path.
-            if (!TryBeginEnumeration(cancellationToken, out var linked))
-                return 0;
-
-            var result = await EnumerateAndImportSongsCoreAsync(
-                searchPaths,
-                progress,
-                cancellationToken,
-                linked).ConfigureAwait(false);
-            return result.Batch.Candidates.Count;
-        }
 
         internal async Task<SongEnumerationBatch> BuildEnumerationBatchAsync(
             string[] searchPaths,
@@ -1519,7 +1238,6 @@ namespace DTXMania.Game.Lib.Song
                     .CanonicalRoots
                     .ToArray();
                 _currentSearchPaths = activeRoots;
-                _pendingSearchPaths = activeRoots.ToArray();
                 EnumeratedFileCount = batch.DiscoveredChartPaths.Count;
                 // Count discovered difficulty charts, not grouped logical songs:
                 // a multi-difficulty set contributes one PendingSong but one
@@ -1535,9 +1253,6 @@ namespace DTXMania.Game.Lib.Song
                 this,
                 new SongLibraryPublishedEventArgs(snapshot),
                 nameof(SongLibraryPublished));
-            foreach (var song in FlattenScoreNodes(batch.RootNodes))
-                SafeInvoke(SongDiscovered, this, new SongDiscoveredEventArgs(song), nameof(SongDiscovered));
-            SafeInvoke(EnumerationCompleted, this, EventArgs.Empty, nameof(EnumerationCompleted));
         }
 
         /// <summary>
@@ -1551,7 +1266,6 @@ namespace DTXMania.Game.Lib.Song
             {
                 _rootSongs.Clear();
                 _currentSearchPaths = Array.Empty<string>();
-                _pendingSearchPaths = Array.Empty<string>();
                 EnumeratedFileCount = 0;
                 DiscoveredScoreCount = 0;
                 _publicationVersion++;
@@ -1574,7 +1288,7 @@ namespace DTXMania.Game.Lib.Song
                 DiscoveredScoreCount);
 
         // Subscribers run independently so that one throwing handler cannot
-        // suppress later handlers, cannot stop EnumerationCompleted, and —
+        // suppress later handlers, and —
         // because the database has already committed and the hierarchy is
         // already published by the time these fire — cannot escape to turn a
         // successful import into a reported failure. Exceptions are logged.
@@ -1592,35 +1306,6 @@ namespace DTXMania.Game.Lib.Song
                 {
                     _logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
                 }
-            }
-        }
-
-        private void SafeInvoke(
-            EventHandler? evt,
-            object sender,
-            EventArgs args,
-            string eventName)
-        {
-            if (evt == null) return;
-            foreach (var handler in evt.GetInvocationList())
-            {
-                try { ((EventHandler)handler)(sender, args); }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
-                }
-            }
-        }
-
-        private static IEnumerable<SongListNode> FlattenScoreNodes(
-            IEnumerable<SongListNode> nodes)
-        {
-            foreach (var node in nodes)
-            {
-                if (node.Type == NodeType.Score)
-                    yield return node;
-                foreach (var child in FlattenScoreNodes(node.Children))
-                    yield return child;
             }
         }
 
@@ -1779,7 +1464,6 @@ namespace DTXMania.Game.Lib.Song
                 _rootSongs.Clear();
                 _rootSongs.AddRange(rootNodes);
                 _currentSearchPaths = activeRoots.ToArray();
-                _pendingSearchPaths = _currentSearchPaths.ToArray();
                 EnumeratedFileCount = activeChartCount;
                 DiscoveredScoreCount = activeChartCount;
                 _publicationVersion++;
@@ -2598,61 +2282,6 @@ namespace DTXMania.Game.Lib.Song
         #region EF Core Helper Methods
 
         /// <summary>
-        /// Gets top scores for a specific instrument
-        /// </summary>
-        public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
-        {
-            return await GetTopScoresForSpeedAsync(
-                instrument,
-                PlaySpeedRange.Default,
-                limit).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Gets top scores for one explicit gameplay-speed bucket.
-        /// </summary>
-        public async Task<List<SongScoreEntity>> GetTopScoresForSpeedAsync(
-            EInstrumentPart instrument,
-            int playSpeedPercent,
-            int limit = 10)
-        {
-            var db = GetDatabaseServiceSnapshot();
-            if (db == null) return new List<SongScoreEntity>();
-
-            try
-            {
-                return await db.GetTopScoresForSpeedAsync(
-                    instrument,
-                    playSpeedPercent,
-                    limit).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error getting top scores");
-                return new List<SongScoreEntity>();
-            }
-        }
-
-        /// <summary>
-        /// Updates a score for a specific chart and instrument
-        /// </summary>
-        public async Task<bool> UpdateScoreAsync(int chartId, EInstrumentPart instrument, int newScore, double achievementRate, bool fullCombo)
-        {
-            if (_databaseService == null) return false;
-
-            try
-            {
-                await _databaseService.UpdateScoreAsync(chartId, instrument, newScore, achievementRate, fullCombo);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error updating score");
-                return false;
-            }
-        }
-
-        /// <summary>
         /// Persists a complete PerformanceSummary (score + skill + judgement counts) for a
         /// specific chart and instrument. Forwards to SongDatabaseService, then refreshes
         /// the in-memory score cache for that chart so the play-history badge and score
@@ -3238,37 +2867,6 @@ namespace DTXMania.Game.Lib.Song
 
         #region Helper Methods
 
-        /// <summary>
-        /// Finds songs by search term
-        /// </summary>
-        public async Task<List<SongEntity>> FindSongsBySearchAsync(string searchTerm)
-        {
-            var database = GetDatabaseServiceSnapshot();
-            if (database == null) return new List<SongEntity>();
-
-            try
-            {
-                var songs = await database.SearchSongsAsync(searchTerm)
-                    .ConfigureAwait(false);
-                var result = new List<SongEntity>(songs.Count);
-                foreach (var song in songs)
-                {
-                    var charts = GetActiveCharts(song);
-                    if (charts.Length == 0)
-                        continue;
-                    song.Charts = charts;
-                    result.Add(song);
-                }
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error searching songs");
-                return new List<SongEntity>();
-            }
-        }
-
         private string[] GetCurrentSearchPathsSnapshot()
         {
             lock (_lockObject)
@@ -3292,24 +2890,6 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Gets songs by genre
-        /// </summary>
-        public async Task<List<SongEntity>> GetSongsByGenreAsync(string genre)
-        {
-            if (_databaseService == null) return new List<SongEntity>();
-
-            try
-            {
-                return await _databaseService.GetSongsByGenreAsync(genre);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error getting songs by genre");
-                return new List<SongEntity>();
-            }
-        }
-
-        /// <summary>
         /// Checks if enumeration is needed based on database existence and directory modification times
         /// </summary>
         public async Task<bool> NeedsEnumerationAsync(string[] searchPaths, bool forceEnumeration = false)
@@ -3327,9 +2907,9 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
-                // If database has no songs, we need enumeration
-                var stats = await _databaseService.GetDatabaseStatsAsync();
-                if (stats.SongCount == 0)
+                // If database has no songs, we need enumeration (narrow EXISTS
+                // read; the old five-COUNT aggregate statistics query is gone)
+                if (!await _databaseService.HasAnySongsAsync())
                 {
                     return true;
                 }
@@ -4255,7 +3835,6 @@ namespace DTXMania.Game.Lib.Song
                 _databaseService?.Dispose();
                 _databaseService = null;
                 _currentSearchPaths = Array.Empty<string>();
-                _pendingSearchPaths = Array.Empty<string>();
                 EnumeratedFileCount = 0;
                 DiscoveredScoreCount = 0;
                 _publicationVersion++;
@@ -4267,8 +3846,6 @@ namespace DTXMania.Game.Lib.Song
                     static (path, encoding, token) =>
                         File.ReadAllLinesAsync(path, encoding, token);
                 ImportSongsCoreAsync = DefaultImportSongsAsync;
-                GetDatabaseStatsCoreAsync =
-                    static database => database.GetDatabaseStatsAsync();
                 BuildEnumerationBatchCoreAsync =
                     (searchPaths, progress, token) =>
                         BuildEnumerationBatchAsync(searchPaths, progress, token);
@@ -4303,19 +3880,6 @@ namespace DTXMania.Game.Lib.Song
     }
 
     #region Supporting Classes
-
-    /// <summary>
-    /// Event args for song discovered event
-    /// </summary>
-    public class SongDiscoveredEventArgs : EventArgs
-    {
-        public SongListNode Song { get; }
-
-        public SongDiscoveredEventArgs(SongListNode song)
-        {
-            Song = song;
-        }
-    }
 
     /// <summary>
     /// Event args for enumeration progress

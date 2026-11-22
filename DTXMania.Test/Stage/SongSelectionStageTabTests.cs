@@ -16,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using Xunit;
+using DTXMania.Test.TestData;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
@@ -659,7 +660,7 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await manager.DatabaseService!.PurgeDatabaseAsync();
+            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
 
             try
             {
@@ -691,7 +692,7 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await manager.DatabaseService!.PurgeDatabaseAsync();
+            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
 
             try
             {
@@ -901,7 +902,7 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await manager.DatabaseService!.PurgeDatabaseAsync();
+            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
 
             try
             {
@@ -933,7 +934,7 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await manager.DatabaseService!.PurgeDatabaseAsync();
+            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
 
             try
             {
@@ -1040,7 +1041,7 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await manager.DatabaseService!.PurgeDatabaseAsync();
+            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
 
             try
             {

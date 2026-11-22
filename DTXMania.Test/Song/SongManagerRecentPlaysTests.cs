@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -38,15 +39,15 @@ namespace DTXMania.Test.Song
         {
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = ManagerDatabaseService(manager)!;
 
             async Task AddAndPlay(string title)
             {
                 var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
                 var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-                await db.AddSongAsync(song, chart);
+                await db.SeedSongAsync(song, chart);
                 var stored = (await db.GetSongsAsync()).Single(s => s.Title == title);
-                await db.UpdateScoreAsync(stored.Charts.Single().Id, EInstrumentPart.DRUMS, 100000, 0.9, true);
+                await db.UpdateScoreAsync(stored.Charts.Single().Id, EInstrumentPart.DRUMS, CreateSummary(100, pitchSemitones: 0, score: 100000));
             }
 
             await AddAndPlay("Older");
@@ -91,7 +92,7 @@ namespace DTXMania.Test.Song
         {
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = ManagerDatabaseService(manager)!;
 
             // Purging the database resets the service's _isInitialized flag, which makes
             // subsequent CreateContext() calls throw InvalidOperationException. The exception
@@ -108,7 +109,7 @@ namespace DTXMania.Test.Song
             await _manager.InitializeDatabaseServiceAsync(
                 _dbPath,
                 purgeDatabaseFirst: true);
-            var db = _manager.DatabaseService!;
+            var db = ManagerDatabaseService(_manager)!;
             var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "Speed History",
@@ -120,7 +121,7 @@ namespace DTXMania.Test.Song
                 HasDrumChart = true,
                 DrumLevel = 60,
             };
-            await db.AddSongAsync(song, chart);
+            await db.SeedSongAsync(song, chart);
             var storedChart = Assert.Single(
                 Assert.Single(await db.GetSongsAsync()).Charts);
 
@@ -148,6 +149,15 @@ namespace DTXMania.Test.Song
             Assert.Equal(-4, Assert.Single(slow.PerformanceHistory).PitchSemitones);
             Assert.Equal(100, node.Scores[0].PlaySpeedPercent);
         }
+
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private static SongDatabaseService? ManagerDatabaseService(SongManager manager) =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(manager, "_databaseService");
 
         private static PerformanceSummary CreateSummary(
             int playSpeedPercent,

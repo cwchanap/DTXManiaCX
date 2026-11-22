@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Test.TestData;
 using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using Xunit;
@@ -33,6 +34,16 @@ namespace DTXMania.Test.Song
             try { Directory.Delete(_root, true); } catch { }
         }
 
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private SongDatabaseService? ManagerDatabaseService =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+
+
         private string WriteChartAndScore(string fileName, int playCount, int score, bool withScoreIni = true)
         {
             var dtxPath = Path.Combine(_root, fileName);
@@ -53,7 +64,7 @@ namespace DTXMania.Test.Song
 
         private async Task<int> SeedChartAsync(string dtxPath, string title)
         {
-            var db = _manager.DatabaseService!;
+            var db = ManagerDatabaseService!;
             using var ctx = db.CreateContext();
             var chart = new SongChart
             {
@@ -77,7 +88,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(1, result.Scanned);
             Assert.Equal(1, result.Imported);
 
-            using var ctx = _manager.DatabaseService!.CreateContext();
+            using var ctx = ManagerDatabaseService!.CreateContext();
             var s = ctx.SongScores.AsNoTracking().First(x => x.ChartId == chartId);
             Assert.Equal(958247, s.BestScore);
             Assert.Equal(79, s.PlayCount);
@@ -107,7 +118,7 @@ namespace DTXMania.Test.Song
             await _manager.ImportNxScoresAsync();
             await _manager.ImportNxScoresAsync();
 
-            using var ctx = _manager.DatabaseService!.CreateContext();
+            using var ctx = ManagerDatabaseService!.CreateContext();
             var s = ctx.SongScores.AsNoTracking().First(x => x.ChartId == chartId);
             Assert.Equal(79, s.PlayCount);
         }
@@ -128,7 +139,7 @@ namespace DTXMania.Test.Song
         public async Task ChartWithEmptyFilePath_ShouldBeSkipped()
         {
             Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
-            using var ctx = _manager.DatabaseService!.CreateContext();
+            using var ctx = ManagerDatabaseService!.CreateContext();
             var chart = new SongChart
             {
                 Song = new SongEntity { Title = "Ghost" },
@@ -219,7 +230,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(3, result.Imported);
             Assert.Equal(0, result.Errors);
 
-            using var ctx = _manager.DatabaseService!.CreateContext();
+            using var ctx = ManagerDatabaseService!.CreateContext();
             var s1 = ctx.SongScores.AsNoTracking().First(x => x.ChartId == id1);
             var s2 = ctx.SongScores.AsNoTracking().First(x => x.ChartId == id2);
             var s3 = ctx.SongScores.AsNoTracking().First(x => x.ChartId == id3);

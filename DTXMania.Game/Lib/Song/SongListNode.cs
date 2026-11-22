@@ -172,46 +172,6 @@ namespace DTXMania.Game.Lib.Song
         #region EF Core Integration Methods
 
         /// <summary>
-        /// Populates the legacy Scores array from EF Core data for UI compatibility
-        /// </summary>
-        public void PopulateScoresFromDatabase(DTXMania.Game.Lib.Song.Entities.SongDatabaseService databaseService)
-        {
-            if (DatabaseSongId == null) return;
-
-            try
-            {
-                // Use DatabaseSong if available
-                var availableInstruments = DatabaseSong?.AvailableInstruments ?? new List<string>();
-
-                for (int i = 0; i < Math.Min(availableInstruments.Count, 5); i++)
-                {
-                    var instrument = availableInstruments[i];
-                    var firstChart = DatabaseSong?.Charts?.FirstOrDefault();
-                    var difficultyLevel = firstChart?.GetDifficultyLevel(instrument);
-
-                    if (difficultyLevel.HasValue)
-                    {
-                        SetScore(i, new SongScore
-                        {
-                            Instrument = instrument switch
-                            {
-                                "DRUMS" => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
-                                "GUITAR" => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
-                                "BASS" => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
-                                _ => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS
-                            },
-                            DifficultyLevel = difficultyLevel.Value,
-                            DifficultyLabel = DifficultyLabels[i]
-                        });
-                    }
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        /// <summary>
         /// Copies play history (PlayCount, BestRank, BestScore, etc.) from persisted
         /// SongScore entities attached to each chart into the corresponding entries of
         /// the <see cref="Scores"/> array.

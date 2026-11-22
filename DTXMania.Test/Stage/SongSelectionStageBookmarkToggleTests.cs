@@ -12,6 +12,7 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
+using DTXMania.Test.TestData;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
@@ -277,10 +278,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
 
             try
@@ -320,10 +321,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
@@ -374,10 +375,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
@@ -445,10 +446,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
@@ -520,10 +521,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault
 
@@ -607,10 +608,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the gated older write fault when released
 
@@ -692,10 +693,10 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await db.AddSongAsync(seed, chart);
+            await db.SeedSongAsync(seed, chart);
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
             await db.PurgeDatabaseAsync(); // make the bookmark write fault once it runs
 
@@ -808,12 +809,16 @@ namespace DTXMania.Test.Stage
             SongManager.ResetInstanceForTesting();
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = manager.DatabaseService!;
+            var db = SongManagerTestDb.Of(manager)!;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
-            var basic = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            var advanced = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 55 };
-            await db.AddSongAsync(seed, basic);
-            await db.AddSongAsync(seed, advanced); // second chart joins the same song
+            var basic = new SongChart { Song = seed, FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
+            var advanced = new SongChart { Song = seed, FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 55 };
+            using (var seedContext = db.CreateContext())
+            {
+                seedContext.Songs.Add(seed);
+                seedContext.SongCharts.AddRange(basic, advanced);
+                await seedContext.SaveChangesAsync();
+            }
             var songId = (await db.GetSongsAsync()).Single(s => s.Title == "Song").Id;
 
             try

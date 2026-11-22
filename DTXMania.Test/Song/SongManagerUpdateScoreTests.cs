@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -53,30 +54,6 @@ public class SongManagerUpdateScoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithValidChartId_ShouldUpdateScore()
-    {
-        var songsRoot = Path.Combine(_testRoot, "ScoreSongs");
-        var songFolder = Path.Combine(songsRoot, "Score Song");
-        Directory.CreateDirectory(songFolder);
-
-        await CreateDtxFileAsync(Path.Combine(songFolder, "score.dtx"), "Score Song", "Test Artist", "Rock", 50);
-        await InitializeAndEnumerateAsync(songsRoot);
-
-        var db = _manager.DatabaseService!;
-        var songs = await db.GetSongsAsync();
-        var chart = Assert.Single(songs).Charts.First();
-
-        var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, 880_000, 92.5, fullCombo: false);
-
-        Assert.True(result);
-
-        var scores = await _manager.GetTopScoresAsync(EInstrumentPart.DRUMS, limit: 1);
-        var score = Assert.Single(scores);
-        Assert.Equal(chart.Id, score.ChartId);
-        Assert.Equal(880_000, score.BestScore);
-    }
-
-    [Fact]
     public async Task UpdateScoreAsync_WithPerformanceSummary_ShouldPersistSkill()
     {
         var songsRoot = Path.Combine(_testRoot, "SkillSongs");
@@ -86,7 +63,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "skill.dtx"), "Skill Song", "Test Artist", "Pop", 78);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var songs = await db.GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
@@ -111,7 +88,7 @@ public class SongManagerUpdateScoreTests : IDisposable
 
         Assert.True(result.IsSuccess);
 
-        var scores = await _manager.GetTopScoresAsync(EInstrumentPart.DRUMS, limit: 1);
+        var scores = await ManagerDatabaseService!.GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 1);
         var score = Assert.Single(scores);
         Assert.Equal(chart.Id, score.ChartId);
         Assert.Equal(800_000, score.BestScore);
@@ -141,16 +118,6 @@ public class SongManagerUpdateScoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithInvalidChartId_ShouldStillReturnTrue()
-    {
-        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-
-        var result = await _manager.UpdateScoreAsync(99999, EInstrumentPart.DRUMS, 100_000, 50.0, fullCombo: false);
-
-        Assert.True(result);
-    }
-
-    [Fact]
     public async Task UpdateScoreAsync_WithSummary_ShouldRefreshInMemoryPlayHistoryBadge()
     {
         // Regression: after saving a CX play, the in-memory SongListNode's
@@ -164,7 +131,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "badge.dtx"), "Badge Song", "Test Artist", "Rock", 50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var songs = await db.GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
@@ -218,7 +185,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "badge2.dtx"), "Badge Song 2", "Test Artist", "Rock", 50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var songs = await db.GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
@@ -284,7 +251,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         var firstDifficultyIndex = Array.IndexOf(firstNode.Scores, firstScore);
         var secondDifficultyIndex = Array.IndexOf(secondNode.Scores, secondScore);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var persistedSongs = await db.GetSongsAsync();
         var firstSong = persistedSongs.Single(
             song => song.Title == "First SetDef Song");
@@ -337,7 +304,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
         var (canonicalNode, metadata) = FindScoreByChartId(_manager.RootSongs, chart.Id);
         Assert.NotNull(canonicalNode);
@@ -476,10 +443,19 @@ public class SongManagerUpdateScoreTests : IDisposable
         var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
         Assert.True(initialized);
 
-        var result = await _manager.EnumerateSongsAsync(new[] { songsRoot });
-        Assert.True(result >= 1);
-        Assert.NotNull(_manager.DatabaseService);
+        var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });
+        Assert.True(result.Batch.Candidates.Count >= 1);
+        Assert.NotNull(ManagerDatabaseService);
     }
+
+    /// <summary>
+    /// The initialized database service is stored in a private field swapped
+    /// under the manager lock; tests read it via the established reflection
+    /// seam after the test-only DatabaseService accessor was removed
+    /// (HPA-801 Decision 0).
+    /// </summary>
+    private SongDatabaseService? ManagerDatabaseService =>
+        GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
 
     private static async Task CreateDtxFileAsync(string path, string title, string artist, string genre, int drumLevel)
     {
@@ -539,7 +515,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "none.dtx"), "NoNode Song", "Test Artist", "Rock", 50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
 
         // Simulate the in-memory list being empty (cleared/rebuilt between save
@@ -591,7 +567,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "ok.dtx"), "RefreshOk Song", "Test Artist", "Rock", 50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
 
         var summary = new PerformanceSummary
@@ -636,7 +612,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "race.dtx"), "Race Song", "Test Artist", "Rock", 50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
 
         // Two real saves so the DB and the in-memory node both reach PlayCount=2.
@@ -724,7 +700,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "concurrent.dtx"), "Concurrent Song", "Test Artist", "Rock", 50);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        var db = _manager.DatabaseService!;
+        var db = ManagerDatabaseService!;
         var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
 
         var barrier = new Barrier(participantCount: 2);

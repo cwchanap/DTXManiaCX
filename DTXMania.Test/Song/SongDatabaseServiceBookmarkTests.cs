@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -32,7 +33,7 @@ namespace DTXMania.Test.Song
         {
             var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = title, Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
-            await _db.AddSongAsync(song, chart);
+            await _db.SeedSongAsync(song, chart);
             return (await _db.GetSongsAsync()).Single(s => s.Title == title).Id;
         }
 

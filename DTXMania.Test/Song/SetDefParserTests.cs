@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Test.TestData;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Test.Song
 {
@@ -67,6 +69,16 @@ namespace DTXMania.Test.Song
             _songManager?.Clear();
         }
 
+        /// <summary>
+        /// The initialized database service is stored in a private field swapped
+        /// under the manager lock; tests read it via the established reflection
+        /// seam after the test-only DatabaseService accessor was removed
+        /// (HPA-801 Decision 0).
+        /// </summary>
+        private SongDatabaseService? ManagerDatabaseService =>
+            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_songManager, "_databaseService");
+
+
         private string CreateTempFile(string content, Encoding? encoding = null)
         {
             var tempFile = Path.GetTempFileName();
@@ -119,19 +131,18 @@ namespace DTXMania.Test.Song
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
-                var dbScoreCount = await _songManager.GetDatabaseScoreCountAsync();
                 var discoveredCount = _songManager.DiscoveredScoreCount;
                 var rootSongs = _songManager.RootSongs;
                 
 #if DEBUG
                 // Debug output
-                System.Console.WriteLine($"DatabaseScoreCount: {dbScoreCount}, DiscoveredScoreCount: {discoveredCount}, RootSongs: {rootSongs.Count}");
+                System.Console.WriteLine($"DiscoveredScoreCount: {discoveredCount}, RootSongs: {rootSongs.Count}");
 #endif
                 
-                Assert.True(dbScoreCount > 0, $"DatabaseScoreCount was {dbScoreCount}, DiscoveredScoreCount was {discoveredCount}");
+                Assert.True(discoveredCount > 0, $"DiscoveredScoreCount was {discoveredCount}");
                 Assert.NotEmpty(rootSongs);
 
                 var song = rootSongs.FirstOrDefault(s => s.Type == NodeType.Score);
@@ -168,7 +179,7 @@ namespace DTXMania.Test.Song
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _songManager.RootSongs;
@@ -216,7 +227,7 @@ namespace DTXMania.Test.Song
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert - Should handle gracefully regardless of encoding
                 var rootSongs = _songManager.RootSongs;
@@ -266,7 +277,7 @@ namespace DTXMania.Test.Song
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _songManager.RootSongs;
@@ -307,9 +318,11 @@ namespace DTXMania.Test.Song
             try
             {
                 // Act & Assert - Should not throw
+                var initialized = await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                Assert.True(initialized);
                 var exception = await Record.ExceptionAsync(async () =>
-                    await _songManager.EnumerateSongsAsync(new[] { tempDir }));
-                
+                    await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir }));
+
                 Assert.Null(exception);
             }
             finally
@@ -343,7 +356,7 @@ namespace DTXMania.Test.Song
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _songManager.RootSongs;
@@ -372,9 +385,11 @@ namespace DTXMania.Test.Song
             try
             {
                 // Act & Assert - Should not throw
+                var initialized = await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                Assert.True(initialized);
                 var exception = await Record.ExceptionAsync(async () =>
-                    await _songManager.EnumerateSongsAsync(new[] { tempDir }));
-                
+                    await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir }));
+
                 Assert.Null(exception);
             }
             finally
@@ -410,7 +425,7 @@ INVALID LINE WITHOUT HASH
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert - Should parse valid entries and skip invalid ones
                 var rootSongs = _songManager.RootSongs;
@@ -454,7 +469,7 @@ INVALID LINE WITHOUT HASH
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _songManager.RootSongs;
@@ -496,7 +511,7 @@ INVALID LINE WITHOUT HASH
                 await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
-                await _songManager.EnumerateSongsAsync(new[] { tempDir });
+                await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
 
                 // Assert
                 var rootSongs = _songManager.RootSongs;
