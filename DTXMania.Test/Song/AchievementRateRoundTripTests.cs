@@ -82,7 +82,7 @@ public class AchievementRateRoundTripTests : IDisposable
             TotalNotes = 100
         };
 
-        var updated = await _manager.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, summary);
+        var updated = await _manager.Scores.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, summary);
         Assert.True(
             updated.IsSuccess,
             "UpdateScoreAsync (PerformanceSummary) should succeed");
@@ -125,7 +125,7 @@ public class AchievementRateRoundTripTests : IDisposable
 
         // First play: high GameSkill sets BestAchievementRate
         const double firstRate = 92.10;
-        await _manager.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
+        await _manager.Scores.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
         {
             Score = 950_000,
             PlayingSkill = firstRate,
@@ -135,7 +135,7 @@ public class AchievementRateRoundTripTests : IDisposable
         });
 
         // Second play: lower GameSkill should NOT overwrite BestAchievementRate (NX-faithful gate)
-        await _manager.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
+        await _manager.Scores.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
         {
             Score = 800_000,
             PlayingSkill = 50.0,

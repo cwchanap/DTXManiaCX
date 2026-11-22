@@ -1274,8 +1274,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
         await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { activeRoot });
 
-        var bookmarks = await _manager.GetBookmarkedNodesAsync();
-        var recent = await _manager.GetRecentlyPlayedNodesAsync();
+        var bookmarks = await _manager.Queries.GetBookmarkedNodesAsync();
+        var recent = await _manager.Queries.GetRecentlyPlayedNodesAsync();
         Assert.Equal(new[] { "Shared Search Active" }, bookmarks.Select(node => node.Title));
         Assert.Equal(new[] { "Shared Search Active" }, recent.Select(node => node.Title));
         Assert.All(
@@ -1330,7 +1330,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await _manager.BuildHierarchyFromDatabaseOnceAsync(
             new[] { activeRoot });
 
-        var recent = await _manager.GetRecentlyPlayedNodesAsync();
+        var recent = await _manager.Queries.GetRecentlyPlayedNodesAsync();
 
         Assert.Equal(
             new[] { "Active Only", "Shared Song" },
@@ -1402,7 +1402,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         }
         await _manager.BuildHierarchyFromDatabaseOnceAsync(new[] { activeRoot });
 
-        var recent = await _manager.GetRecentlyPlayedNodesAsync(limit: 3);
+        var recent = await _manager.Queries.GetRecentlyPlayedNodesAsync(limit: 3);
 
         // Target has the most-recent ACTIVE play and must rank first even though
         // the decoys' inactive charts pushed it past the first all-chart page.
@@ -2649,7 +2649,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         }
         await context.SaveChangesAsync();
 
-        var recent = await _manager.GetRecentlyPlayedNodesAsync(limit: 3);
+        var recent = await _manager.Queries.GetRecentlyPlayedNodesAsync(limit: 3);
 
         // Exactly the limit, in newest-first recency order.
         Assert.Equal(3, recent.Count);

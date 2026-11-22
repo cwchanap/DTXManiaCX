@@ -52,7 +52,7 @@ namespace DTXMania.Test.Song
             await Task.Delay(50);
             await AddAndPlay("Newer");
 
-            var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
+            var nodes = await manager.Queries.GetRecentlyPlayedNodesAsync(20);
 
             Assert.Equal(2, nodes.Count);
             Assert.All(nodes, n => Assert.Equal(NodeType.Score, n.Type));
@@ -66,7 +66,7 @@ namespace DTXMania.Test.Song
             var manager = new SongLibrary(new SongDatabase(_dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
 
-            var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
+            var nodes = await manager.Queries.GetRecentlyPlayedNodesAsync(20);
 
             Assert.Empty(nodes);
         }
@@ -80,7 +80,7 @@ namespace DTXMania.Test.Song
             var manager = new SongLibrary(new SongDatabase(_dbPath));
             // Deliberately not initializing the database.
 
-            var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
+            var nodes = await manager.Queries.GetRecentlyPlayedNodesAsync(20);
 
             Assert.Empty(nodes);
         }
@@ -95,7 +95,7 @@ namespace DTXMania.Test.Song
             // as empty.
             var manager = CreateFaultingManager();
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetRecentlyPlayedNodesAsync(20));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => manager.Queries.GetRecentlyPlayedNodesAsync(20));
         }
 
         [Fact]
@@ -113,7 +113,7 @@ namespace DTXMania.Test.Song
             Assert.False(await manager.InitializeAsync());
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => manager.GetRecentlyPlayedNodesAsync(20));
+                () => manager.Queries.GetRecentlyPlayedNodesAsync(20));
         }
 
         [Fact]
@@ -133,7 +133,7 @@ namespace DTXMania.Test.Song
             Assert.False(await manager.InitializeAsync(purgeDatabaseFirst: true));
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => manager.GetRecentlyPlayedNodesAsync(20));
+                () => manager.Queries.GetRecentlyPlayedNodesAsync(20));
         }
 
         private static SongLibrary CreateFaultingManager() => new(
@@ -176,7 +176,7 @@ namespace DTXMania.Test.Song
                 CreateSummary(75, pitchSemitones: -4, score: 900000));
 
             var node = Assert.Single(
-                await _manager.GetRecentlyPlayedNodesAsync(20));
+                await _manager.Queries.GetRecentlyPlayedNodesAsync(20));
             var normal = node.GetScore(0, 100);
             var slow = node.GetScore(0, 75);
 

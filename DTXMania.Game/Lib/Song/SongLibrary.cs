@@ -93,6 +93,20 @@ namespace DTXMania.Game.Lib.Song
                 parseSongEntitiesAsync,
                 enumerateFiles,
                 enumerateDirectories);
+            // Score orchestration (store save + this library's locked in-memory
+            // refresh delegate) and live recent/bookmark queries with their SQL
+            // inline (HPA-801 Decision D). Both share the one database; queries
+            // map nodes through the same hierarchy builder as cold/warm paths.
+            _scores = new SongScoreService(
+                _database,
+                _scoreStore,
+                RefreshInMemoryScoreForChartAsync,
+                _logger);
+            _queries = new SongQueryService(
+                _database,
+                _hierarchy,
+                GetCurrentSearchPathsSnapshot,
+                () => ReadsAsNeverInitialized(_database));
             ImportSongsCoreAsync = importSongsAsync ?? DefaultImportSongsAsync;
             // Default batch-building delegate captures this instance so tests can
             // inject controlled batches (e.g. an incomplete batch) without subclassing.
@@ -117,6 +131,12 @@ namespace DTXMania.Game.Lib.Song
         private readonly SongCatalogStore _catalog;
 
         private readonly SongScoreStore _scoreStore;
+
+        // Score orchestration and live queries over the shared database
+        // (HPA-801 Decision D); stages reach them via Scores/Queries.
+        private readonly SongScoreService _scores;
+
+        private readonly SongQueryService _queries;
         private string[] _currentSearchPaths = Array.Empty<string>();
         private long _publicationVersion;
 
@@ -228,16 +248,17 @@ namespace DTXMania.Game.Lib.Song
         internal SongDatabase Database => _database;
 
         /// <summary>
-        /// Bulk import, chart inventory, watermark and rejected-count queries
-        /// over the shared database (HPA-801).
+        /// Score save orchestration — store save (RunId idempotent) followed by
+        /// this library's locked in-memory refresh — and NX score import over
+        /// the shared database (HPA-801 Decision D).
         /// </summary>
-        internal SongCatalogStore Catalog => _catalog;
+        internal SongScoreService Scores => _scores;
 
         /// <summary>
-        /// Score save transactions and score/history reads over the shared
-        /// database (HPA-801).
+        /// Live recent-play and bookmark queries with their SQL inline over the
+        /// shared database (HPA-801 Decision D; no query store).
         /// </summary>
-        internal SongScoreStore ScoreStore => _scoreStore;
+        internal SongQueryService Queries => _queries;
 
         /// <summary>
         /// True when the database has never been presented to initialization:
@@ -802,68 +823,6 @@ namespace DTXMania.Game.Lib.Song
         #region EF Core Helper Methods
 
         /// <summary>
-        /// Persists a complete PerformanceSummary (score + skill + judgement counts) for a
-        /// specific chart and instrument. Forwards to SongScoreStore, then refreshes
-        /// the in-memory score cache for that chart so the play-history badge and score
-        /// fields on the song-list node reflect the just-saved play without a full
-        /// song-database reload.
-        /// </summary>
-        /// <remarks>
-        /// Per the accepted implementation plan (invariant 8): "The Result stage cannot
-        /// report a save as successful until the database write and matching in-memory
-        /// refresh have completed." A save that commits to the database but cannot
-        /// refresh at least one matching in-memory node is therefore reported as
-        /// <see cref="ScoreSaveStatus.Failed"/> so the UI does not display SAVED over a
-        /// stale song-selection cache. The player can retry; the database write is
-        /// idempotent (RunId receipt), so a retry that succeeds at refresh will surface
-        /// <see cref="ScoreSaveStatus.AlreadySaved"/> as a successful save.
-        /// </remarks>
-        public async Task<ScoreSaveResult> UpdateScoreAsync(
-            int chartId,
-            EInstrumentPart instrument,
-            DTXMania.Game.Lib.Stage.Performance.PerformanceSummary summary)
-        {
-            var result = await _scoreStore
-                .UpdateScoreAsync(chartId, instrument, summary)
-                .ConfigureAwait(false);
-
-            if (!result.IsSuccess)
-                return result;
-
-            // The save committed. The plan's contract requires the matching in-memory
-            // refresh to complete before the UI may report success. A refresh failure
-            // (transient DB read error) or a no-op refresh (no matching node found,
-            // e.g. the song list was rebuilt/cleared between save and refresh) must
-            // not be masked by returning the original successful result. A refresh
-            // that finds a newer snapshot already published for the same score key
-            // (chart+instrument+speed) by a concurrent save is treated as success:
-            // the in-memory state is already consistent with (or ahead of) this
-            // caller's snapshot, so the publication is intentionally skipped.
-            ScoreRefreshOutcome outcome;
-            try
-            {
-                outcome = await RefreshInMemoryScoreForChartAsync(
-                    chartId,
-                    instrument,
-                    summary.PlaySpeedPercent).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "In-memory score refresh failed after successful save for chart {ChartId}", chartId);
-                outcome = ScoreRefreshOutcome.NoMatch;
-            }
-
-            if (outcome == ScoreRefreshOutcome.NoMatch)
-            {
-                return ScoreSaveResult.Failed(
-                    "The score was saved to the database, but the song list could not be "
-                    + "refreshed. Please retry to update the displayed score.");
-            }
-
-            return result;
-        }
-
-        /// <summary>
         /// Refreshes the in-memory score cache for a single chart+instrument+speed after a
         /// database write. Re-queries the fresh <see cref="SongScore"/> (with
         /// <see cref="SongScore.PerformanceHistory"/> eagerly loaded), clones the current
@@ -1153,225 +1112,6 @@ namespace DTXMania.Game.Lib.Song
             targetChart.Scores = updated;
         }
 
-        /// <summary>
-        /// <summary>
-        /// Imports DTXManiaNX drum scores from sibling &lt;chart&gt;.score.ini files for every
-        /// drum chart already in the database. Best-of merge with snapshot-delta counters;
-        /// safe to run repeatedly. Reports progress per chart. See the design spec.
-        /// </summary>
-        public async Task<NxImportResult> ImportNxScoresAsync(
-            IProgress<NxImportProgress>? progress = null, CancellationToken cancellationToken = default)
-        {
-            var result = new NxImportResult();
-            var db = _database;
-            try
-            {
-                using var probe = db.CreateContext();
-            }
-            catch (InvalidOperationException exception)
-            {
-                // The game-owned database exists from launch but Startup has not
-                // initialized it yet (or initialization failed): report the explicit
-                // unavailable result the Config stage maps to its status text.
-                _logger.LogWarning(
-                    exception,
-                    "NX import unavailable: song database is not initialized");
-                result.DbUnavailable = true;
-                return result;
-            }
-
-            var importer = new NxScoreImporter();
-            using var context = db.CreateContext();
-
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-
-            var charts = await context.SongCharts
-                .Include(c => c.Song)
-                .Where(c => c.HasDrumChart)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var chart in charts)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                result.Scanned++;
-                try
-                {
-                    if (string.IsNullOrEmpty(chart.FilePath) || !File.Exists(chart.FilePath))
-                    {
-                        result.Skipped++;
-                    }
-                    else
-                    {
-                        var iniPath = chart.FilePath + ".score.ini";
-                        var data = NxScoreIniParser.Parse(iniPath);
-                        if (data == null)
-                        {
-                            result.Skipped++;
-                        }
-                        else
-                        {
-                            await importer.MergeAsync(context, chart, data, cancellationToken).ConfigureAwait(false);
-                            result.Imported++;
-                            // Clear tracked entities after each successful merge to prevent
-                            // memory accumulation when importing large libraries.
-                            context.ChangeTracker.Clear();
-                        }
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    result.Errors++;
-                    // Clear tracked entities so a failed merge does not poison the next chart.
-                    context.ChangeTracker.Clear();
-                    _logger.LogWarning(ex, "NX import error for {ChartPath}", chart.FilePath);
-                }
-
-                progress?.Report(new NxImportProgress
-                {
-                    Scanned = result.Scanned,
-                    Imported = result.Imported,
-                    Skipped = result.Skipped,
-                    Errors = result.Errors,
-                    CurrentFile = Path.GetFileName(chart.FilePath)
-                });
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// Builds a flat list of Score nodes for the most-recently-played songs, newest first.
-        /// One node per song (multi-chart songs collapse to a single node carrying all charts),
-        /// limited to <paramref name="limit"/>. Returns an empty list when the database service
-        /// is unavailable or nothing has been played. Reuses the same node builder as the browse
-        /// list so difficulty cycling, status panel, preview, and activation behave identically.
-        /// Exceptions from the database layer are allowed to propagate so the caller
-        /// (BeginRecentPlaysLoad) can distinguish a genuine failure from an empty result
-        /// and set the appropriate UI state.
-        /// </summary>
-        public async Task<List<SongListNode>> GetRecentlyPlayedNodesAsync(int limit = 20)
-        {
-            // Pre-initialization queries read as empty (pre-HPA-801 contract);
-            // once initialization was attempted, a failed or purged database
-            // falls through to the query, whose CreateContext guard throws the
-            // pre-rename load failure instead of reading as an empty result.
-            if (limit <= 0 || ReadsAsNeverInitialized(_database)) return new List<SongListNode>();
-
-            // Push the active-root criterion into the DB query as a set of active
-            // chart IDs so that grouping, ordering, AND pagination all use
-            // active-chart recency. This is what makes the ordering globally
-            // correct: a song promoted up the all-chart ordering by a play on a
-            // now-inactive chart can no longer push a more-recently-played active
-            // song past the page boundary. With active filtering in SQL, every
-            // returned song already has at least one active chart, so a single
-            // bounded query is sufficient (no client-side re-pagination).
-            IReadOnlyCollection<int>? activeChartIds = null;
-            var roots = GetCurrentSearchPathsSnapshot();
-            if (roots.Length > 0)
-            {
-                activeChartIds = await _catalog.GetActiveChartIdsAsync(roots)
-                    .ConfigureAwait(false);
-            }
-
-            var songs = await _catalog.GetRecentlyPlayedSongsAsync(limit, 0, activeChartIds)
-                .ConfigureAwait(false);
-            var nodes = new List<SongListNode>(songs.Count);
-            AppendActiveNodes(songs, limit, ref nodes);
-            return nodes;
-        }
-
-        private void AppendActiveNodes(
-            List<SongEntity> songs,
-            int limit,
-            ref List<SongListNode> nodes)
-        {
-            // The DB query already orders by active-chart recency, so callers
-            // receive songs in the correct global order; we only filter to each
-            // song's active charts and build nodes, preserving DB order.
-            var items = songs
-                .Select(song =>
-                {
-                    var charts = GetActiveCharts(song);
-                    var lastPlayedAt = charts
-                        .SelectMany(chart =>
-                            chart.Scores ?? Enumerable.Empty<SongScore>())
-                        .Where(score => score.LastPlayedAt.HasValue)
-                        .Select(score => score.LastPlayedAt)
-                        .Max();
-                    return (Song: song, Charts: charts, LastPlayedAt: lastPlayedAt);
-                })
-                .Where(item =>
-                    item.Charts.Length > 0 && item.LastPlayedAt.HasValue);
-
-            foreach (var item in items)
-            {
-                if (nodes.Count >= limit)
-                    break;
-                var song = item.Song;
-                var charts = item.Charts;
-                song.Charts = charts;
-                var node = _hierarchy.CreateSongNodeFromDatabaseEntities(song, charts);
-                if (node != null)
-                {
-                    node.RecentPlaySpeedPercent = charts
-                        .SelectMany(chart =>
-                            chart.Scores ?? Enumerable.Empty<SongScore>())
-                        .Where(score => score.LastPlayedAt.HasValue)
-                        .OrderByDescending(score => score.LastPlayedAt)
-                        .ThenByDescending(score => score.Id)
-                        .Select(score => (int?)score.PlaySpeedPercent)
-                        .FirstOrDefault();
-                    nodes.Add(node);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Returns bookmarked songs as flat Score nodes, alphabetical by title. Returns an
-        /// empty list if the database is unavailable. Reuses the same node builder as the
-        /// browse list so difficulty cycling, status panel, preview, and activation behave
-        /// identically. Exceptions from the database layer propagate so the caller
-        /// (BeginBookmarksLoad) can distinguish a genuine failure from an empty result.
-        /// </summary>
-        public async Task<List<SongListNode>> GetBookmarkedNodesAsync()
-        {
-            // Same contract as GetRecentlyPlayedNodesAsync: only a
-            // never-initialized database reads as empty; a failed or purged
-            // initialization surfaces the database failure.
-            if (ReadsAsNeverInitialized(_database)) return new List<SongListNode>();
-
-            var songs = await _catalog.GetBookmarkedSongsAsync().ConfigureAwait(false);
-            var nodes = new List<SongListNode>(songs.Count);
-            foreach (var song in songs)
-            {
-                var charts = GetActiveCharts(song);
-                if (charts.Length == 0)
-                    continue;
-                song.Charts = charts;
-                var node = _hierarchy.CreateSongNodeFromDatabaseEntities(song, charts);
-                if (node != null)
-                    nodes.Add(node);
-            }
-            return nodes;
-        }
-
-        /// <summary>
-        /// Sets or clears the bookmark flag on a song. Safe no-op when the database is
-        /// unavailable.
-        /// </summary>
-        public async Task SetBookmarkAsync(int songId, bool bookmarked)
-        {
-            // Writes fail clearly before Startup's initialization (HPA-801):
-            // a purged/never-initialized database must surface the fault to the
-            // caller's rollback path instead of silently no-oping.
-            await _catalog.SetBookmarkAsync(songId, bookmarked).ConfigureAwait(false);
-        }
-
         #endregion
 
         #region Helper Methods
@@ -1380,22 +1120,6 @@ namespace DTXMania.Game.Lib.Song
         {
             lock (_lockObject)
                 return _currentSearchPaths.ToArray();
-        }
-
-        private SongChart[] GetActiveCharts(SongEntity song)
-        {
-            var roots = GetCurrentSearchPathsSnapshot();
-            var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
-            if (roots.Length == 0)
-                return charts;
-
-            return charts.Where(chart =>
-                SongPathIdentity.TryNormalize(
-                    chart.FilePath,
-                    out var normalized) &&
-                roots.Any(root =>
-                    SongPathIdentity.IsUnderRoot(normalized, root)))
-                .ToArray();
         }
 
         /// <summary>

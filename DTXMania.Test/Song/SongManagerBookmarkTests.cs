@@ -54,10 +54,10 @@ namespace DTXMania.Test.Song
             var db = ManagerDatabaseService!;
             var b = await AddSong(db, "Bravo");
             var a = await AddSong(db, "Alpha");
-            await new SongCatalogStore(db).SetBookmarkAsync(b, true);
-            await new SongCatalogStore(db).SetBookmarkAsync(a, true);
+            await _manager.Queries.SetBookmarkAsync(b, true);
+            await _manager.Queries.SetBookmarkAsync(a, true);
 
-            var nodes = await _manager.GetBookmarkedNodesAsync();
+            var nodes = await _manager.Queries.GetBookmarkedNodesAsync();
 
             Assert.Equal(2, nodes.Count);
             Assert.All(nodes, n => Assert.Equal(NodeType.Score, n.Type));
@@ -70,7 +70,7 @@ namespace DTXMania.Test.Song
         {
             // HPA-801: the database is never initialized in this fixture; queries
             // read as empty instead of throwing (pre-rename contract).
-            var nodes = await _manager.GetBookmarkedNodesAsync();
+            var nodes = await _manager.Queries.GetBookmarkedNodesAsync();
             Assert.Empty(nodes);
         }
 
@@ -81,7 +81,7 @@ namespace DTXMania.Test.Song
             var db = ManagerDatabaseService!;
             var id = await AddSong(db, "Song");
 
-            await _manager.SetBookmarkAsync(id, true);
+            await _manager.Queries.SetBookmarkAsync(id, true);
 
             Assert.True((await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Id == id).IsBookmarked);
         }
@@ -92,7 +92,7 @@ namespace DTXMania.Test.Song
             // HPA-801: writes fail clearly before Startup's initialization so the
             // caller's fault/rollback paths still engage.
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => _manager.SetBookmarkAsync(1, true));
+                () => _manager.Queries.SetBookmarkAsync(1, true));
         }
 
         [Fact]
@@ -110,7 +110,7 @@ namespace DTXMania.Test.Song
             Assert.False(await manager.InitializeAsync());
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => manager.GetBookmarkedNodesAsync());
+                () => manager.Queries.GetBookmarkedNodesAsync());
         }
 
         [Fact]
@@ -130,7 +130,7 @@ namespace DTXMania.Test.Song
             Assert.False(await manager.InitializeAsync(purgeDatabaseFirst: true));
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => manager.GetBookmarkedNodesAsync());
+                () => manager.Queries.GetBookmarkedNodesAsync());
         }
     }
 }

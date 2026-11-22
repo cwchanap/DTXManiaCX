@@ -82,7 +82,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             ChartLevelDec = 33
         };
 
-        var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+        var result = await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
         Assert.True(result.IsSuccess);
 
@@ -101,7 +101,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         // HPA-801: the database is never null, but this fixture never initializes
         // it — the guard fails clearly instead of returning a soft Failed result.
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary()));
+            () => _manager.Scores.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary()));
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class SongManagerUpdateScoreTests : IDisposable
     {
         // Non-canonical play speed is rejected before any database access.
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => _manager.UpdateScoreAsync(
+            () => _manager.Scores.UpdateScoreAsync(
                 1,
                 EInstrumentPart.DRUMS,
                 new PerformanceSummary { PlaySpeedPercent = 123 }));
@@ -159,7 +159,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             ChartLevelDec = 0
         };
 
-        var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+        var result = await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
         Assert.True(result.IsSuccess);
 
         var refreshed = scoreNode.GetScore(difficultyIndex, 100);
@@ -200,7 +200,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             TotalNotes = 100, PlayingSkill = 80.0, GameSkill = 120.0,
             ChartLevel = 50, ChartLevelDec = 0
         };
-        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
+        await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
 
         var firstRefresh = scoreNode.GetScore(difficultyIndex, 100);
         Assert.NotNull(firstRefresh);
@@ -214,7 +214,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             TotalNotes = 100, PlayingSkill = 90.0, GameSkill = 135.0,
             ChartLevel = 50, ChartLevelDec = 0
         };
-        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
+        await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
 
         var secondRefresh = scoreNode.GetScore(difficultyIndex, 100);
         Assert.NotNull(secondRefresh);
@@ -268,7 +268,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             TotalNotes = 100, PlayingSkill = 90.0, GameSkill = 140.0,
             ChartLevel = 50, ChartLevelDec = 0
         };
-        var result = await _manager.UpdateScoreAsync(secondChart.Id, EInstrumentPart.DRUMS, summary);
+        var result = await _manager.Scores.UpdateScoreAsync(secondChart.Id, EInstrumentPart.DRUMS, summary);
         Assert.True(result.IsSuccess);
 
         // The played song's cached score must reflect the play ...
@@ -338,7 +338,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             CompletionReason = CompletionReason.SongComplete,
         };
 
-        var result = await _manager.UpdateScoreAsync(
+        var result = await _manager.Scores.UpdateScoreAsync(
             chart.Id,
             EInstrumentPart.DRUMS,
             summary);
@@ -539,7 +539,7 @@ public class SongManagerUpdateScoreTests : IDisposable
                 CompletionReason = CompletionReason.SongComplete,
             };
 
-            var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+            var result = await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
             // The DB write committed, but no in-memory node was refreshed.
             Assert.Equal(ScoreSaveStatus.Failed, result.Status);
@@ -582,7 +582,7 @@ public class SongManagerUpdateScoreTests : IDisposable
             CompletionReason = CompletionReason.SongComplete,
         };
 
-        var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+        var result = await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
         Assert.Equal(ScoreSaveStatus.Saved, result.Status);
     }
@@ -630,8 +630,8 @@ public class SongManagerUpdateScoreTests : IDisposable
             TotalNotes = 100, PlayingSkill = 90.0, GameSkill = 135.0,
             ChartLevel = 50, ChartLevelDec = 0, CompletionReason = CompletionReason.SongComplete,
         };
-        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
-        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
+        await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
+        await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
 
         var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
         Assert.NotNull(scoreNode);
@@ -714,12 +714,12 @@ public class SongManagerUpdateScoreTests : IDisposable
         var callerA = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, MakeSummary(810_000, 81));
+            return await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, MakeSummary(810_000, 81));
         });
         var callerB = Task.Run(async () =>
         {
             barrier.SignalAndWait();
-            return await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, MakeSummary(920_000, 92));
+            return await _manager.Scores.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, MakeSummary(920_000, 92));
         });
 
         var results = await Task.WhenAll(callerA, callerB);

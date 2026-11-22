@@ -148,7 +148,7 @@ namespace DTXMania.Test.Song
                     new SongEntity { Title = "Retain Me", Artist = "Keeper" },
                     chart);
                 chartId = chart.Id;
-                await new SongCatalogStore(first).SetBookmarkAsync(songId, true);
+                await CreateQueryService(first).SetBookmarkAsync(songId, true);
                 await new SongScoreStore(first).UpdateScoreAsync(
                     chartId,
                     EInstrumentPart.DRUMS,
@@ -480,6 +480,16 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(0, await ReadUserVersionAsync(_dbPath));
         }
+
+        // Bookmark read/toggle SQL lives on SongQueryService since HPA-801 Task 7.
+        private static SongQueryService CreateQueryService(SongDatabase database) => new(
+            database,
+            new SongHierarchyBuilder(
+                new SongCatalogStore(database),
+                new SongDefinitionReader(),
+                SongRootPolicy.ForCurrentPlatform(),
+                BundledSongs.Root),
+            readsAsNeverInitialized: () => false);
 
         private static async Task<long> ReadUserVersionAsync(string databasePath)
         {
