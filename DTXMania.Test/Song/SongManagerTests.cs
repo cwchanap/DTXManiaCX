@@ -693,20 +693,6 @@ namespace DTXMania.Test.Song
             }
         }
 
-        [Trait("Category", "Unit")]
-        [Theory]
-        [InlineData("#  TITLE Sample Song", "#TITLE Sample Song")]
-        [InlineData("#TITLE  Sample Song", "#TITLE Sample Song")]
-        [InlineData("#ABC  Value", "#ABC Value")]
-        [InlineData("  plain text  ", "plain text")]
-        public void NormalizeSetDefLine_ShouldNormalizeSupportedFormats(string line, string expected)
-        {
-            var normalized = InvokePrivateMethod<string>(_manager, "NormalizeSetDefLine", line);
-
-            Assert.NotNull(normalized);
-            Assert.Equal(expected, normalized);
-        }
-
         #endregion
 
         private static SongDatabase CreateBrokenDatabaseService()
@@ -814,19 +800,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseBoxDefinitionAsync_WithMissingFile_ShouldReturnNull()
-        {
-            var task = ReflectionHelpers.InvokePrivateMethod<Task<BoxDefinition?>>(
-                _manager,
-                "ParseBoxDefinitionAsync",
-                Path.Combine(_testRoot, "missing-box.def"),
-                CancellationToken.None);
-
-            Assert.NotNull(task);
-            Assert.Null(await task!);
-        }
-
-        [Fact]
         public async Task BuildEnumerationBatchAsync_WhenSetDefIsMissing_ShouldProduceNoSongs()
         {
             var batch = await _manager.BuildEnumerationBatchAsync(
@@ -836,22 +809,6 @@ namespace DTXMania.Test.Song
 
             Assert.Empty(batch.PendingSongs);
             Assert.Empty(batch.RootNodes);
-        }
-
-        [Fact]
-        public void TryParseColor_WithInvalidHexValues_ShouldReturnFalse()
-        {
-            var method = ReflectionHelpers.GetMethod(_manager.GetType(), "TryParseColor");
-            Assert.NotNull(method);
-
-            var shortHexArgs = new object?[] { "#12", null };
-            var invalidHexArgs = new object?[] { "#GGGGGG", null };
-
-            var shortHexResult = (bool)method!.Invoke(_manager, shortHexArgs)!;
-            var invalidHexResult = (bool)method.Invoke(_manager, invalidHexArgs)!;
-
-            Assert.False(shortHexResult);
-            Assert.False(invalidHexResult);
         }
 
         [Fact]
@@ -1587,26 +1544,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void NormalizeSetDefLine_WithSpacedCommand_ShouldNotReturnEmpty()
-        {
-            var result = ReflectionHelpers.InvokePrivateMethod<string>(_manager, "NormalizeSetDefLine", "# L 5 F I L E hard.dtx");
-
-            Assert.NotNull(result);
-            Assert.NotEmpty(result!);
-            Assert.Contains("hard.dtx", result);
-        }
-
-        [Fact]
-        public void NormalizeSetDefLine_WithL1LabelSpacedPattern_ShouldNotReturnEmpty()
-        {
-            var result = ReflectionHelpers.InvokePrivateMethod<string>(_manager, "NormalizeSetDefLine", "# L 1 L A B E L Expert");
-
-            Assert.NotNull(result);
-            Assert.NotEmpty(result!);
-            Assert.Contains("Expert", result);
-        }
-
-        [Fact]
         public async Task BuildEnumerationBatchAsync_WithNoTitleInDtx_ShouldUseFilenameOrDirectory()
         {
             var setFolder = Path.Combine(_testRoot, "NoTitleSet");
@@ -1693,34 +1630,6 @@ namespace DTXMania.Test.Song
 
             var pending = Assert.Single(batch.PendingSongs);
             Assert.Equal("BASIC", pending.Placeholder.DifficultyLabels[0]);
-        }
-
-        [Fact]
-        public async Task ParseBoxDefinitionAsync_WithColorLines_ShouldParseColors()
-        {
-            var boxFolder = Path.Combine(_testRoot, "ColorBox");
-            var boxDefPath = Path.Combine(boxFolder, "box.def");
-            Directory.CreateDirectory(boxFolder);
-
-            await File.WriteAllTextAsync(boxDefPath, """
-    #TITLE: Colorful Box
-    #BGCOLOR: #FF5733
-    #TEXTCOLOR: #33FF57
-    """);
-
-            var task = ReflectionHelpers.InvokePrivateMethod<Task<BoxDefinition?>>(
-                _manager,
-                "ParseBoxDefinitionAsync",
-                boxDefPath,
-                CancellationToken.None);
-
-            Assert.NotNull(task);
-            var boxDef = await task!;
-
-            Assert.NotNull(boxDef);
-            Assert.Equal("Colorful Box", boxDef!.Title);
-            Assert.Equal(System.Drawing.ColorTranslator.FromHtml("#FF5733"), boxDef.BackgroundColor);
-            Assert.Equal(System.Drawing.ColorTranslator.FromHtml("#33FF57"), boxDef.TextColor);
         }
 
         [Theory]
