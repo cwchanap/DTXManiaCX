@@ -927,7 +927,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         foreach (var (file, level) in new[] { ("a", 60), ("b", 50), ("c", 40), ("d", 30), ("e", 20), ("f", 10) })
             WriteChart($"Songs/Six Charts/{file}.dtx", "Six Charts", level);
         // A second configured root gets its own BOX header carrying its box.def
-        // skin and colour, plus a nested skinned BOX of its own.
+        // skin and colour, plus a nested skinned BOX of its own — itself holding
+        // a BOX, so the warm rebuild must construct a BOX parent for another BOX.
         var secondRoot = Path.Combine(_testRoot, "MoreSongs");
         Directory.CreateDirectory(Path.Combine(secondRoot, "DTXFiles.Pack"));
         await File.WriteAllTextAsync(
@@ -937,6 +938,11 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             Path.Combine(secondRoot, "DTXFiles.Pack", "box.def"),
             "#TITLE: More Pack\n#GENRE: Electronica\n#SKINPATH: skins/pack\n#TEXTCOLOR: #101010\n");
         WriteChart("MoreSongs/DTXFiles.Pack/B/more.dtx", "Packed More", 55);
+        Directory.CreateDirectory(Path.Combine(secondRoot, "DTXFiles.Pack", "SubPack"));
+        await File.WriteAllTextAsync(
+            Path.Combine(secondRoot, "DTXFiles.Pack", "SubPack", "box.def"),
+            "#TITLE: Sub Pack\n#GENRE: Deep\n#SKINPATH: skins/sub\n#TEXTCOLOR: #F00F00\n");
+        WriteChart("MoreSongs/DTXFiles.Pack/SubPack/deep.dtx", "Deep More", 65);
         // The bundled root merges into the top level without a root header.
         var bundledRoot = PrepareBundledPracticeBox();
         var roots = new[] { _songsRoot, secondRoot, bundledRoot };
@@ -977,7 +983,20 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             Assert.Equal("Electronica", morePack.Genre);
             Assert.Equal("skins/pack", morePack.SkinPath);
             Assert.Equal(new Microsoft.Xna.Framework.Color(0x10, 0x10, 0x10), morePack.TextColor);
-            Assert.Equal("Packed More", Assert.Single(morePack.Children).Title);
+            var packedMore = Assert.Single(morePack.Children, node => node.Type == NodeType.Score);
+            Assert.Equal("Packed More", packedMore.Title);
+            Assert.Equal("More Box > More Pack > Packed More", packedMore.BreadcrumbPath);
+            var subPack = Assert.Single(morePack.Children, node => node.Type == NodeType.Box);
+            Assert.Equal(NodeType.Box, subPack.Type);
+            Assert.Same(morePack, subPack.Parent);
+            Assert.Equal("Sub Pack", subPack.Title);
+            Assert.Equal("Deep", subPack.Genre);
+            Assert.Equal("skins/sub", subPack.SkinPath);
+            Assert.Equal(new Microsoft.Xna.Framework.Color(0xF0, 0x0F, 0x00), subPack.TextColor);
+            Assert.Equal("More Box > More Pack > Sub Pack", subPack.BreadcrumbPath);
+            var deepSong = Assert.Single(subPack.Children);
+            Assert.Equal("Deep More", deepSong.Title);
+            Assert.Equal("More Box > More Pack > Sub Pack > Deep More", deepSong.BreadcrumbPath);
             var boxed = AllNodes(publishedRoots).Single(node => node.Title == "Custom Box");
             Assert.Equal("skins/boxed", boxed.SkinPath);
 
