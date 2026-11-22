@@ -152,7 +152,7 @@ namespace DTXMania.Test.Stage
         public async Task UpdateCurrentPhase_WhenEnumerationCanceledWhileScopeActive_ShouldPostTerminalAndContinue()
         {
             // Cancellation independent of stage retirement (e.g.
-            // SongManager.CancelEnumeration) must still publish a terminal
+            // SongLibrary.CancelEnumeration) must still publish a terminal
             // outcome: _asyncPhaseSucceeded stays null otherwise and
             // UpdateCurrentPhase would never advance (startup hangs).
             var stage = CreateControlledStage();
@@ -306,29 +306,30 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task InitializeDatabaseServiceAsync_WhenSongManagerMissing_ShouldCompleteWithoutThrowing()
+        public async Task InitializeDatabaseAsync_WhenLibraryMissing_ShouldCompleteWithoutThrowing()
         {
+            // Deliberately strip the fixture-injected library: an unrelated game
+            // stub exposes none, and Startup must keep completing (with a logged
+            // warning) instead of faulting the boot chain.
             var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_songLibrary", null);
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeDatabaseServiceAsync")!;
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeDatabaseAsync")!;
             await task;
 
             Assert.True(task.IsCompletedSuccessfully);
         }
 
         [Fact]
-        public async Task InitializeDatabaseServiceAsync_WhenSongOperationsSucceed_ShouldUseOverriddenDatabasePath()
+        public async Task InitializeDatabaseAsync_WhenSongOperationsSucceed_ShouldCallLibraryInitialize()
         {
             var stage = CreateControlledStage();
-            stage.DatabasePath = Path.Combine(Path.GetTempPath(), "StartupStageLogicTests", Guid.NewGuid().ToString("N"), "songs.db");
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeDatabaseServiceAsync")!;
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeDatabaseAsync")!;
             await task;
 
             Assert.True(task.IsCompletedSuccessfully);
             Assert.Equal(1, stage.InitializeDatabaseCalls);
-            Assert.Equal(stage.DatabasePath, stage.LastDatabasePath);
-            Assert.Equal(Path.GetDirectoryName(stage.DatabasePath), stage.LastEnsuredDirectoryPath);
         }
 
         [Fact]
@@ -471,7 +472,7 @@ namespace DTXMania.Test.Stage
                 0.0);
 
             Assert.Equal(0, stage.SaveSongsDatabaseCalls);
-            Assert.True(stage.MarkSongManagerInitializedCalled);
+            Assert.True(stage.MarkSongLibraryInitializedCalled);
         }
 
         [Fact]
@@ -1541,7 +1542,12 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_progressMessages", new List<string>());
             ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", currentProgressMessage);
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", phase);
-            ReflectionHelpers.SetPrivateField(stage, "_songManager", null);
+            // HPA-801: inject a real test-owned library (never initialized; the
+            // database constructor has no filesystem side effects) so tests that
+            // exercise real operations get one, while the virtual seams stay in
+            // control for the controlled-stage subclasses.
+            ReflectionHelpers.SetPrivateField(stage, "_songLibrary", new SongLibrary(new SongDatabaseService(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"startup_logic_{Guid.NewGuid():N}.db"))));
             ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(effectiveConfigData));
             ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<StartupStage>.Instance);
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "initial" });
@@ -1776,11 +1782,7 @@ namespace DTXMania.Test.Stage
             {
             }
 
-            public string DatabasePath { get; set; } = Path.Combine(Path.GetTempPath(), "controlled-startup-stage", "songs.db");
 
-            public string? LastDatabasePath { get; private set; }
-
-            public string? LastEnsuredDirectoryPath { get; private set; }
 
             public string[]? LastSongPaths { get; private set; }
 
@@ -1827,7 +1829,7 @@ namespace DTXMania.Test.Stage
 
             public bool ForceEnumerationForTest { get; set; } = true;
 
-            public bool MarkSongManagerInitializedCalled { get; private set; }
+            public bool MarkSongLibraryInitializedCalled { get; private set; }
 
             public EnumerationProgress? ReportedEnumerationProgress { get; set; }
 
@@ -1845,20 +1847,9 @@ namespace DTXMania.Test.Stage
             protected override bool ForceEnumeration =>
                 ForceEnumerationForTest;
 
-            protected override string GetSongsDatabasePath()
-            {
-                return DatabasePath;
-            }
-
-            protected override void EnsureDirectory(string path)
-            {
-                LastEnsuredDirectoryPath = path;
-            }
-
-            protected override Task<bool> InitializeDatabaseServiceCoreAsync(string databasePath)
+            protected override Task<bool> InitializeDatabaseCoreAsync()
             {
                 InitializeDatabaseCalls++;
-                LastDatabasePath = databasePath;
                 if (DatabaseInitializationException != null)
                 {
                     throw DatabaseInitializationException;
@@ -1940,9 +1931,9 @@ namespace DTXMania.Test.Stage
                     : null;
             }
 
-            protected override void MarkSongManagerInitialized()
+            protected override void MarkSongLibraryInitialized()
             {
-                MarkSongManagerInitializedCalled = true;
+                MarkSongLibraryInitializedCalled = true;
             }
 
             protected override void PublishEmptyLibraryCore()

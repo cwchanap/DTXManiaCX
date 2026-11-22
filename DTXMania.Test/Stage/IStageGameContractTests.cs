@@ -163,6 +163,30 @@ namespace DTXMania.Test.Stage
             Assert.Null(result);
         }
 
+        [Fact]
+        public void IStageGame_SongLibrary_ShouldReturnNull_WhenImplementationDoesNotOverrideIt()
+        {
+            // SongLibrary is a default interface member whose body returns null, so
+            // unrelated hand-rolled IStageGame stubs (Title/StageManager fixtures) and
+            // Moq-based stage tests stay valid without instantiating SQLite-backed
+            // services. The production BaseGame overrides it with the one game-owned
+            // library; stages must resolve it lazily and treat null as an error.
+            IStageGame stageGame = new MinimalStageGameStub();
+
+            Assert.Null(stageGame.SongLibrary);
+        }
+
+        [Fact]
+        public void BaseGame_SongLibrary_ShouldBeNullBeforeLoadContentCreatesIt()
+        {
+            // The game-owned library is constructed in CreateLoadContentServices (before
+            // the StageManager), never in the BaseGame constructor, so ordinary game
+            // construction cannot create host AppData database files.
+            var game = ReflectionHelpers.CreateGame();
+
+            Assert.Null(((IStageGame)game).SongLibrary);
+        }
+
         /// <summary>
         /// Minimal <see cref="IStageGame"/> implementation that leaves the three startup-report
         /// default interface methods unoverridden, so the DIM bodies can be exercised.

@@ -16,24 +16,22 @@ namespace DTXMania.Test.Song
     /// Unit tests for SET.def file parsing functionality
     /// Tests the fixed SET.def parser that handles DTXMania format correctly
     /// </summary>
-    [Collection("SongManager")]
     public class SetDefParserTests : IDisposable
     {
         #region Test Setup
 
-        private readonly SongManager _songManager;
+        private readonly SongLibrary _songManager;
         private readonly List<string> _tempFiles;
         private readonly string _testDbPath;
 
         public SetDefParserTests()
         {
-            // Reset singleton instance completely for each test
-            SongManager.ResetInstanceForTesting();
-            _songManager = SongManager.Instance;
             _tempFiles = new List<string>();
-            
-            // Use unique database path for each test instance
+
+            // Use a unique database path for each test instance (HPA-801: the
+            // library is test-owned; construction has no filesystem side effects).
             _testDbPath = Path.Combine(Path.GetTempPath(), $"test_setdef_{Guid.NewGuid()}.db");
+            _songManager = new SongLibrary(new SongDatabaseService(_testDbPath));
         }
 
         public void Dispose()
@@ -65,8 +63,8 @@ namespace DTXMania.Test.Song
                 }
             }
             
-            // Clear SongManager state
-            _songManager?.Clear();
+            // Clean up the test-owned library
+            _songManager?.Dispose();
         }
 
         /// <summary>
@@ -75,8 +73,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService? ManagerDatabaseService =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_songManager, "_databaseService");
+        private SongDatabaseService ManagerDatabaseService => _songManager.Database;
 
 
         private string CreateTempFile(string content, Encoding? encoding = null)
@@ -128,7 +125,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -176,7 +173,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -224,7 +221,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -274,7 +271,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -318,7 +315,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Act & Assert - Should not throw
-                var initialized = await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                var initialized = await _songManager.InitializeAsync();
                 Assert.True(initialized);
                 var exception = await Record.ExceptionAsync(async () =>
                     await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir }));
@@ -353,7 +350,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -385,7 +382,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Act & Assert - Should not throw
-                var initialized = await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                var initialized = await _songManager.InitializeAsync();
                 Assert.True(initialized);
                 var exception = await Record.ExceptionAsync(async () =>
                     await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir }));
@@ -422,7 +419,7 @@ INVALID LINE WITHOUT HASH
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -466,7 +463,7 @@ INVALID LINE WITHOUT HASH
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });
@@ -508,7 +505,7 @@ INVALID LINE WITHOUT HASH
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _songManager.InitializeAsync();
                 
                 // Act
                 await _songManager.EnumerateAndImportSongsAsync(new[] { tempDir });

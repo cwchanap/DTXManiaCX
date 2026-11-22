@@ -304,7 +304,7 @@ namespace DTXMania.Game.Lib.Stage
                 LayoutMode = PanelLayoutMode.Manual
             };
             
-            // Get song information from SongManager if available
+            // Get song information from the game-owned song library if available
             _songTitle = _selectedSong?.DisplayTitle ?? "Unknown Song";
             _artistName = _selectedSong?.DatabaseSong?.Artist ?? "Unknown Artist";
             _difficultyName = GetDifficultyName(_selectedDifficulty);

@@ -22,7 +22,6 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStageInputTests
     {
@@ -526,7 +525,12 @@ namespace DTXMania.Test.Stage
 
         private static SongSelectionStage CreateStage(BaseGame? game = null)
         {
-            return new SongSelectionStage(game ?? CreateGame());
+            game ??= CreateGame();
+            // HPA-801: the stage resolves the game-owned library lazily; tests
+            // get a throwaway library over a never-initialized temp database.
+            SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabaseService(Path.Combine(
+                Path.GetTempPath(), $"songselect_input_{Guid.NewGuid():N}.db"))));
+            return new SongSelectionStage(game);
         }
 
         private static SongListNode CreateScoreNode(

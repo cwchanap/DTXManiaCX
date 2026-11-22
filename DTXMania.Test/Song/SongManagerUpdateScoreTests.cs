@@ -13,18 +13,17 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song;
 
-[Collection("SongManager")]
 [Trait("Category", "Unit")]
 public class SongManagerUpdateScoreTests : IDisposable
 {
-    private readonly SongManager _manager;
+    private readonly SongLibrary _manager;
     private readonly string _testRoot;
     private readonly string _testDbPath;
 
     public SongManagerUpdateScoreTests()
     {
-        SongManager.ResetInstanceForTesting();
-        _manager = SongManager.Instance;
+        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+            Path.GetTempPath(), $"score_{Guid.NewGuid()}.db")));
 
         _testRoot = Path.Combine(
             Path.GetTempPath(),
@@ -38,8 +37,7 @@ public class SongManagerUpdateScoreTests : IDisposable
 
     public void Dispose()
     {
-        _manager.Clear();
-        SongManager.ResetInstanceForTesting();
+        _manager.Dispose();
 
         try
         {
@@ -98,23 +96,23 @@ public class SongManagerUpdateScoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithSummaryWithoutDatabaseService_ShouldReturnFailed()
+    public async Task UpdateScoreAsync_WithSummaryWithoutDatabaseService_ShouldPropagate()
     {
-        var result = await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary());
-
-        Assert.Equal(ScoreSaveStatus.Failed, result.Status);
+        // HPA-801: the database is never null, but this fixture never initializes
+        // it — the guard fails clearly instead of returning a soft Failed result.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary()));
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithSummaryWhenDatabaseServiceThrows_ShouldPropagate()
+    public async Task UpdateScoreAsync_WhenSummaryInvalid_ShouldThrowArgumentOutOfRange()
     {
-        SetPrivateField(_manager, "_databaseService", new SongDatabaseService(_testDbPath));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // Non-canonical play speed is rejected before any database access.
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => _manager.UpdateScoreAsync(
                 1,
                 EInstrumentPart.DRUMS,
-                new PerformanceSummary()));
+                new PerformanceSummary { PlaySpeedPercent = 123 }));
     }
 
     [Fact]
@@ -440,7 +438,7 @@ public class SongManagerUpdateScoreTests : IDisposable
 
     private async Task InitializeAndEnumerateAsync(string songsRoot)
     {
-        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        var initialized = await _manager.InitializeAsync();
         Assert.True(initialized);
 
         var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });
@@ -454,8 +452,7 @@ public class SongManagerUpdateScoreTests : IDisposable
     /// seam after the test-only DatabaseService accessor was removed
     /// (HPA-801 Decision 0).
     /// </summary>
-    private SongDatabaseService? ManagerDatabaseService =>
-        GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+    private SongDatabaseService ManagerDatabaseService => _manager.Database;
 
     private static async Task CreateDtxFileAsync(string path, string title, string artist, string genre, int drumLevel)
     {
@@ -664,7 +661,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         // Invoke the private static guard directly with the stale snapshot. This
         // exercises the exact code path the losing caller would hit when it
         // acquires the lock after the winner has already published.
-        var outcome = SongManager.PublishNodeScoreVariant(
+        var outcome = SongLibrary.PublishNodeScoreVariant(
             scoreNode,
             chart.Id,
             EInstrumentPart.DRUMS,

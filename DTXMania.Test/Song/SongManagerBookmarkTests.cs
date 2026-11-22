@@ -9,24 +9,21 @@ using Xunit;
 
 namespace DTXMania.Test.Song
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongManagerBookmarkTests : IDisposable
     {
-        private readonly SongManager _manager;
+        private readonly SongLibrary _manager;
         private readonly string _dbPath;
 
         public SongManagerBookmarkTests()
         {
-            SongManager.ResetInstanceForTesting();
-            _manager = SongManager.Instance;
             _dbPath = Path.Combine(Path.GetTempPath(), $"mgr_bookmark_{Guid.NewGuid()}.db");
+            _manager = new SongLibrary(new SongDatabaseService(_dbPath));
         }
 
         public void Dispose()
         {
-            _manager.Clear();
-            SongManager.ResetInstanceForTesting();
+            _manager.Dispose();
             if (File.Exists(_dbPath))
             {
                 try { File.Delete(_dbPath); } catch { /* ignore */ }
@@ -39,8 +36,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService? ManagerDatabaseService =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+        private SongDatabaseService ManagerDatabaseService => _manager.Database;
 
         private async Task<int> AddSong(SongDatabaseService db, string title)
         {
@@ -53,7 +49,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetBookmarkedNodesAsync_ReturnsScoreNodesAlphabetically()
         {
-            await _manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
+            await _manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = ManagerDatabaseService!;
             var b = await AddSong(db, "Bravo");
             var a = await AddSong(db, "Alpha");
@@ -69,9 +65,10 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetBookmarkedNodesAsync_WhenDatabaseServiceNull_ReturnsEmptyList()
+        public async Task GetBookmarkedNodesAsync_WhenDatabaseUninitialized_ReturnsEmptyList()
         {
-            // Not initializing the DB service: the null-guard returns empty, no throw.
+            // HPA-801: the database is never initialized in this fixture; queries
+            // read as empty instead of throwing (pre-rename contract).
             var nodes = await _manager.GetBookmarkedNodesAsync();
             Assert.Empty(nodes);
         }
@@ -79,7 +76,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task SetBookmarkAsync_PersistsThroughManager()
         {
-            await _manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
+            await _manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = ManagerDatabaseService!;
             var id = await AddSong(db, "Song");
 
@@ -89,10 +86,12 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task SetBookmarkAsync_WhenDatabaseServiceNull_DoesNotThrow()
+        public async Task SetBookmarkAsync_WhenDatabaseUninitialized_ThrowsClearError()
         {
-            var ex = await Record.ExceptionAsync(() => _manager.SetBookmarkAsync(1, true));
-            Assert.Null(ex);
+            // HPA-801: writes fail clearly before Startup's initialization so the
+            // caller's fault/rollback paths still engage.
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => _manager.SetBookmarkAsync(1, true));
         }
     }
 }

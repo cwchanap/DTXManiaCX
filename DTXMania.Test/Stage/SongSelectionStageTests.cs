@@ -12,6 +12,7 @@ using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Test.Stage
 {
@@ -20,11 +21,7 @@ namespace DTXMania.Test.Stage
     /// Tests constructor validation, lifecycle management, resource handling, and UI initialization
     /// Methods that activate the stage need a real GraphicsDevice and are GraphicsFacts, so a
     /// headless run reports them Skipped instead of passing without rendering.
-    /// Placed in the SongManager collection (DisableParallelization = true) because Activate()
-    /// subscribes to SongManager.Instance; DisableParallelization also keeps this class from
-    /// running concurrently with GraphicsTests.
     /// </summary>
-    [Collection("SongManager")]
     public class SongSelectionStageTests : IDisposable
     {
         private readonly TestGraphicsDeviceService _graphicsDeviceService;
@@ -36,10 +33,13 @@ namespace DTXMania.Test.Stage
         private readonly Texture2D? _fontTexture;
         private readonly SpriteFont? _spriteFont;
         private readonly List<SongSelectionStage> _createdStages = new();
+        // One test-owned game library per fixture (HPA-801: no singleton).
+        private readonly SongLibrary _songLibrary;
 
         public SongSelectionStageTests()
         {
-            SongManager.ResetInstanceForTesting();
+            _songLibrary = new SongLibrary(new SongDatabaseService(Path.Combine(
+                Path.GetTempPath(), $"songselect_tests_{Guid.NewGuid():N}.db")));
             _graphicsDeviceService = new TestGraphicsDeviceService();
             try
             {
@@ -50,6 +50,9 @@ namespace DTXMania.Test.Stage
 
                 _mockGame.Setup(g => g.ConfigManager).Returns(_mockConfigManager.Object);
                 _mockGame.Setup(g => g.ResourceManager).Returns(_mockResourceManager.Object);
+                // Activation subscribes to library publications, so the game must
+                // expose the test-owned library (HPA-801).
+                _mockGame.Setup(g => g.SongLibrary).Returns(_songLibrary);
                 // Lazy so a device test fails with the explicit opt-in message when the opt-in
                 // could not create a device; logic tests never touch GraphicsDevice.
                 _mockGame.Setup(g => g.GraphicsDevice).Returns(() => _graphicsDeviceService.RequiredDevice);
@@ -83,7 +86,7 @@ namespace DTXMania.Test.Stage
                 stage.Deactivate();
             }
             _createdStages.Clear();
-            SongManager.ResetInstanceForTesting();
+            _songLibrary.Dispose();
 
             _renderTargetManager?.Dispose();
             _fontTexture?.Dispose();

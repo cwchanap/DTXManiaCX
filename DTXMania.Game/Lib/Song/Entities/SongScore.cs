@@ -396,7 +396,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// with a tracked entity if it is inadvertently attached to a DbContext.
         /// The <c>SongScoreId</c> foreign key is retained so callers can still
         /// scope history rows to their owning score (see
-        /// <see cref="SongManager.CreateScoreSnapshot"/>). The chart reference
+        /// <see cref="SongLibrary.CreateScoreSnapshot"/>). The chart reference
         /// remains for legacy computed metadata. History navigation references
         /// are not copied, which keeps speed-scoped cache entries from sharing
         /// tracked history objects.

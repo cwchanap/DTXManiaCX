@@ -220,9 +220,12 @@ namespace DTXMania.Game.Lib.Stage
                 game,
                 ffmpegAvailabilityProvider,
                 folderPickerServiceFactory,
-                new SongLibraryReloadService(),
-                (progress, token) => SongManager.Instance.ImportNxScoresAsync(progress, token),
-                () => SongManager.Instance.RefreshSongListFromDatabaseAsync(),
+                new SongLibraryReloadService(game),
+                // Lazy library resolution (HPA-801): the delegates capture the game
+                // and resolve game.SongLibrary on execution, so constructors and
+                // uninitialized test games never dereference the library.
+                (progress, token) => NxImportAsync(game, progress, token),
+                () => RefreshSongListFromDatabaseAsync(game),
                 work => Task.Run(work),
                 continuationRegistrar: null)
         {
@@ -259,6 +262,41 @@ namespace DTXMania.Game.Lib.Stage
                 ?? throw new ArgumentNullException(nameof(backgroundSongOperationRunner));
             _songOperationContinuationRegistrar = continuationRegistrar;
         }
+
+        #endregion
+
+        #region Library Operations
+
+        /// <summary>
+        /// Resolves the game-owned song library for NX import execution.
+        /// Genuine library operations require a non-null instance (HPA-801): a
+        /// game without a library fails the import clearly instead of falling
+        /// back to a shared instance or reporting misleading success.
+        /// </summary>
+        private static async Task<NxImportResult> NxImportAsync(
+            IStageGame game,
+            IProgress<NxImportProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            var library = ResolveLibrary(game);
+            return await library.ImportNxScoresAsync(progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolves the game-owned song library for the post-import cache
+        /// refresh (HPA-801 keeps <see cref="SongLibrary.RefreshSongListFromDatabaseAsync"/>).
+        /// </summary>
+        private static async Task RefreshSongListFromDatabaseAsync(IStageGame game)
+        {
+            var library = ResolveLibrary(game);
+            await library.RefreshSongListFromDatabaseAsync().ConfigureAwait(false);
+        }
+
+        private static SongLibrary ResolveLibrary(IStageGame game) =>
+            game.SongLibrary ?? throw new InvalidOperationException(
+                "Config operations require the game-owned song library, but the game exposes none " +
+                "(BaseGame.CreateLoadContentServices must construct it before the StageManager).");
 
         #endregion
 

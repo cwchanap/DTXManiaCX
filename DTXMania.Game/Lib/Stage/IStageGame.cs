@@ -81,6 +81,17 @@ namespace DTXMania.Game.Lib.Stage
         IGameUpdateService GameUpdateService => DisabledGameUpdateService.Instance;
 
         /// <summary>
+        /// The game-owned song library (HPA-801). The default implementation is
+        /// null so existing <see cref="IStageGame"/> implementations and test
+        /// stubs remain valid without instantiating SQLite-backed services; the
+        /// concrete <see cref="Game"/> (<c>BaseGame</c>) overrides this with the
+        /// one library constructed in <c>CreateLoadContentServices</c>. Stages
+        /// must resolve it lazily and treat null as an error — never a silent
+        /// fallback to a shared instance.
+        /// </summary>
+        DTXMania.Game.Lib.Song.SongLibrary? SongLibrary => null;
+
+        /// <summary>
         /// Requests a screenshot capture to occur on the next Draw() call, returning the
         /// PNG bytes when fulfilled. Default implementation returns a synchronously
         /// completed null task so headless/test implementations remain valid without

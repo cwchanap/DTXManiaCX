@@ -4,30 +4,28 @@ using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using Microsoft.EntityFrameworkCore;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongManagerRecentPlaysTests : IDisposable
     {
-        private readonly SongManager _manager;
+        private readonly SongLibrary _manager;
         private readonly string _dbPath;
 
         public SongManagerRecentPlaysTests()
         {
-            SongManager.ResetInstanceForTesting();
-            _manager = SongManager.Instance;
             _dbPath = Path.Combine(Path.GetTempPath(), $"mgr_recent_{Guid.NewGuid()}.db");
+            _manager = new SongLibrary(new SongDatabaseService(_dbPath));
         }
 
         public void Dispose()
         {
-            _manager.Clear();
-            SongManager.ResetInstanceForTesting();
+            _manager.Dispose();
             if (File.Exists(_dbPath))
             {
                 try { File.Delete(_dbPath); } catch { /* ignore */ }
@@ -37,9 +35,9 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetRecentlyPlayedNodesAsync_ReturnsScoreNodesNewestFirst()
         {
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
-            var db = ManagerDatabaseService(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
 
             async Task AddAndPlay(string title)
             {
@@ -65,8 +63,8 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetRecentlyPlayedNodesAsync_WhenNothingPlayed_ReturnsEmptyList()
         {
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
+            var manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
 
             var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
 
@@ -74,13 +72,13 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseServiceNull_ReturnsEmptyList()
+        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseUninitialized_ReturnsEmptyList()
         {
-            // After ResetInstanceForTesting, the singleton has no DatabaseService until
-            // InitializeDatabaseServiceAsync is called. The null-guard should return an
-            // empty list without throwing.
-            var manager = SongManager.Instance;
-            // Deliberately not initializing the database service.
+            // HPA-801: the library's database exists from construction but is
+            // unusable until Startup's InitializeAsync runs; queries read as
+            // empty instead of throwing (pre-rename contract).
+            var manager = new SongLibrary(new SongDatabaseService(_dbPath));
+            // Deliberately not initializing the database.
 
             var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
 
@@ -90,26 +88,30 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseThrows_PropagatesException()
         {
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
-            var db = ManagerDatabaseService(manager)!;
-
-            // Purging the database resets the service's _isInitialized flag, which makes
-            // subsequent CreateContext() calls throw InvalidOperationException. The exception
-            // must propagate to the caller so BeginRecentPlaysLoad can set _recentPlaysLoadFailed
-            // and the UI can show the "Could not load recent plays" message.
-            await db.PurgeDatabaseAsync();
+            // A broken initialized database (context creation faults) must
+            // propagate: BeginRecentPlaysLoad sets _recentPlaysLoadFailed and the
+            // UI shows the "Could not load recent plays" message. Note purging is
+            // NOT this state anymore (HPA-801): pre-initialization queries read
+            // as empty.
+            var manager = CreateFaultingManager();
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetRecentlyPlayedNodesAsync(20));
         }
 
+        private static SongLibrary CreateFaultingManager() => new(
+            new SongDatabaseService(
+                new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<
+                    DTXMania.Game.Lib.Song.Entities.SongDbContext>()
+                    .UseSqlite("Data Source=:memory:")
+                    .Options,
+                () => throw new InvalidOperationException("database unavailable"),
+                initialized: true));
+
         [Fact]
         public async Task GetRecentlyPlayedNodesAsync_HydratesAllSpeedsAndIdentifiesLatestVariant()
         {
-            await _manager.InitializeDatabaseServiceAsync(
-                _dbPath,
-                purgeDatabaseFirst: true);
-            var db = ManagerDatabaseService(_manager)!;
+            await _manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = _manager.Database;
             var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "Speed History",
@@ -156,8 +158,8 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private static SongDatabaseService? ManagerDatabaseService(SongManager manager) =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(manager, "_databaseService");
+        private static SongDatabaseService ManagerDatabaseService(SongLibrary manager) =>
+            manager.Database;
 
         private static PerformanceSummary CreateSummary(
             int playSpeedPercent,

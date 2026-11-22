@@ -30,6 +30,23 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
 
+        /// <summary>
+        /// Whether <see cref="InitializeDatabaseAsync"/> completed. Exposed to the
+        /// game-owned library so its query paths can preserve the pre-HPA-801
+        /// contract: queries before Startup's initialization phase read as empty
+        /// instead of throwing (HPA-801).
+        /// </summary>
+        internal bool IsInitialized
+        {
+            get
+            {
+                lock (_initializationLock)
+                {
+                    return _isInitialized;
+                }
+            }
+        }
+
         internal const int CurrentSongSchemaVersion = 1;
 
         internal const string EnumerationMetadataTableDdl = @"CREATE TABLE IF NOT EXISTS __EnumerationMetadata (
@@ -46,11 +63,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             _databasePath = databasePath;
 
-            var databaseDirectory = Path.GetDirectoryName(_databasePath);
-            if (!string.IsNullOrWhiteSpace(databaseDirectory))
-            {
-                Directory.CreateDirectory(databaseDirectory);
-            }
+            // No filesystem side effects here (HPA-801): ordinary BaseGame
+            // construction runs sandboxed, so the database directory is created
+            // by InitializeDatabaseAsync instead.
 
             var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
             // Configure SQLite with UTF-8 support for Japanese text
@@ -115,6 +130,15 @@ namespace DTXMania.Game.Lib.Song.Entities
             await _initializationSemaphore.WaitAsync();
             try
             {
+                // Create the database directory here rather than in the path
+                // constructor, so constructing the game-owned database never
+                // writes into host AppData (HPA-801).
+                var databaseDirectory = Path.GetDirectoryName(_databasePath);
+                if (!string.IsNullOrWhiteSpace(databaseDirectory))
+                {
+                    Directory.CreateDirectory(databaseDirectory);
+                }
+
                 lock (_initializationLock)
                 {
                     if (_isInitialized)
@@ -1540,7 +1564,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Returns the database IDs of charts whose <see cref="SongChart.FilePath"/>
         /// resides under one of <paramref name="roots"/> (root-containment uses
-        /// <see cref="SongPathIdentity"/>, mirroring SongManager's active-chart
+        /// <see cref="SongPathIdentity"/>, mirroring SongLibrary's active-chart
         /// rule). Used to push an active-root criterion into recency queries so
         /// that ordering and pagination are globally correct. Returns an empty
         /// list for an empty root set.
@@ -1586,7 +1610,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Returns the <see cref="SongChart.Id"/> and <see cref="SongChart.FilePath"/>
         /// of every chart whose file path resides under one of <paramref name="roots"/>
         /// (root-containment uses <see cref="SongPathIdentity"/>, mirroring
-        /// SongManager's active-chart rule). Used by the cache-freshness
+        /// SongLibrary's active-chart rule). Used by the cache-freshness
         /// file-existence check so charts belonging to removed (retained) roots are
         /// not flagged as missing on every startup. Returns an empty list for an
         /// empty root set.
@@ -1632,7 +1656,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Counts <see cref="SongChart"/> rows whose <see cref="SongChart.FilePath"/>
         /// resides under one of <paramref name="roots"/> (root-containment uses
-        /// <see cref="SongPathIdentity"/>, mirroring SongManager's active-chart
+        /// <see cref="SongPathIdentity"/>, mirroring SongLibrary's active-chart
         /// rule). This is the active-root-scoped chart count compared against the
         /// filesystem chart-file count by the cache-freshness check.
         /// <para>

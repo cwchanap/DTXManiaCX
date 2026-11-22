@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -12,38 +13,53 @@ namespace DTXMania.Test.Song;
 // retrying every encoding, but report a persistent read failure exactly once
 // — after all attempts fail — with the SET.def path and the retained
 // exception, instead of one Warning per encoding attempt.
+// HPA-801: the logger is a constructor argument now (no singleton
+// ConfigureLogger seam), so each test builds its own library with a mock
+// ILogger<SongLibrary>.
 [Trait("Category", "Unit")]
-[Collection("SongManager")] // serializes singleton ConfigureLogger use
-public class SongManagerSetDefReadLoggingTests
+public class SongManagerSetDefReadLoggingTests : IDisposable
 {
-    private static string[]? InvokeReadSetDefLines(string setDefPath)
+    private readonly Mock<ILogger<SongLibrary>> _logger = new();
+    private readonly SongLibrary _library;
+    private readonly string _databasePath = Path.Combine(
+        Path.GetTempPath(), $"setdef_log_{Guid.NewGuid():N}.db");
+
+    public SongManagerSetDefReadLoggingTests()
     {
-        var method = typeof(SongManager).GetMethod(
+        _library = new SongLibrary(new SongDatabaseService(_databasePath), _logger.Object);
+    }
+
+    public void Dispose()
+    {
+        _library.Dispose();
+        try { File.Delete(_databasePath); } catch { /* best effort */ }
+    }
+
+    private string[]? InvokeReadSetDefLines(string setDefPath)
+    {
+        var method = typeof(SongLibrary).GetMethod(
             "ReadSetDefLines",
             BindingFlags.NonPublic | BindingFlags.Instance,
             null,
             new[] { typeof(string) },
             null);
         Assert.NotNull(method);
-        return method!.Invoke(SongManager.Instance, new object[] { setDefPath }) as string[];
+        return method!.Invoke(_library, new object[] { setDefPath }) as string[];
     }
 
     [Fact]
     public void ReadSetDefLines_PersistentReadFailure_ShouldWarnOnceWithPathAndRetainedException()
     {
-        var logger = new Mock<ILogger<SongManager>>();
         // A directory path exists but cannot be read as a file, so every
         // encoding attempt fails with UnauthorizedAccessException/IOException.
         var unreadableDir = Directory.CreateTempSubdirectory("setdef-");
         string unreadablePath = unreadableDir.FullName;
         try
         {
-            SongManager.Instance.ConfigureLogger(logger.Object);
-
             var lines = InvokeReadSetDefLines(unreadablePath);
 
             Assert.Null(lines);
-            logger.Verify(
+            _logger.Verify(
                 l => l.Log(
                     LogLevel.Warning,
                     It.IsAny<EventId>(),
@@ -52,7 +68,7 @@ public class SongManagerSetDefReadLoggingTests
                     It.Is<Exception?>(exception => exception != null),
                     It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.Once);
-            logger.Verify(
+            _logger.Verify(
                 l => l.Log(
                     LogLevel.Warning,
                     It.IsAny<EventId>(),
@@ -63,8 +79,6 @@ public class SongManagerSetDefReadLoggingTests
         }
         finally
         {
-            // Do not leak the mock into other tests touching the singleton.
-            SongManager.Instance.ConfigureLogger(null);
             unreadableDir.Delete(recursive: true);
         }
     }
@@ -72,18 +86,14 @@ public class SongManagerSetDefReadLoggingTests
     [Fact]
     public void ReadSetDefLines_RepeatedReadsOfSameUnreadableFile_ShouldWarnOncePerFile()
     {
-        var logger = new Mock<ILogger<SongManager>>();
         var unreadableDir = Directory.CreateTempSubdirectory("setdef-");
         try
         {
-            SongManager.ResetInstanceForTesting();
-            SongManager.Instance.ConfigureLogger(logger.Object);
-
             // The DB hierarchy build and the freshness inventory both read the same file.
             Assert.Null(InvokeReadSetDefLines(unreadableDir.FullName));
             Assert.Null(InvokeReadSetDefLines(unreadableDir.FullName));
 
-            logger.Verify(
+            _logger.Verify(
                 l => l.Log(
                     LogLevel.Warning,
                     It.IsAny<EventId>(),
@@ -94,7 +104,6 @@ public class SongManagerSetDefReadLoggingTests
         }
         finally
         {
-            SongManager.ResetInstanceForTesting();
             unreadableDir.Delete(recursive: true);
         }
     }
@@ -102,18 +111,16 @@ public class SongManagerSetDefReadLoggingTests
     [Fact]
     public void ReadSetDefLines_ReadableFile_ShouldStaySilent()
     {
-        var logger = new Mock<ILogger<SongManager>>();
         var setDefDir = Directory.CreateTempSubdirectory("setdef-");
         string setDefPath = Path.Combine(setDefDir.FullName, "SET.def");
         try
         {
             File.WriteAllLines(setDefPath, new[] { "#TITLE Test" });
-            SongManager.Instance.ConfigureLogger(logger.Object);
 
             var lines = InvokeReadSetDefLines(setDefPath);
 
             Assert.NotNull(lines);
-            logger.Verify(
+            _logger.Verify(
                 l => l.Log(
                     It.IsAny<LogLevel>(),
                     It.IsAny<EventId>(),
@@ -124,7 +131,6 @@ public class SongManagerSetDefReadLoggingTests
         }
         finally
         {
-            SongManager.Instance.ConfigureLogger(null);
             setDefDir.Delete(recursive: true);
         }
     }

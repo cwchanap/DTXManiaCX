@@ -30,7 +30,6 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStageLogicTests
     {
@@ -232,7 +231,7 @@ namespace DTXMania.Test.Stage
             var stage = CreateStage();
             var display = new SongListDisplay();
             var songs = new List<SongListNode> { CreateScoreNode("Loaded Song") };
-            var songManager = SongManager.Instance;
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalSongs = new List<SongListNode>(rootSongs);
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
@@ -297,7 +296,7 @@ namespace DTXMania.Test.Stage
             var staleNode = CreateScoreNode("Stale");
             var firstNode = CreateScoreNode("First");
             var selectedNode = CreateScoreNode("Selected");
-            var songManager = SongManager.Instance;
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalSongs = new List<SongListNode>(rootSongs);
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
@@ -2640,11 +2639,11 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void InitializeSongList_WhenSongManagerAlreadyInitialized_ShouldPopulateCurrentAndDisplayedSongs()
+        public void InitializeSongList_WhenLibraryAlreadyInitialized_ShouldPopulateCurrentAndDisplayedSongs()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
-            var songManager = SongManager.Instance;
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalSongs = new List<SongListNode>(rootSongs);
             var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
@@ -2695,11 +2694,11 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void InitializeSongList_WhenSongManagerIsNotInitialized_ShouldKeepDisplayEmptyUntilScopeApplies()
+        public void InitializeSongList_WhenLibraryIsNotInitialized_ShouldKeepDisplayEmptyUntilScopeApplies()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
-            var songManager = SongManager.Instance;
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalSongs = new List<SongListNode>(rootSongs);
             var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
@@ -2748,7 +2747,7 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
-            var songManager = SongManager.Instance;
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalSongs = new List<SongListNode>(rootSongs);
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
@@ -4857,7 +4856,7 @@ namespace DTXMania.Test.Stage
                 IsLibraryReady = false
             };
             modal.Open(SongFilterCriteria.Default);
-            var songManager = SongManager.Instance;
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalSongs = new List<SongListNode>(rootSongs);
             var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");

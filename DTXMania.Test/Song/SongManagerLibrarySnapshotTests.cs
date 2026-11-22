@@ -6,20 +6,22 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 
 namespace DTXMania.Test.Song;
 
-[Collection("SongManager")]
 [Trait("Category", "Unit")]
 public sealed class SongManagerLibrarySnapshotTests : IDisposable
 {
-    private readonly SongManager _manager;
+    private readonly SongLibrary _manager;
 
     public SongManagerLibrarySnapshotTests()
     {
-        SongManager.ResetInstanceForTesting();
-        _manager = SongManager.Instance;
+        // Snapshot tests operate on published in-memory state; the database
+        // path is never initialized and construction is side-effect free.
+        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+            Path.GetTempPath(), $"snapshot_{Guid.NewGuid()}.db")));
     }
 
     [Fact]
@@ -206,7 +208,6 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
 
     public void Dispose()
     {
-        SongManager.ResetInstanceForTesting();
     }
 
     private static SongEnumerationBatch CreateBatch(

@@ -17,18 +17,17 @@ namespace DTXMania.Test.Song;
 /// → CreateSongNodeFromDatabaseEntities → PopulatePlayHistoryFromCharts
 /// → SongListNode.Scores[i].BestAchievementRate.
 /// </summary>
-[Collection("SongManager")]
 [Trait("Category", "Unit")]
 public class AchievementRateRoundTripTests : IDisposable
 {
-    private readonly SongManager _manager;
+    private readonly SongLibrary _manager;
     private readonly string _testRoot;
     private readonly string _testDbPath;
 
     public AchievementRateRoundTripTests()
     {
-        SongManager.ResetInstanceForTesting();
-        _manager = SongManager.Instance;
+        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+            Path.GetTempPath(), $"achievement_{Guid.NewGuid()}.db")));
 
         _testRoot = Path.Combine(
             Path.GetTempPath(),
@@ -161,7 +160,6 @@ public class AchievementRateRoundTripTests : IDisposable
     {
         try
         {
-            SongManager.ResetInstanceForTesting();
             if (Directory.Exists(_testRoot))
             {
                 Directory.Delete(_testRoot, true);
@@ -179,15 +177,14 @@ public class AchievementRateRoundTripTests : IDisposable
     /// seam after the test-only DatabaseService accessor was removed
     /// (HPA-801 Decision 0).
     /// </summary>
-    private SongDatabaseService? ManagerDatabaseService =>
-        ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+    private SongDatabaseService ManagerDatabaseService => _manager.Database;
 
 
     #region Helpers
 
     private async Task InitializeAndEnumerateAsync(string songsRoot)
     {
-        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        var initialized = await _manager.InitializeAsync();
         Assert.True(initialized);
 
         var result = await _manager.EnumerateAndImportSongsAsync(new[] { songsRoot });

@@ -542,7 +542,7 @@ namespace DTXMania.Test.Song
             // with tracked entities and throw. The clone must therefore hand
             // out fresh, untracked PerformanceHistory rows with Id = 0 while
             // preserving the scalar display values and the SongScoreId scope
-            // filter used by SongManager.CreateScoreSnapshot.
+            // filter used by SongLibrary.CreateScoreSnapshot.
             var history = new PerformanceHistory
             {
                 Id = 42,

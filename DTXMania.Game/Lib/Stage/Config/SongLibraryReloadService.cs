@@ -22,14 +22,25 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
         CancellationToken,
         Task<SongEnumerationResult>> _enumerateAndImportAsync;
 
-    internal SongLibraryReloadService()
+    /// <summary>
+    /// Production constructor: captures the game and resolves its game-owned
+    /// library inside <see cref="ReloadAsync"/> (via the delegate), so constructing
+    /// the service — and the Config stage that owns it — never dereferences the
+    /// library eagerly (HPA-801).
+    /// </summary>
+    internal SongLibraryReloadService(IStageGame game)
         : this((roots, progress, token) =>
-            SongManager.Instance.EnumerateAndImportSongsAsync(
+            ResolveGameLibrary(game).EnumerateAndImportSongsAsync(
                 BundledSongs.AppendTo(roots, BundledSongs.Root),
                 progress,
                 token))
     {
     }
+
+    private static SongLibrary ResolveGameLibrary(IStageGame game) =>
+        game.SongLibrary ?? throw new InvalidOperationException(
+            "Song library reload requires the game-owned song library, but the game exposes none " +
+            "(BaseGame.CreateLoadContentServices must construct it before the StageManager).");
 
     internal SongLibraryReloadService(
         Func<

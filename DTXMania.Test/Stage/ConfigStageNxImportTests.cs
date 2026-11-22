@@ -25,7 +25,6 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 namespace DTXMania.Test.Stage;
 
 [Trait("Category", "Unit")]
-[Collection("SongManager")]
 public class ConfigStageNxImportTests : IDisposable
 {
     private readonly string _dbPath;
@@ -33,37 +32,36 @@ public class ConfigStageNxImportTests : IDisposable
     public ConfigStageNxImportTests()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"nxconfig_{Guid.NewGuid()}.db");
-        SongManager.ResetInstanceForTesting();
     }
 
     public void Dispose()
     {
-        SongManager.ResetInstanceForTesting();
         try { File.Delete(_dbPath); } catch { }
     }
 
-    private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
+    private (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager, SongLibrary Library) CreateStage(ConfigManager? configManager = null, bool wireLibrary = true)
     {
         configManager ??= new ConfigManager();
         var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        // The game owns one library whose delegates the Config stage resolves
+        // lazily at import/refresh time (HPA-801). wireLibrary: false models an
+        // unrelated game stub that keeps the default-null DIM member.
+        SongLibrary? library = null;
+        if (wireLibrary)
+        {
+            library = new SongLibrary(new SongDatabaseService(_dbPath));
+            ReflectionHelpers.SetPrivateField(game, "_songLibrary", library);
+        }
         var availability = new FfmpegRuntimeAvailability(
             IsAvailable: true,
             DiagnosticReason: null,
             BinaryFolder: null);
-        return (new ConfigStage(game, () => availability), configManager, inputManager);
+        return (new ConfigStage(game, () => availability), configManager, inputManager, library);
     }
 
-        /// <summary>
-        /// The initialized database service is stored in a private field swapped
-        /// under the manager lock; tests read it via the established reflection
-        /// seam after the test-only DatabaseService accessor was removed
-        /// (HPA-801 Decision 0).
-        /// </summary>
-        private static SongDatabaseService? DatabaseServiceOf(SongManager manager) =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(manager, "_databaseService");
 
     private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStage(
         IConfigManager configManager,
@@ -115,7 +113,7 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public void SetupConfigItems_NxImportHelp_ShouldExplainLegacySpeedBucket()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager, _) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -173,7 +171,7 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public void StartNxScoreImport_ShouldCreateCancellationTokenSource()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager, _) = CreateStage();
         using (inputManager)
         {
             stage.InstallTestBackgroundScope();
@@ -437,10 +435,9 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public async Task StartNxScoreImport_WhenNotRunning_ShouldSetStatusAndCompleteImport()
     {
-        var manager = SongManager.Instance;
-        await manager.InitializeDatabaseServiceAsync(_dbPath);
+        var (stage, _, inputManager, library) = CreateStage();
+        await library.InitializeAsync();
 
-        var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             stage.InstallTestBackgroundScope();
@@ -461,13 +458,13 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public async Task StartNxScoreImport_WhenImportThrows_ShouldSetErrorStatus()
     {
-        // Seed an uninitialized database service so CreateContext() throws,
-        // causing ImportNxScoresAsync to fail before its internal try/catch.
-        var manager = SongManager.Instance;
-        ReflectionHelpers.SetPrivateField(manager, "_databaseService", new SongDatabaseService(_dbPath));
-        // Do NOT initialize it — CreateContext will throw InvalidOperationException.
-
-        var (stage, _, inputManager) = CreateStage();
+        // The import delegate faults, so the stage must map the exception to the
+        // explicit error status instead of reporting success.
+        var (stage, inputManager) = CreateStage(
+            new ConfigManager(),
+            new DelegateSongLibraryReloadService(),
+            (_, _) => throw new InvalidOperationException("import exploded"),
+            () => Task.CompletedTask);
         using (inputManager)
         {
             stage.InstallTestBackgroundScope();
@@ -485,10 +482,15 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public async Task StartNxScoreImport_WhenDatabaseUnavailable_ShouldSetUnavailableStatus()
     {
-        // No InitializeDatabaseServiceAsync call: _databaseService stays null, so
-        // ImportNxScoresAsync returns DbUnavailable=true (no throw). The status must reflect this
-        // most common real-world path rather than reporting a misleading success/error.
-        var (stage, _, inputManager) = CreateStage();
+        // The stage maps a DbUnavailable import result to the explicit unavailable
+        // status. The delegate reports DbUnavailable=true directly, mirroring an
+        // uninitialized game-owned database, rather than depending on library
+        // resolution (HPA-801: the library is game-owned, not a singleton).
+        var (stage, inputManager) = CreateStage(
+            new ConfigManager(),
+            new DelegateSongLibraryReloadService(),
+            (_, _) => Task.FromResult(new NxImportResult { DbUnavailable = true }),
+            () => Task.CompletedTask);
         using (inputManager)
         {
             stage.InstallTestBackgroundScope();
@@ -505,9 +507,32 @@ public class ConfigStageNxImportTests : IDisposable
     }
 
     [Fact]
+    public async Task StartNxScoreImport_WhenGameHasNoSongLibrary_ShouldFailClearly()
+    {
+        // HPA-801 Decision A: ConfigStage captures the game and resolves
+        // game.SongLibrary only when the import executes. A game without a library
+        // (unrelated stubs keep the default-null DIM) must fail clearly — no silent
+        // fallback to a shared library, no misleading success.
+        var (stage, _, inputManager, _) = CreateStage(wireLibrary: false);
+        using (inputManager)
+        {
+            stage.InstallTestBackgroundScope();
+            InitializeStageMenu(stage, includePanels: false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+
+            var completed = await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000);
+            Assert.True(completed, "Import did not complete within timeout");
+
+            var status = ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus");
+            Assert.StartsWith("NX import failed:", status);
+        }
+    }
+
+    [Fact]
     public void DrawImportStatus_WhenStatusPresent_ShouldDrawString()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager, _) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -526,7 +551,7 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public void DrawImportStatus_WhenStatusEmpty_ShouldNotDraw()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager, _) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -545,7 +570,7 @@ public class ConfigStageNxImportTests : IDisposable
     [Fact]
     public void DrawImportStatus_WhenFontNull_ShouldNotThrow()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager, _) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -575,10 +600,10 @@ public class ConfigStageNxImportTests : IDisposable
             "[HiSkill.Drums]\nSkill=100.0\n" +
             "[LastPlay.Drums]\nScore=100000\nSkill=100.0\nDateTime=5/15/2026 5:54:24 PM\n");
 
-        var manager = SongManager.Instance;
-        Assert.True(await manager.InitializeDatabaseServiceAsync(_dbPath));
+        var (stage, _, inputManager, library) = CreateStage();
+        Assert.True(await library.InitializeAsync());
 
-        using (var ctx = DatabaseServiceOf(manager)!.CreateContext())
+        using (var ctx = library.Database.CreateContext())
         {
             ctx.SongCharts.Add(new SongChart
             {
@@ -589,23 +614,22 @@ public class ConfigStageNxImportTests : IDisposable
         }
 
         // Set search paths so RefreshSongListFromDatabaseAsync can find the chart.
-        ReflectionHelpers.SetPrivateField(manager, "_currentSearchPaths", new[] { songRoot });
+        ReflectionHelpers.SetPrivateField(library, "_currentSearchPaths", new[] { songRoot });
 
-        var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
-            Assert.Empty(manager.RootSongs);
+            Assert.Empty(library.RootSongs);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
             var completed = await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000);
             Assert.True(completed, "Import did not complete within timeout");
 
             // After import + refresh, RootSongs should contain the chart.
-            Assert.NotEmpty(manager.RootSongs);
-            var node = Assert.Single(manager.RootSongs);
+            Assert.NotEmpty(library.RootSongs);
+            var node = Assert.Single(library.RootSongs);
             Assert.Equal("Refresh Test", node.Title);
             Assert.Equal(NodeType.Score, node.Type);
             Assert.Equal(5, node.Scores[0].PlayCount);

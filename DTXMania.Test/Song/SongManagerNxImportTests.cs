@@ -12,25 +12,22 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
-    [Collection("SongManager")]
     public class SongManagerNxImportTests : IDisposable
     {
         private readonly string _root;
         private readonly string _dbPath;
-        private readonly SongManager _manager;
+        private readonly SongLibrary _manager;
 
         public SongManagerNxImportTests()
         {
             _root = Path.Combine(Path.GetTempPath(), $"nximport_{Guid.NewGuid()}");
             Directory.CreateDirectory(_root);
             _dbPath = Path.Combine(_root, "songs.db");
-            SongManager.ResetInstanceForTesting();
-            _manager = SongManager.Instance;
+            _manager = new SongLibrary(new SongDatabaseService(_dbPath));
         }
 
         public void Dispose()
         {
-            SongManager.ResetInstanceForTesting();
             try { Directory.Delete(_root, true); } catch { }
         }
 
@@ -40,8 +37,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService? ManagerDatabaseService =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_manager, "_databaseService");
+        private SongDatabaseService ManagerDatabaseService => _manager.Database;
 
 
         private string WriteChartAndScore(string fileName, int playCount, int score, bool withScoreIni = true)
@@ -79,7 +75,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task SiblingIniPresent_ShouldImportDrumScore()
         {
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var dtx = WriteChartAndScore("mas.dtx", playCount: 79, score: 958247);
             var chartId = await SeedChartAsync(dtx, "Against The Wind");
 
@@ -97,7 +93,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ChartsWithoutScoreIni_ShouldBeSkipped()
         {
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var dtx = WriteChartAndScore("no.dtx", 0, 0, withScoreIni: false);
             await SeedChartAsync(dtx, "Lonely");
 
@@ -111,7 +107,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task RepeatedRun_ShouldNotInflatePlayCount()
         {
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var dtx = WriteChartAndScore("mas.dtx", playCount: 79, score: 958247);
             var chartId = await SeedChartAsync(dtx, "Against The Wind");
 
@@ -138,7 +134,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ChartWithEmptyFilePath_ShouldBeSkipped()
         {
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             using var ctx = ManagerDatabaseService!.CreateContext();
             var chart = new SongChart
             {
@@ -159,7 +155,7 @@ namespace DTXMania.Test.Song
         public async Task StaleChart_DeletedFileWithScoreIni_ShouldBeSkipped()
         {
             // Simulate a chart whose .dtx was deleted but .score.ini remains on disk.
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var dtx = WriteChartAndScore("stale.dtx", playCount: 30, score: 70000);
             await SeedChartAsync(dtx, "Deleted Song");
 
@@ -178,7 +174,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task CanceledToken_ShouldThrowOperationCanceledException()
         {
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var cts = new System.Threading.CancellationTokenSource();
             cts.Cancel();
 
@@ -195,7 +191,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ProgressReporter_ShouldReceiveUpdates()
         {
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var dtx = WriteChartAndScore("prog.dtx", playCount: 10, score: 50000);
             await SeedChartAsync(dtx, "Progress Song");
 
@@ -216,7 +212,7 @@ namespace DTXMania.Test.Song
         {
             // Verify that ChangeTracker.Clear() after each successful merge
             // does not break multi-chart imports.
-            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            Assert.True(await _manager.InitializeAsync());
             var dtx1 = WriteChartAndScore("chart1.dtx", playCount: 10, score: 50000);
             var dtx2 = WriteChartAndScore("chart2.dtx", playCount: 20, score: 60000);
             var dtx3 = WriteChartAndScore("chart3.dtx", playCount: 30, score: 70000);

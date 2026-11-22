@@ -64,7 +64,7 @@ namespace DTXMania.Game.Lib.Stage
         private StartupPhase _startupPhase = StartupPhase.SystemSounds;
 
         // Services for actual functionality
-        private readonly SongManager _songManager;
+        private readonly SongLibrary? _songLibrary;
         private readonly IConfigManager _configManager;
 
         private string[] _songPaths = Constants.SongPaths.Default;
@@ -96,8 +96,9 @@ namespace DTXMania.Game.Lib.Stage
         private ISkinTheme Theme => _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
 
         /// <summary>
-        /// When false (production), SongManager's freshness check decides between a
-        /// full scan and the songs.db cache, so an unchanged library skips the scan.
+        /// When false (production), the game-owned library's freshness check decides
+        /// between a full scan and the songs.db cache, so an unchanged library skips
+        /// the scan.
         /// </summary>
         protected virtual bool ForceEnumeration => false;
 
@@ -260,8 +261,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             _progressMessages = new List<string>();
 
-            // Initialize services - use singleton for SongManager
-            _songManager = SongManager.Instance;
+            // Resolve the game-owned library (HPA-801). Kept nullable so
+            // uninitialized stage fakes can construct the stage; operations that
+            // genuinely need the library fail clearly via <see cref="Library"/>.
+            _songLibrary = _game.SongLibrary;
             _configManager = _game.ConfigManager;
 
             // Initialize phase information (based on DTXManiaNX phases)
@@ -657,7 +660,7 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case StartupPhase.SaveSongsDB:
-                    MarkSongManagerInitialized();
+                    MarkSongLibraryInitialized();
                     break;
             }
         }
@@ -692,26 +695,23 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Initialize database service async operation
+        /// The game-owned song library. Genuine library operations require a
+        /// non-null instance — no silent fallback (HPA-801); the production
+        /// <c>BaseGame</c> exposes one from <c>CreateLoadContentServices</c>.
         /// </summary>
-        protected virtual string GetSongsDatabasePath()
-        {
-            return AppPaths.GetSongsDatabasePath();
-        }
+        private SongLibrary Library =>
+            _songLibrary ?? throw new InvalidOperationException(
+                "Startup requires the game-owned song library, but the game exposes none " +
+                "(BaseGame.CreateLoadContentServices must construct it before the StageManager).");
 
-        protected virtual void EnsureDirectory(string path)
+        protected virtual Task<bool> InitializeDatabaseCoreAsync()
         {
-            AppPaths.EnsureDirectory(path);
-        }
-
-        protected virtual Task<bool> InitializeDatabaseServiceCoreAsync(string databasePath)
-        {
-            return _songManager.InitializeDatabaseServiceAsync(databasePath, false);
+            return Library.InitializeAsync();
         }
 
         protected virtual Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
         {
-            return _songManager.NeedsEnumerationAsync(songPaths, forceEnumeration);
+            return Library.NeedsEnumerationAsync(songPaths, forceEnumeration);
         }
 
         protected virtual Task<SongEnumerationResult>
@@ -720,7 +720,7 @@ namespace DTXMania.Game.Lib.Stage
                 IProgress<EnumerationProgress> progressReporter,
                 CancellationToken cancellationToken)
         {
-            return _songManager.EnumerateAndImportSongsAsync(
+            return Library.EnumerateAndImportSongsAsync(
                 songPaths,
                 progressReporter,
                 cancellationToken);
@@ -736,7 +736,7 @@ namespace DTXMania.Game.Lib.Stage
             PrepareHierarchyFromDatabaseOnceCoreAsync(
                 string[] songPaths)
         {
-            return _songManager.PrepareHierarchyFromDatabaseOnceAsync(songPaths);
+            return Library.PrepareHierarchyFromDatabaseOnceAsync(songPaths);
         }
 
         /// <summary>
@@ -746,27 +746,27 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual void PublishDatabaseHierarchyCore(
             SongDatabaseHierarchy hierarchy)
         {
-            _songManager.PublishDatabaseHierarchy(hierarchy);
+            Library.PublishDatabaseHierarchy(hierarchy);
         }
 
-        protected virtual void MarkSongManagerInitialized()
+        protected virtual void MarkSongLibraryInitialized()
         {
-            _songManager.SetInitialized();
+            Library.SetInitialized();
         }
 
         protected virtual void PublishEmptyLibraryCore()
         {
-            _songManager.PublishEmptyLibrary();
+            Library.PublishEmptyLibrary();
         }
 
-        private async Task InitializeDatabaseServiceAsync()
+        private async Task InitializeDatabaseAsync()
         {
             try
             {
-                var databasePath = GetSongsDatabasePath();
-                EnsureDirectory(Path.GetDirectoryName(databasePath) ?? "");
-                bool success = await InitializeDatabaseServiceCoreAsync(
-                        databasePath)
+                // The library owns its database path; initialization creates the
+                // directory and schema (HPA-801 moved directory creation out of
+                // ordinary game construction).
+                await InitializeDatabaseCoreAsync()
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -777,7 +777,7 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Starts the SongListDB phase's worker chain on the stage scope (HPA-799).
-        /// The chain never faults: InitializeDatabaseServiceAsync catches and logs
+        /// The chain never faults: InitializeDatabaseAsync catches and logs
         /// all failures, so the phase completes either way (startup continues on
         /// error as before).
         /// </summary>
@@ -790,7 +790,7 @@ namespace DTXMania.Game.Lib.Stage
             scope.Run<bool>(
                 _ =>
                 {
-                    InitializeDatabaseServiceAsync().GetAwaiter().GetResult();
+                    InitializeDatabaseAsync().GetAwaiter().GetResult();
                     return true;
                 },
                 onSuccess: _ =>
@@ -831,7 +831,7 @@ namespace DTXMania.Game.Lib.Stage
                 scope.Latest<EnumerationProgress>(ApplyEnumerationProgress));
 
             // A cancellation that is not a stage retirement (e.g.
-            // SongManager.CancelEnumeration) reaches onError via the scope, so the
+            // SongLibrary.CancelEnumeration) reaches onError via the scope, so the
             // phase still gets a terminal outcome and advances.
             scope.RunAsync(
                 _ => RunSongLoadChainAsync(songPaths, progress, scope),

@@ -23,7 +23,6 @@ using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStagePreviewAndBgmTests
     {
