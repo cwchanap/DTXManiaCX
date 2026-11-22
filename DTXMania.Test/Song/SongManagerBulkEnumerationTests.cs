@@ -2285,7 +2285,112 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal(before.Version, after.Version);
         Assert.Equal(before.RootSongs, after.RootSongs);
         Assert.Equal(before.ActiveRoots, after.ActiveRoots);
-        Assert.False(ManagerIsEnumerating);
+
+        // The busy slot must be released on this instance (HPA-801 fix round:
+        // the old assertion inspected _manager, which only seeded the database
+        // and never scans here, so the NoActiveRoots branch could leak its slot
+        // undetected). A second scan must therefore acquire the slot and
+        // complete instead of throwing SongEnumerationBusyException.
+        var secondScan = await acceptedEmpty.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+        Assert.Equal(SongEnumerationOutcome.NoActiveRoots, secondScan.Outcome);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenDatabaseInitializedButFaulted_ShouldReachNoActiveRootsWithoutQuerying()
+    {
+        // The scan's readiness guard is an in-memory initialization-state check
+        // (the pre-rename null-reference throw), not a SQL probe: root
+        // validation and traversal happen before any database I/O, so a scan
+        // without usable roots must yield NoActiveRoots even when the
+        // initialized database faults on every context creation.
+        var batchBuilds = 0;
+        var manager = new SongLibrary(
+            new SongDatabaseService(
+                new DbContextOptionsBuilder<SongDbContext>()
+                    .UseSqlite("Data Source=:memory:")
+                    .Options,
+                () => throw new InvalidOperationException("database unavailable"),
+                initialized: true),
+            buildEnumerationBatchAsync: (_, _, _) =>
+            {
+                batchBuilds++;
+                return Task.FromResult(CompletedBatchWithNoActiveRoots());
+            });
+
+        var result = await manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        Assert.Equal(SongEnumerationOutcome.NoActiveRoots, result.Outcome);
+        Assert.Equal(1, batchBuilds);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenDatabaseNeverInitialized_ShouldThrowReadinessErrorBeforeTraversal()
+    {
+        // Pre-rename contract: the readiness guard fails with the original
+        // "Song database is not initialized." error before the filesystem is
+        // touched, releasing the busy slot via the enumeration finally.
+        var batchBuilds = 0;
+        var manager = new SongLibrary(
+            new SongDatabaseService(_databasePath),
+            buildEnumerationBatchAsync: (_, _, _) =>
+            {
+                batchBuilds++;
+                return Task.FromResult(CompletedBatchWithNoActiveRoots());
+            });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, CancellationToken.None));
+
+        Assert.Contains(
+            "not initialized",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, batchBuilds);
+        Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+            manager, "_enumCancellation"));
+    }
+
+    [Fact]
+    public async Task Dispose_WhileEnumerationInFlight_ShouldLeaveSourceDisposalToTheEnumerationFinally()
+    {
+        // Dispose must synchronize cancellation with the enumeration gate and
+        // leave source disposal to the enumeration's finally: cancelling a
+        // source that EndEnumeration concurrently clears and disposes throws
+        // ObjectDisposedException and would skip the remaining BaseGame
+        // cleanup during shutdown.
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new SongLibrary(
+            new SongDatabaseService(_databasePath),
+            importSongsAsync: async (_, _, _, token) =>
+            {
+                entered.SetResult();
+                await release.Task;
+                token.ThrowIfCancellationRequested();
+                return SongBulkImportResult.Empty;
+            },
+            buildEnumerationBatchAsync: (_, _, _) =>
+                Task.FromResult(CompletedBatchWithActiveRoot(_songsRoot)));
+        await manager.InitializeAsync();
+
+        var scan = manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        manager.Dispose();
+
+        // Dispose cancels but does not mutate the slot: the enumeration still
+        // owns the source until its finally runs.
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+            manager, "_enumCancellation"));
+
+        release.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan);
+        Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+            manager, "_enumCancellation"));
     }
 
     [Fact]
@@ -2625,6 +2730,28 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     /// </summary>
     private bool ManagerIsEnumerating =>
         ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(_manager, "_enumCancellation") != null;
+
+    private static SongEnumerationBatch CompletedBatchWithNoActiveRoots() => new()
+    {
+        ActiveRoots = Array.Empty<string>(),
+        DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+        Candidates = new List<SongImportCandidate>(),
+        RootNodes = new List<SongListNode>(),
+        PendingSongs = new List<PendingSongNode>(),
+        Errors = new List<SongEnumerationError>(),
+        IsComplete = true
+    };
+
+    private static SongEnumerationBatch CompletedBatchWithActiveRoot(string root) => new()
+    {
+        ActiveRoots = new[] { root },
+        DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+        Candidates = new List<SongImportCandidate>(),
+        RootNodes = new List<SongListNode>(),
+        PendingSongs = new List<PendingSongNode>(),
+        Errors = new List<SongEnumerationError>(),
+        IsComplete = true
+    };
 
     /// <summary>
     /// The initialized database service is stored in a private field swapped

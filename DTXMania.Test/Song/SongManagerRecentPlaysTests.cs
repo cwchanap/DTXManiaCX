@@ -98,6 +98,44 @@ namespace DTXMania.Test.Song
             await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetRecentlyPlayedNodesAsync(20));
         }
 
+        [Fact]
+        public async Task GetRecentlyPlayedNodesAsync_WhenInitializationAttemptFailed_ThrowsLikeBrokenDatabase()
+        {
+            // HPA-801 fix round 1: a failed initialization is a failure state,
+            // not availability. The pre-rename service reference was already
+            // non-null, so the query reached CreateContext and threw; the
+            // never-initialized short-circuit must not swallow that as an
+            // empty "No recent plays yet" result.
+            var manager = new SongLibrary(new ScriptedInitializationService(
+                new DbContextOptionsBuilder<SongDbContext>()
+                    .UseSqlite($"Data Source={_dbPath};Cache=Shared;").Options));
+
+            Assert.False(await manager.InitializeAsync());
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => manager.GetRecentlyPlayedNodesAsync(20));
+        }
+
+        [Fact]
+        public async Task GetRecentlyPlayedNodesAsync_WhenPurgeCannotReinitialize_ThrowsLikeBrokenDatabase()
+        {
+            // Purging an initialized database was also a throwing state
+            // pre-rename: the service reference stayed non-null, so the query
+            // reached CreateContext and threw instead of reading as empty.
+            var manager = new SongLibrary(new ScriptedInitializationService(
+                new DbContextOptionsBuilder<SongDbContext>()
+                    .UseSqlite($"Data Source={_dbPath};Cache=Shared;").Options,
+                ensureCreated: (context, attempt) => attempt == 1
+                    ? context.Database.EnsureCreatedAsync()
+                    : throw new InvalidOperationException("re-initialization faulted")));
+
+            Assert.True(await manager.InitializeAsync());
+            Assert.False(await manager.InitializeAsync(purgeDatabaseFirst: true));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => manager.GetRecentlyPlayedNodesAsync(20));
+        }
+
         private static SongLibrary CreateFaultingManager() => new(
             new SongDatabaseService(
                 new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<

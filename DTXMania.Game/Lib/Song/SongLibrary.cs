@@ -145,6 +145,14 @@ namespace DTXMania.Game.Lib.Song
         // Initialization state tracking
         private bool _isInitialized = false;
 
+        // True once InitializeAsync has attempted to initialize (or purge) the
+        // game-owned database. Mirrors the pre-rename semantics where the
+        // database reference became non-null at the start of initialization:
+        // before that, queries read as empty; afterwards, a not-initialized
+        // database is an initialization/purge failure that CreateContext's
+        // guard must surface instead of reading as an empty result.
+        private bool _databaseInitializationAttempted = false;
+
         // Compiled regex patterns for SET.def normalization (performance optimization)
         private static readonly Regex NullBytePattern = new Regex(@"\u0000", RegexOptions.Compiled);
         private static readonly Regex BomPattern = new Regex(@"[\uFEFF\u200B]+", RegexOptions.Compiled);
@@ -188,6 +196,26 @@ namespace DTXMania.Game.Lib.Song
         /// identically to the pre-rename code.
         /// </summary>
         private SongDatabaseService GetDatabaseServiceSnapshot() => _database;
+
+        /// <summary>
+        /// True when the database has never been presented to initialization:
+        /// queries then read as empty (the pre-HPA-801 null-service contract).
+        /// Once initialization was attempted, a not-initialized database is an
+        /// initialization/purge failure — the query falls through so
+        /// CreateContext throws, exactly as the pre-rename non-null service did.
+        /// </summary>
+        private bool ReadsAsNeverInitialized(SongDatabaseService database)
+        {
+            if (database.IsInitialized)
+            {
+                return false;
+            }
+
+            lock (_lockObject)
+            {
+                return !_databaseInitializationAttempted;
+            }
+        }
 
         private static Task<SongBulkImportResult> DefaultImportSongsAsync(
             SongDatabaseService database,
@@ -269,6 +297,14 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<bool> InitializeAsync(bool purgeDatabaseFirst = false)
         {
+            // From here on the database has been presented to initialization:
+            // the pre-rename contract is that queries no longer read as empty
+            // but surface the failure through the database's own guard.
+            lock (_lockObject)
+            {
+                _databaseInitializationAttempted = true;
+            }
+
             try
             {
                 if (purgeDatabaseFirst)
@@ -405,11 +441,17 @@ namespace DTXMania.Game.Lib.Song
                 // subsequent enumeration is rejected as "already in progress".
                 cancellationToken.ThrowIfCancellationRequested();
                 var database = GetDatabaseServiceSnapshot();
-                // Readiness probe: the game-owned database exists from launch but
-                // is unusable until Startup's InitializeAsync runs. The probe throws
-                // before traversal (and releases the slot via the finally), keeping
-                // the pre-rename "fail before touching the filesystem" contract.
-                await database.HasAnySongsAsync().ConfigureAwait(false);
+                // Readiness guard: the game-owned database exists from launch but
+                // is unusable until Startup's InitializeAsync runs. The guard is
+                // an in-memory initialization-state check (the pre-rename
+                // null-reference throw) — no SQL, no I/O — so it fails before
+                // root validation and traversal (releasing the slot via the
+                // finally) without querying the database.
+                if (!database.IsInitialized)
+                {
+                    throw new InvalidOperationException(
+                        "Song database is not initialized.");
+                }
                 var batch = await BuildEnumerationBatchCoreAsync(
                     searchPaths,
                     progress,
@@ -2739,8 +2781,10 @@ namespace DTXMania.Game.Lib.Song
         {
             var db = GetDatabaseServiceSnapshot();
             // Pre-initialization queries read as empty (pre-HPA-801 contract);
-            // a genuinely broken database still throws from the query below.
-            if (!db.IsInitialized || limit <= 0) return new List<SongListNode>();
+            // once initialization was attempted, a failed or purged database
+            // falls through to the query, whose CreateContext guard throws the
+            // pre-rename load failure instead of reading as an empty result.
+            if (limit <= 0 || ReadsAsNeverInitialized(db)) return new List<SongListNode>();
 
             // Push the active-root criterion into the DB query as a set of active
             // chart IDs so that grouping, ordering, AND pagination all use
@@ -2821,7 +2865,10 @@ namespace DTXMania.Game.Lib.Song
         public async Task<List<SongListNode>> GetBookmarkedNodesAsync()
         {
             var db = GetDatabaseServiceSnapshot();
-            if (!db.IsInitialized) return new List<SongListNode>();
+            // Same contract as GetRecentlyPlayedNodesAsync: only a
+            // never-initialized database reads as empty; a failed or purged
+            // initialization surfaces the database failure.
+            if (ReadsAsNeverInitialized(db)) return new List<SongListNode>();
 
             var songs = await db.GetBookmarkedSongsAsync().ConfigureAwait(false);
             var nodes = new List<SongListNode>(songs.Count);
@@ -3792,9 +3839,17 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public void Dispose()
         {
-            _enumCancellation?.Cancel();
-            _enumCancellation?.Dispose();
-            _enumCancellation = null;
+            // Cancel under the enumeration gate: EndEnumeration clears and
+            // disposes the source under this same lock, so an enumeration
+            // finishing during shutdown cannot be disposed between the read
+            // and Cancel() (an ObjectDisposedException here would also skip
+            // the remaining BaseGame cleanup). Source disposal stays with the
+            // enumeration's finally.
+            lock (_lockObject)
+            {
+                _enumCancellation?.Cancel();
+            }
+
             _database.Dispose();
         }
 
