@@ -87,8 +87,7 @@ namespace DTXMania.Game.Lib.Stage
         // a queued completion from an older same-activation load cannot overwrite the result
         // of a newer load with a pre-toggle snapshot that omits a newly bookmarked song.
         private int _bookmarksLoadVersion;
-        private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync =
-            () => SongManager.Instance.GetBookmarkedNodesAsync();
+        private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync;
         // Set when the active tab's list must be repopulated on the next OnUpdate. It is owned
         // by the update thread; background completions queue into the activation scope instead.
         private bool _tabListNeedsRefresh;
@@ -252,6 +251,16 @@ namespace DTXMania.Game.Lib.Stage
 
         public override StageType Type => StageType.SongSelect;
 
+        /// <summary>
+        /// The game-owned song library, resolved on use (HPA-801). Operations that
+        /// need it fail clearly when the game exposes none — no silent fallback to
+        /// a shared instance.
+        /// </summary>
+        private SongLibrary Library =>
+            _game.SongLibrary ?? throw new InvalidOperationException(
+                "Song selection requires the game-owned song library, but the game exposes none " +
+                "(BaseGame.CreateLoadContentServices must construct it before the StageManager).");
+
         #endregion
 
         #region Constructor
@@ -259,6 +268,8 @@ namespace DTXMania.Game.Lib.Stage
         public SongSelectionStage(IStageGame game) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
+            // Lazy library resolution (HPA-801): resolved when a bookmarks load executes.
+            _loadBookmarkedNodesAsync = () => Library.GetBookmarkedNodesAsync();
             AssignInputManager(game.InputManager);
         }
 
@@ -768,10 +779,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                var songManager = SongManager.Instance;
+                var library = Library;
 
-                // Check if SongManager is properly initialized
-                if (!songManager.IsInitialized)
+                // Check if the game-owned library is properly initialized
+                if (!library.IsInitialized)
                 {
                     // While no coherent snapshot is available, do not leave a BackBox from
                     // the previous activation visible over the empty placeholder list.
@@ -791,7 +802,7 @@ namespace DTXMania.Game.Lib.Stage
                     // Re-entry can retain an old navigation stack. Project the activation
                     // snapshot through the same path as a live publication so retained boxes
                     // are restored and removed boxes cannot expose stale children.
-                    ReconcileLibrarySnapshot(songManager.GetLibrarySnapshot());
+                    ReconcileLibrarySnapshot(library.GetLibrarySnapshot());
                     _libraryInitializationCompleted = true;
                 }
             }
@@ -859,7 +870,7 @@ namespace DTXMania.Game.Lib.Stage
             void PublishToActivationScope(object? sender, SongLibraryPublishedEventArgs e) =>
                 reporter(e.Snapshot.Version);
             _libraryPublicationHandler = PublishToActivationScope;
-            SongManager.Instance.SongLibraryPublished += _libraryPublicationHandler;
+            Library.SongLibraryPublished += _libraryPublicationHandler;
         }
 
         private void UnsubscribeLibraryPublications()
@@ -868,7 +879,7 @@ namespace DTXMania.Game.Lib.Stage
             _libraryPublicationHandler = null;
 
             if (handler != null)
-                SongManager.Instance.SongLibraryPublished -= handler;
+                Library.SongLibraryPublished -= handler;
         }
 
         /// <summary>
@@ -921,7 +932,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                var snapshot = SongManager.Instance.GetLibrarySnapshot();
+                var snapshot = Library.GetLibrarySnapshot();
                 if (_appliedLibrarySnapshot == null
                     || snapshot.Version > Volatile.Read(ref _appliedLibraryPublicationVersion))
                 {
@@ -969,7 +980,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ApplyPendingLibraryPublication(long publishedVersion)
         {
-            var snapshot = SongManager.Instance.GetLibrarySnapshot();
+            var snapshot = Library.GetLibrarySnapshot();
             long newestVersion = Math.Max(publishedVersion, snapshot.Version);
             if (newestVersion <= Volatile.Read(ref _appliedLibraryPublicationVersion))
                 return;
@@ -2104,7 +2115,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void RebuildFilteredView()
         {
-            var snapshot = _appliedLibrarySnapshot ?? SongManager.Instance.GetLibrarySnapshot();
+            var snapshot = _appliedLibrarySnapshot ?? Library.GetLibrarySnapshot();
             RebuildFilteredViewForSnapshot(snapshot);
         }
 
@@ -3434,7 +3445,7 @@ namespace DTXMania.Game.Lib.Stage
                     // order: a slower older load can land after (and overwrite) a newer
                     // one, unlike the version-guarded bookmark load.
                     return CopyTabLoadNodes(
-                        SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
+                        Library.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
                             .GetAwaiter().GetResult());
                 },
                 onSuccess: nodes =>
@@ -3558,7 +3569,7 @@ namespace DTXMania.Game.Lib.Stage
                 song.IsBookmarked = newState;
                 BookmarkStateReconciler.Apply(
                     _appliedLibrarySnapshot?.RootSongs
-                        ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                        ?? Library.GetLibrarySnapshot().RootSongs,
                     songId,
                     newState);
             }
@@ -3583,7 +3594,7 @@ namespace DTXMania.Game.Lib.Stage
             var originScope = BackgroundWork;
             var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
             var write = prior.ContinueWith(
-                _ => SongManager.Instance.SetBookmarkAsync(songId, newState),
+                _ => Library.SetBookmarkAsync(songId, newState),
                 TaskScheduler.Default).Unwrap();
             _pendingBookmarkWrites[songId] = write;
 
@@ -3659,7 +3670,7 @@ namespace DTXMania.Game.Lib.Stage
                     || current == toggleVersion)
                 {
                     BookmarkStateReconciler.Apply(
-                        SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                        Library.GetLibrarySnapshot().RootSongs,
                         songId,
                         revertTo);
                 }
@@ -3685,7 +3696,7 @@ namespace DTXMania.Game.Lib.Stage
 
             BookmarkStateReconciler.Apply(
                 _appliedLibrarySnapshot?.RootSongs
-                    ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                    ?? Library.GetLibrarySnapshot().RootSongs,
                 songId,
                 revertTo);
             // The manager's current snapshot may be a newer publication than the one

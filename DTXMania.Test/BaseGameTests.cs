@@ -15,6 +15,8 @@ using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Input.Midi;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
@@ -1274,10 +1276,17 @@ namespace DTXMania.Test
 
             SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
-            game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(spriteBatch, resourceManager, stageManager);
+            game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(spriteBatch, resourceManager, stageManager, NullSongLibrary());
 
             return game;
         }
+
+        /// <summary>
+        /// A game-style library for LoadContentServices wiring; these tests never
+        /// touch song data, so a never-initialized temp database suffices (HPA-801).
+        /// </summary>
+        private static SongLibrary NullSongLibrary() => new(new SongDatabaseService(Path.Combine(
+            Path.GetTempPath(), $"basegame_tests_{Guid.NewGuid():N}.db")));
 
         private static LoadContentTestableBaseGame CreateGameForInitialization(
             IResourceManager resourceManager,
@@ -1293,7 +1302,8 @@ namespace DTXMania.Test
             game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(
                 ReflectionHelpers.CreateUninitialized<SpriteBatch>(),
                 resourceManager,
-                stageManager);
+                stageManager,
+                NullSongLibrary());
 
             return game;
         }

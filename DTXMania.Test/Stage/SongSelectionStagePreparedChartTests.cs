@@ -12,8 +12,6 @@ using static DTXMania.Test.TestData.ReflectionHelpers;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Stage;
-
-[Collection("SongManager")]
 [Trait("Category", "Unit")]
 public sealed class SongSelectionStagePreparedChartTests
 {

@@ -14,7 +14,6 @@ namespace DTXMania.Test.Stage
     /// theme (specific key → generic token → NX default) so CX Neon shows accent
     /// tabs and slate status text while themeless (NX) skins stay byte-identical.
     /// </summary>
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStageThemeColorTests
     {

@@ -2,26 +2,27 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Reflection;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.TestData;
 
 namespace DTXMania.Test.Song;
 
-[Collection("SongManager")]
 [Trait("Category", "Unit")]
 public class SongManagerParsingTests : IDisposable
 {
-    private readonly SongManager _manager;
+    private readonly SongLibrary _manager;
 
     public SongManagerParsingTests()
     {
-        SongManager.ResetInstanceForTesting();
-        _manager = SongManager.Instance;
+        // Parsing tests never touch the database; the path is never initialized
+        // and construction has no filesystem side effects (HPA-801).
+        _manager = new SongLibrary(new SongDatabaseService(Path.Combine(
+            Path.GetTempPath(), $"parsing_{Guid.NewGuid()}.db")));
     }
 
     public void Dispose()
     {
-        _manager.Clear();
-        SongManager.ResetInstanceForTesting();
+        _manager.Dispose();
     }
 
     [Fact]
@@ -102,7 +103,7 @@ public class SongManagerParsingTests : IDisposable
 
     private (bool Parsed, Color Color) InvokeTryParseColor(string? colorValue)
     {
-        var method = typeof(SongManager).GetMethod("TryParseColor", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(SongLibrary).GetMethod("TryParseColor", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
         var args = new object[] { colorValue, Color.Empty };

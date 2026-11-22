@@ -16,18 +16,16 @@ namespace DTXMania.Test.Song
     /// showed only the fallback (DTX) badge because the per-difficulty label was synthesized as
     /// "Level N" instead of the authentic SET.def #LnLABEL (BASIC/ADVANCED/EXTREME/MASTER/REAL).
     /// </summary>
-    [Collection("SongManager")]
     public class SongManagerDifficultyLabelTests : IDisposable
     {
-        private readonly SongManager _songManager;
+        private readonly SongLibrary _songManager;
         private readonly List<string> _tempDirs = new();
         private readonly string _testDbPath;
 
         public SongManagerDifficultyLabelTests()
         {
-            SongManager.ResetInstanceForTesting();
-            _songManager = SongManager.Instance;
             _testDbPath = Path.Combine(Path.GetTempPath(), $"test_difflabel_{Guid.NewGuid()}.db");
+            _songManager = new SongLibrary(new SongDatabaseService(_testDbPath));
         }
 
         public void Dispose()
@@ -44,7 +42,7 @@ namespace DTXMania.Test.Song
                     // Ignore cleanup errors
                 }
             }
-            _songManager?.Clear();
+            _songManager?.Dispose();
 
             try
             {
@@ -63,8 +61,7 @@ namespace DTXMania.Test.Song
         /// seam after the test-only DatabaseService accessor was removed
         /// (HPA-801 Decision 0).
         /// </summary>
-        private SongDatabaseService? ManagerDatabaseService =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(_songManager, "_databaseService");
+        private SongDatabaseService ManagerDatabaseService => _songManager.Database;
 
 
         private string CreateTempDirectory()
@@ -88,7 +85,7 @@ namespace DTXMania.Test.Song
             };
 
             // The persisted chart label wins over the SET.def recovery so re-reading the disk is skipped.
-            Assert.Equal("EXTREME", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 0));
+            Assert.Equal("EXTREME", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 0));
         }
 
         [Trait("Category", "Unit")]
@@ -104,7 +101,7 @@ namespace DTXMania.Test.Song
             };
 
             // Legacy databases stored an empty label; recover the authentic name by chart file name.
-            Assert.Equal("ADVANCED", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 1));
+            Assert.Equal("ADVANCED", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 1));
         }
 
         [Trait("Category", "Unit")]
@@ -117,7 +114,7 @@ namespace DTXMania.Test.Song
                 ["mas.dtx"] = "MASTER"
             };
 
-            Assert.Equal("MASTER", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 3));
+            Assert.Equal("MASTER", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 3));
         }
 
         [Trait("Category", "Unit")]
@@ -131,7 +128,7 @@ namespace DTXMania.Test.Song
             };
 
             // scoreIndex 2 -> "Level 3" (one-based for display).
-            Assert.Equal("Level 3", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 2));
+            Assert.Equal("Level 3", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 2));
         }
 
         [Trait("Category", "Unit")]
@@ -141,7 +138,7 @@ namespace DTXMania.Test.Song
             // An unlabeled #L3FILE persists DifficultyLevel 3; the scan shows it as "Level 3".
             var chart = new SongChart { FilePath = "/songs/song/ext.dtx", DifficultyLabel = "", DifficultyLevel = 3 };
 
-            Assert.Equal("Level 3", SongManager.ResolveDifficultyLabel(chart, null!, 0));
+            Assert.Equal("Level 3", SongLibrary.ResolveDifficultyLabel(chart, null!, 0));
         }
 
         [Trait("Category", "Unit")]
@@ -150,7 +147,7 @@ namespace DTXMania.Test.Song
         {
             var chart = new SongChart { FilePath = "/songs/song/bas.dtx", DifficultyLabel = "" };
 
-            Assert.Equal("Level 1", SongManager.ResolveDifficultyLabel(chart, null!, 0));
+            Assert.Equal("Level 1", SongLibrary.ResolveDifficultyLabel(chart, null!, 0));
         }
 
         #endregion
@@ -276,7 +273,7 @@ namespace DTXMania.Test.Song
                 ["bas.dtx"] = "BASIC"
             };
 
-            Assert.Equal("BASIC", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 0));
+            Assert.Equal("BASIC", SongLibrary.ResolveDifficultyLabel(chart, setDefLabels, 0));
         }
 
         [Trait("Category", "Unit")]
@@ -348,7 +345,7 @@ namespace DTXMania.Test.Song
                     Encoding.UTF8);
             }
 
-            await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+            await _songManager.InitializeAsync();
             await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
 
             // Force the database-load path used on a normal launch (clears in-memory nodes and
@@ -386,7 +383,7 @@ namespace DTXMania.Test.Song
             File.WriteAllText(Path.Combine(dir, "set.def"), setDefContent, Encoding.UTF8);
             File.WriteAllText(Path.Combine(dir, "bas.dtx"), "#TITLE: Clamp test\n#DLEVEL: 36", Encoding.UTF8);
 
-            await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+            await _songManager.InitializeAsync();
             await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
             await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
@@ -429,7 +426,7 @@ namespace DTXMania.Test.Song
             File.WriteAllText(Path.Combine(dir, "adv.dtx"), "#TITLE: Persistence contract\n#DLEVEL: 60", Encoding.UTF8);
 
             // First launch: enumerate, persisting the recovered labels to the database.
-            await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+            await _songManager.InitializeAsync();
             await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
 
             // Simulate a subsequent launch where SET.def is gone (renamed/moved) but the DB persists.

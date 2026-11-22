@@ -8,7 +8,6 @@ using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStageBookmarkTests
     {

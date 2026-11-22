@@ -14,7 +14,6 @@ using DTXMania.Test.TestData;
 using Xunit;
 namespace DTXMania.Test.Config;
 
-[Collection("SongManager")]
 [Trait("Category", "Unit")]
 public sealed class SongLibraryReloadServiceTests : IDisposable
 {
@@ -25,7 +24,6 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
     public SongLibraryReloadServiceTests()
     {
         _databasePath = Path.Combine(_testRoot, "songs.db");
-        SongManager.ResetInstanceForTesting();
     }
 
     [Fact]
@@ -105,11 +103,15 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
             "#BPM: 120",
             "#DLEVEL: 50"
         });
-        var manager = SongManager.Instance;
-        Assert.True(await manager.InitializeDatabaseServiceAsync(_databasePath));
-        manager.FinalizePendingNodesCore = (_, _) =>
-            throw new InvalidOperationException("finalization failed after commit");
-        var service = new SongLibraryReloadService();
+        // HPA-801: the test owns one library over the temp database; the
+        // game-wired reload service resolves the library lazily via IStageGame.
+        var library = new SongLibrary(
+            new SongDatabaseService(_databasePath),
+            finalizePendingNodes: (_, _) =>
+                throw new InvalidOperationException("finalization failed after commit"));
+        Assert.True(await library.InitializeAsync());
+        var game = new TestStageGame(library);
+        var service = new SongLibraryReloadService(game);
 
         var result = await service.ReloadAsync(
             new[] { songRoot }, progress: null, CancellationToken.None);
@@ -121,7 +123,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
         Assert.False(result.RetainsCurrentSnapshot);
         Assert.Contains("finalization failed after commit", result.FailureMessage);
         // The default service scans the bundled practice songs after the configured roots.
-        var titles = (await DatabaseServiceOf(manager)!.GetSongsAsync())
+        var titles = (await library.Database.GetSongsAsync())
             .Select(song => song.Title)
             .ToList();
         Assert.Contains("Committed Reload", titles);
@@ -222,7 +224,6 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
 
     public void Dispose()
     {
-        SongManager.ResetInstanceForTesting();
         if (Directory.Exists(_testRoot))
         {
             try
@@ -238,13 +239,28 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
     }
 
         /// <summary>
-        /// The initialized database service is stored in a private field swapped
-        /// under the manager lock; tests read it via the established reflection
-        /// seam after the test-only DatabaseService accessor was removed
-        /// (HPA-801 Decision 0).
+        /// Minimal IStageGame stub exposing one game-owned library, for wiring
+        /// the production SongLibraryReloadService constructor (HPA-801).
         /// </summary>
-        private static SongDatabaseService? DatabaseServiceOf(SongManager manager) =>
-            ReflectionHelpers.GetPrivateField<SongDatabaseService?>(manager, "_databaseService");
+        private sealed class TestStageGame : DTXMania.Game.Lib.Stage.IStageGame
+        {
+            public TestStageGame(SongLibrary library) => SongLibrary = library;
+
+            public SongLibrary? SongLibrary { get; }
+
+            public Microsoft.Xna.Framework.Graphics.GraphicsDevice GraphicsDevice => throw new NotSupportedException();
+            public DTXMania.Game.Lib.Stage.IStageManager StageManager => throw new NotSupportedException();
+            public DTXMania.Game.Lib.Config.IConfigManager ConfigManager => throw new NotSupportedException();
+            public DTXMania.Game.Lib.Input.InputManagerCompat InputManager => throw new NotSupportedException();
+            public DTXMania.Game.Lib.Graphics.IGraphicsManager GraphicsManager => throw new NotSupportedException();
+            public DTXMania.Game.Lib.Resources.IResourceManager ResourceManager => throw new NotSupportedException();
+            public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory => throw new NotSupportedException();
+            public bool CanPerformStageTransition() => throw new NotSupportedException();
+            public void MarkStageTransition() { }
+            public Microsoft.Xna.Framework.Point? MapMouseToVirtual(Microsoft.Xna.Framework.Point windowPoint) => null;
+            public DTXMania.Game.Lib.UI.Components.ITextInputSource? GetTextInputSource() => null;
+            public void RequestExit() { }
+        }
 
     private static SongEnumerationResult CreateResult(
         SongEnumerationOutcome outcome,

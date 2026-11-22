@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
@@ -14,7 +15,33 @@ namespace DTXMania.Test.Stage
     {
         public static SongSelectionStage CreateStage(BaseGame? game = null)
         {
-            return new SongSelectionStage(game ?? CreateGame());
+            game ??= CreateGame();
+            // HPA-801: every test stage gets its own game-owned library over a
+            // never-initialized temp database (construction is side-effect free).
+            SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabaseService(
+                Path.Combine(Path.GetTempPath(), $"songselect_logic_{System.Guid.NewGuid():N}.db"))));
+            return new SongSelectionStage(game);
+        }
+
+        /// <summary>
+        /// A stage whose game exposes the caller's test-owned library (HPA-801).
+        /// </summary>
+        public static SongSelectionStage CreateStage(SongLibrary library)
+        {
+            var game = CreateGame();
+            SetPrivateField(game, "_songLibrary", library);
+            return new SongSelectionStage(game);
+        }
+
+        /// <summary>
+        /// The test-owned library wired into the stage's game (HPA-801 replaced
+        /// the shared SongManager.Instance with per-stage game-owned libraries).
+        /// </summary>
+        public static SongLibrary LibraryOf(SongSelectionStage stage)
+        {
+            var game = (DTXMania.Game.Lib.Stage.IStageGame)GetPrivateField<BaseGame>(stage, "_game");
+            return game.SongLibrary ?? throw new InvalidOperationException(
+                "test game must expose a song library");
         }
 
         public static void AttachCoreUi(

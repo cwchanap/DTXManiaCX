@@ -18,7 +18,6 @@ using static DTXMania.Test.TestData.ReflectionHelpers;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionPublicationTests
     {
@@ -64,7 +63,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void InitializeSongList_WhenReentrySnapshotRemovesCurrentBox_ShouldClearStaleNavigation()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
@@ -73,7 +73,6 @@ namespace DTXMania.Test.Stage
             var oldSong = Score("Old", 41, "/library/old/BOX/old.dtx");
             var oldBox = Box("BOX", "/library/old/BOX", oldSong);
             var replacement = Score("Replacement", 42, "/library/new/replacement.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay
             {
                 CurrentList = new List<SongListNode>
@@ -305,13 +304,13 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void SongLibraryPublished_WhenVersionsArriveOutOfOrder_ShouldApplyOnlyTheNewestOnDrain()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var newestNode = Score("Newest", 88, "/library/newest/newest.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay { CurrentList = new List<SongListNode> { Score("Existing", 1, "/library/existing.dtx") } };
 
             try
@@ -356,11 +355,11 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void SongLibraryPublished_WhenScopeRetires_ShouldDropStaleSignalsAndRearmForNewScope()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var originalHandler = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
                 songManager,
                 "SongLibraryPublished");
-            var stage = CreateStage();
 
             try
             {
@@ -410,13 +409,13 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyPendingLibraryPublication_ShouldFetchAndApplyTheCurrentManagerSnapshotOnTheUpdateThread()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var newestNode = Score("Newest", 88, "/library/newest/newest.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay();
 
             try
@@ -448,13 +447,13 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyPendingLibraryPublication_WhenAppliedVersionIsCurrent_ShouldNotReapply()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var oldNode = Score("Old", 3, "/library/old/old.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay { CurrentList = new List<SongListNode> { oldNode } };
             var appliedSnapshot = Snapshot(50, new[] { oldNode }, new[] { "/library/old" });
 
@@ -522,7 +521,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyInitializedLibrarySnapshot_WhenNewerPublicationIsAlreadyApplied_ShouldNotResetRestoredSelection()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
@@ -530,7 +530,6 @@ namespace DTXMania.Test.Stage
             var first = Score("First", 1, "/library/new/first.dtx");
             var selected = Score("Selected", 2, "/library/new/selected.dtx");
             var oldNode = Score("Old", 3, "/library/old/old.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay
             {
                 CurrentList = new List<SongListNode> { first, selected }
@@ -572,7 +571,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyInitializedLibrarySnapshot_WhenNewerSnapshotArrives_ShouldReconcileNestedSelection()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
@@ -581,7 +581,6 @@ namespace DTXMania.Test.Stage
             var oldBox = Box("BOX", "/library/shared/BOX", oldSong);
             var replacementSong = Score("Replacement", 1, "/library/shared/BOX/replacement.dtx");
             var replacementBox = Box("BOX", "/library/shared/BOX", replacementSong);
-            var stage = CreateStage();
             var display = new SongListDisplay
             {
                 CurrentList = new List<SongListNode>
@@ -633,13 +632,13 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyInitializedLibrarySnapshot_ShouldFetchTheNewestSnapshotOnTheUpdateThread()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var newNode = Score("New", 92, "/library/new/new.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay();
 
             try
@@ -695,14 +694,14 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Deactivate_WhenInitializerQueuedBeforeRetire_ShouldDropTheResult()
         {
-            var songManager = SongManager.Instance;
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
             var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
             var deferredNode = Score("Deferred", 311, "/library/deferred/deferred.dtx");
-            var stage = CreateStage();
             var display = new SongListDisplay();
 
             try

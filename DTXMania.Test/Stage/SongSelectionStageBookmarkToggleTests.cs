@@ -18,7 +18,6 @@ using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStageBookmarkToggleTests
     {
@@ -184,7 +183,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_bookmarkNodes",
                 new List<SongListNode> { new() { Type = NodeType.Score, DatabaseSong = bookmarkSong } });
 
-            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
             var savedRoots = roots.ToList();
             roots.Clear();
             roots.Add(new SongListNode { Type = NodeType.Score, Title = "S", DatabaseSong = rootSong });
@@ -229,7 +228,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
             SetPrivateField(stage, "_appliedLibrarySnapshot", snapshot);
 
-            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
             var savedRoots = roots.ToList();
             roots.Clear();
             roots.Add(bystanderNode);
@@ -275,10 +274,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_RapidDoubleToggle_LastIntentWinsInDb()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_order_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -286,7 +284,7 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
@@ -304,7 +302,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -318,10 +316,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenPersistFaults_RevertsInMemoryFlag()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -330,7 +327,7 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
@@ -339,7 +336,7 @@ namespace DTXMania.Test.Stage
                 stage.InstallTestBackgroundScope();
                 // Mirror real All-Songs behavior: the selected node's entity lives in RootSongs,
                 // so the revert (which applies by song Id across RootSongs) reaches it.
-                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
                 roots.Clear();
                 roots.Add(node);
 
@@ -357,7 +354,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -365,17 +362,16 @@ namespace DTXMania.Test.Stage
 
         // A committed bookmark persistence task may outlive navigation; only the stale UI
         // rollback is dropped (the stage's scope retired on Deactivate), never the write itself.
-        // On a FAILED write there is no committed intent to preserve: the shared SongManager
+        // On a FAILED write there is no committed intent to preserve: the library
         // entity must revert to the pre-toggle state it matches in the database, while the
         // per-activation UI lists stay untouched (their rollback was dropped with the scope).
         [Fact]
         public async Task ToggleBookmarkForSelectedSong_WhenStageDeactivatesBeforeFault_ShouldRevertSharedEntityButDropUiRollback()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_drop_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -384,14 +380,14 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
                 stage.InstallTestBackgroundScope();
-                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
                 roots.Clear();
                 roots.Add(node);
                 // A distinct entity in a per-activation UI list: the dropped rollback must
@@ -418,7 +414,7 @@ namespace DTXMania.Test.Stage
                 // starts DB-consistent instead of keeping the state the DB rejected.
                 Assert.True(
                     SpinWait.SpinUntil(() => !nodeEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
-                    "the shared SongManager entity was not reverted after the failed persist");
+                    "the library entity was not reverted after the failed persist");
 
                 // The per-activation UI list keeps its optimistic value: its rollback was
                 // dropped with the retired scope, exactly as the design allows.
@@ -426,14 +422,14 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
         }
 
         // Final-review regression: toggling from the RECENT tab optimistically flips a
-        // per-activation entity that is DISTINCT from the shared SongManager library entity
+        // per-activation entity that is DISTINCT from the game-owned library entity
         // (GetRecentlyPlayedNodesAsync deserializes fresh DB rows). The fault continuation's
         // worker-side revert must cover the shared snapshot — the one state that survives
         // navigation and backs the reentry browse tree — not just the captured entity;
@@ -443,10 +439,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromRecentTab_WhenStageDeactivatesBeforeFault_ShouldRevertSharedSnapshotEntity()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_shared_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -455,12 +450,12 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 // Shared library entity: a distinct instance from the Recent tab's entity,
                 // exactly as the published tree differs from freshly queried tab rows.
                 var sharedEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var sharedNode = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = sharedEntity };
-                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
                 roots.Clear();
                 roots.Add(sharedNode);
                 // Recent-tab selection: its own per-activation entity instance.
@@ -503,7 +498,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -518,10 +513,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromBookmarksTab_WhenSnapshotHoldsDuplicateEntities_ShouldRevertEveryDuplicateAfterFailedPersist()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_dups_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -530,13 +524,13 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 // Two distinct shared-snapshot entities for one song, mirroring SET.def
                 // duplicates: one with a stamped entity id, one matched only via
                 // DatabaseSongId (parsed entity id left at 0).
                 var dupStampedEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var dupZeroIdEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, Title = "Song", IsBookmarked = false };
-                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
                 roots.Clear();
                 roots.Add(new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = dupStampedEntity });
                 roots.Add(new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSongId = songId, DatabaseSong = dupZeroIdEntity });
@@ -586,7 +580,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -605,10 +599,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromRecentTab_WhenNewerToggleSupersedesFailedWrite_ShouldKeepNewerIntentInSharedSnapshot()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_newer_wins_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -617,10 +610,10 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var sharedEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var sharedNode = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = sharedEntity };
-                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
                 roots.Clear();
                 roots.Add(sharedNode);
                 var recentEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
@@ -674,7 +667,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -690,10 +683,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenFaultLandsAfterReactivation_ShouldNotMutateTheNewActivation()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_revert_react_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             await db.SeedSongAsync(seed, chart);
@@ -702,7 +694,7 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
@@ -716,7 +708,7 @@ namespace DTXMania.Test.Stage
                         return Task.FromResult(new List<SongListNode>());
                     }));
                 stage.InstallTestBackgroundScope();
-                var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+                var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
                 roots.Clear();
                 roots.Add(node);
                 // A distinct entity in B's per-activation UI list: the stale rollback must
@@ -789,7 +781,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -806,10 +798,9 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkForSelectedSong_WhenNavigationCrossesACommittedWrite_ShouldPersistAndPreserveNondefaultDifficulty()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"bm_persist_nav_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            var db = SongManagerTestDb.Of(manager)!;
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
             var seed = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Song", Artist = "A" };
             var basic = new SongChart { Song = seed, FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
             var advanced = new SongChart { Song = seed, FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 55 };
@@ -823,7 +814,7 @@ namespace DTXMania.Test.Stage
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song { Id = songId, Title = "Song", IsBookmarked = false };
                 var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
                 // Mirror the published difficulty-slot layout (slot 0 = BASIC, slot 1 =
@@ -909,7 +900,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -968,7 +959,7 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
             var savedRoots = roots.ToList();
             roots.Clear();
             roots.Add(rootNode);
@@ -1020,7 +1011,7 @@ namespace DTXMania.Test.Stage
                 DatabaseSong = bystanderSong,
                 DatabaseSongId = null
             };
-            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
             var savedRoots = roots.ToList();
             roots.Clear();
             roots.Add(bystander);
@@ -1057,7 +1048,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays); // -> Bookmarks
             stage.InstallTestBackgroundScope();
 
-            // Gate the bookmark loader so the test does not depend on the SongManager
+            // Gate the bookmark loader so the test does not depend on the library
             // singleton's database state or on real DB I/O latency.
             var loadStarted = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);

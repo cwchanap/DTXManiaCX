@@ -15,6 +15,8 @@ using DTXMania.Game.Lib.Stage.Result;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using DTXMania.Test.TestData;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
@@ -346,20 +348,24 @@ namespace DTXMania.Test.Stage
             // Once the previous task has completed (late reconciliation resolved),
             // a retry must be allowed to proceed.
             //
-            // Isolate from the shared SongManager singleton: StartPerformanceSummarySave
-            // falls through to SongManager.Instance.UpdateScoreAsync when no
-            // SavePerformanceSummaryAsync override is wired (uninitialized object).
-            // Without a reset, the new save task would hit the real singleton and
-            // any unobserved exception would leak across tests. A fresh instance has
-            // no _databaseService, so UpdateScoreAsync returns a Failed result
-            // synchronously — but we still await the replacement task so a late
-            // fault cannot remain unobserved.
-            SongManager.ResetInstanceForTesting();
-            try
+            // The stage runs the real save path (no SavePerformanceSummaryAsync
+            // override): give it a game whose library has an initialized in-memory
+            // database so UpdateScoreAsync resolves to a Failed result (no matching
+            // chart) instead of faulting. We still await the replacement task so a
+            // late fault cannot remain unobserved.
             {
 #pragma warning disable SYSLIB0050
                 var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
+                var stageGame = DTXMania.Test.TestData.ReflectionHelpers.CreateGame();
+                SetPrivateField(stage, "_game", stageGame);
+                var (connection, library) = CreateInMemoryLibrary();
+                // Seed a real chart so the save transaction completes and the
+                // replacement task resolves (missing charts raise KeyNotFound).
+                var seededChart = await library.Database.SeedSongReturningChartAsync(
+                    new SongEntity { Title = "Retry Song" },
+                    new SongChart { FilePath = "/c/retry.dtx", HasDrumChart = true, DrumLevel = 50 });
+                SetPrivateField(stageGame, "_songLibrary", library);
 
                 var completedTask = Task.FromResult(ScoreSaveResult.Failed("previous"));
                 SetPrivateField(stage, "_scoreSaveTask", completedTask);
@@ -367,15 +373,14 @@ namespace DTXMania.Test.Stage
                 SetPrivateField(stage, "_scoreSaveTimedOut", false);
                 SetPrivateField(stage, "_scoreSaveStopwatch", null);
 
-                var chart = new SongChart { Id = 42 };
-                SetPrivateField(stage, "_scoreSaveChart", chart);
+                SetPrivateField(stage, "_scoreSaveChart", seededChart.Chart);
                 SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
                 {
                     RunId = Guid.NewGuid(),
                     CompletionReason = CompletionReason.SongComplete
                 });
 
-                InvokePrivateMethod(stage, "StartPerformanceSummarySave", chart);
+                InvokePrivateMethod(stage, "StartPerformanceSummarySave", seededChart.Chart);
 
                 // The prior completed task was replaced (the method proceeded past the
                 // guard and started a new save).
@@ -383,14 +388,10 @@ namespace DTXMania.Test.Stage
                 Assert.NotNull(replacementTask);
                 Assert.NotSame(completedTask, replacementTask);
 
-                // Observe the replacement task so a late fault cannot leak. With the
-                // isolated singleton (no database service), this resolves to Failed.
+                // Observe the replacement task so a late fault cannot leak. Against
+                // the empty in-memory database this resolves to Failed.
                 var replacementResult = await replacementTask!;
                 Assert.NotNull(replacementResult);
-            }
-            finally
-            {
-                SongManager.ResetInstanceForTesting();
             }
         }
 
@@ -722,9 +723,6 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void OnActivate_WhenSelectedSongHasNoValidChart_ShouldNotPersistScore()
         {
-            SongManager.ResetInstanceForTesting();
-            try
-            {
 #pragma warning disable SYSLIB0050
                 var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
 #pragma warning restore SYSLIB0050
@@ -742,11 +740,6 @@ namespace DTXMania.Test.Stage
                 Assert.Null(exception);
                 Assert.Same(summary, GetPrivateField<PerformanceSummary>(stage, "_performanceSummary"));
                 Assert.Same(song, GetPrivateField<SongListNode>(stage, "_selectedSong"));
-            }
-            finally
-            {
-                SongManager.ResetInstanceForTesting();
-            }
         }
 
         [Fact]
@@ -1570,6 +1563,25 @@ namespace DTXMania.Test.Stage
             Assert.True(stage.ResultFontRequested);
         }
 
+        /// <summary>
+        /// A game-style library over an initialized in-memory SQLite database
+        /// (HPA-801): lets uninitialized-stage tests exercise the real save path
+        /// without a shared singleton or host AppData writes. The returned
+        /// connection must stay open for the lifetime of the library — :memory:
+        /// databases vanish when their last connection closes.
+        /// </summary>
+        private static (SqliteConnection Connection, SongLibrary Library) CreateInMemoryLibrary()
+        {
+            var connection = new SqliteConnection("Data Source=:memory:");
+            connection.Open();
+            var options = new DbContextOptionsBuilder<SongDbContext>()
+                .UseSqlite(connection)
+                .Options;
+            using (var schema = new SongDbContext(options))
+                schema.Database.EnsureCreated();
+            return (connection, new SongLibrary(new SongDatabaseService(options)));
+        }
+
         // HPA-796: fixture-owned managed pixel — acquisition is observed through an
         // IResourceManager mock instead of the deleted CreateWhitePixel factory seam.
         private static Mock<IResourceManager> CreateWhitePixelResourceManager(
@@ -1719,9 +1731,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void OnActivate_WithSelectedSongAndDifficulty_ShouldExtractSharedDataAndRequestScorePersist()
         {
-            SongManager.ResetInstanceForTesting();
-            try
             {
+
 #pragma warning disable SYSLIB0050
                 var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
 #pragma warning restore SYSLIB0050
@@ -1760,10 +1771,6 @@ namespace DTXMania.Test.Stage
                 Assert.True(stage.ResultFontRequested);
                 Assert.True(stage.SmallResultFontRequested);
                 Assert.True(stage.LargeResultFontRequested);
-            }
-            finally
-            {
-                SongManager.ResetInstanceForTesting();
             }
         }
 

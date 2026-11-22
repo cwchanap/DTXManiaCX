@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.Utilities;
@@ -49,7 +50,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
     internal readonly record struct LoadContentServices(
         SpriteBatch SpriteBatch,
         IResourceManager ResourceManager,
-        IStageManager StageManager);
+        IStageManager StageManager,
+        SongLibrary SongLibrary);
 
     private GraphicsDeviceManager _graphicsDeviceManager;
     private IGraphicsManager _graphicsManager = null!;
@@ -67,6 +69,15 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
     public IGraphicsManager GraphicsManager => _graphicsManager;
     IGraphicsManager? IGameContext.GraphicsManager => _graphicsManager;
     public IResourceManager ResourceManager { get; protected set; } = null!;
+
+    /// <summary>
+    /// The one game-owned song library (HPA-801). Constructed in
+    /// <c>CreateLoadContentServices</c> before the StageManager — never in the
+    /// constructor, so ordinary game construction cannot create host AppData
+    /// database files. Null until <c>LoadContent</c> runs.
+    /// </summary>
+    public SongLibrary? SongLibrary => _songLibrary;
+    private SongLibrary? _songLibrary;
 
     /// <summary>Logger factory shared with subsystems (graphics, API, ...). Exposed so stages can
     /// create typed loggers that survive Release builds, unlike <c>System.Diagnostics.Debug</c>,
@@ -337,6 +348,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         _spriteBatch = services.SpriteBatch;
         ResourceManager = services.ResourceManager;
         StageManager = services.StageManager;
+        _songLibrary = services.SongLibrary;
 
         var config = ConfigManager.Config;
         ResourceManager.SetUseBoxDefSkin(config.UseBoxDefSkin);
@@ -362,13 +374,19 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
             GraphicsDevice,
             _loggerFactory.CreateLogger<ResourceManager>());
         ManagedFont.InitializeFontFactory(Content);
-        // The font factory is static like the SongManager singleton: wire its
+        // The font factory is static (like the retired SongManager singleton was): wire its
         // logger here (null logger default keeps independent tests silent).
         ManagedFont.ConfigureLogger(_loggerFactory.CreateLogger<ManagedFont>());
 
-        // The SongManager singleton has no constructor seam; wire its logger
-        // here (null logger default keeps independent tests silent).
-        SongManager.Instance.ConfigureLogger(_loggerFactory.CreateLogger<SongManager>());
+        // The game owns one song library for its whole lifetime (HPA-801). It is
+        // created BEFORE the StageManager so Startup and the stages can resolve it
+        // through IStageGame.SongLibrary. Construction has no filesystem side
+        // effects; the database directory/schema materialize in Startup's
+        // InitializeAsync phase.
+        var songDatabase = new SongDatabaseService(AppPaths.GetSongsDatabasePath());
+        var songLibrary = new SongLibrary(
+            songDatabase,
+            _loggerFactory.CreateLogger<SongLibrary>());
 
         return new LoadContentServices(
             new SpriteBatch(GraphicsDevice),
@@ -377,7 +395,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
                 this,
                 _loggerFactory.CreateLogger<StageManager>(),
                 _gameCrashDiagnostics.Breadcrumbs,
-                _gameCrashDiagnostics.Contexts));
+                _gameCrashDiagnostics.Contexts),
+            songLibrary);
     }
 
     internal virtual Task QueueGameApiStartup()
@@ -932,6 +951,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
             StageManager.Dispose();
             StageManager = null!;
         }
+
+        // Dispose the game-owned song library and its database after the stages
+        // (HPA-801): stages may still read the library during their own disposal.
+        _songLibrary?.Dispose();
+        _songLibrary = null;
 
         // Dispose other managers
         if (_graphicsManager != null)

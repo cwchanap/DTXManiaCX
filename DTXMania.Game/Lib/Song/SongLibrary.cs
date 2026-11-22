@@ -21,104 +21,103 @@ using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
-    /// Song database management and enumeration (Singleton)
-    /// Based on DTXManiaNX CSongManager patterns
-    /// Responsible for centralized song data management and enumeration
+    /// Song database management and enumeration, owned by the game (HPA-801).
+    /// <see cref="Game.BaseGame"/> constructs exactly one instance per process in
+    /// <c>CreateLoadContentServices</c> and exposes it through
+    /// <see cref="Stage.IStageGame.SongLibrary"/>; there is no singleton.
+    /// Responsible for centralized song data management and enumeration.
     /// </summary>
-    public sealed class SongManager
+    public sealed class SongLibrary : IDisposable
     {
-        #region Singleton Implementation
-
-        private static SongManager _instance;
-        private static readonly object _instanceLock = new();
-
         /// <summary>
-        /// Gets the singleton instance of SongManager
+        /// Creates the game-owned song library over one non-null database. The
+        /// database may be uninitialized; Startup calls <see cref="InitializeAsync"/>
+        /// before any database-backed operation runs, and <c>CreateContext</c>
+        /// keeps rejecting use until then. Optional delegates are the final
+        /// constructor seams (design Decision E) so tests inject collaborators
+        /// once instead of via mutable per-test setters.
         /// </summary>
-        public static SongManager Instance
+        internal SongLibrary(
+            SongDatabaseService database,
+            ILogger<SongLibrary>? logger = null,
+            SongRootPolicy? rootPolicy = null,
+            string? bundledSongsRoot = null,
+            Func<string, Task<(SongEntity song, SongChart chart)>>? parseSongEntitiesAsync = null,
+            Func<string, IEnumerable<string>>? enumerateFiles = null,
+            Func<string, IEnumerable<string>>? enumerateDirectories = null,
+            Func<string, Encoding, CancellationToken, Task<string[]>>? readAllLinesAsync = null,
+            Func<
+                SongDatabaseService,
+                SongBulkImportRequest,
+                IProgress<SongBulkImportProgress>?,
+                CancellationToken,
+                Task<SongBulkImportResult>>? importSongsAsync = null,
+            Func<
+                string[],
+                IProgress<EnumerationProgress>?,
+                CancellationToken,
+                Task<SongEnumerationBatch>>? buildEnumerationBatchAsync = null,
+            Action<SongEnumerationBatch, IReadOnlyDictionary<string, SongChart>>? finalizePendingNodes = null,
+            Action<SongEnumerationBatch>? publishEnumeration = null)
         {
-            get
-            {
-                if (_instance == null)
-                {
-                    lock (_instanceLock)
-                    {
-                        if (_instance == null)
-                        {
-                            _instance = new SongManager();
-                        }
-                    }
-                }
-                return _instance;
-            }
+            _database = database ?? throw new ArgumentNullException(nameof(database));
+            _logger = logger ?? NullLogger<SongLibrary>.Instance;
+            RootPolicy = rootPolicy ?? SongRootPolicy.ForCurrentPlatform();
+            BundledSongsRoot = bundledSongsRoot ?? BundledSongs.Root;
+            ParseSongEntitiesCoreAsync = parseSongEntitiesAsync
+                ?? DTXChartParser.ParseSongEntitiesAsync;
+            EnumerateFilesCore = enumerateFiles ?? Directory.EnumerateFiles;
+            EnumerateDirectoriesCore = enumerateDirectories ?? Directory.EnumerateDirectories;
+            ReadAllLinesCoreAsync = readAllLinesAsync
+                ?? ((path, encoding, token) =>
+                    File.ReadAllLinesAsync(path, encoding, token));
+            ImportSongsCoreAsync = importSongsAsync ?? DefaultImportSongsAsync;
+            // Default batch-building delegate captures this instance so tests can
+            // inject controlled batches (e.g. an incomplete batch) without subclassing.
+            BuildEnumerationBatchCoreAsync = buildEnumerationBatchAsync
+                ?? ((searchPaths, progress, token) =>
+                    BuildEnumerationBatchAsync(searchPaths, progress, token));
+            FinalizePendingNodesCore = finalizePendingNodes
+                ?? ((batch, chartsByPath) => FinalizePendingNodes(batch, chartsByPath));
+            PublishEnumerationCore = publishEnumeration ?? PublishEnumeration;
         }
-
-        /// <summary>
-        /// Private constructor for singleton pattern
-        /// </summary>
-        private SongManager()
-        {
-            // Default batch-building delegate captures this instance so tests
-            // can override BuildEnumerationBatchCoreAsync to inject controlled
-            // batches (e.g. an incomplete batch) without subclassing.
-            BuildEnumerationBatchCoreAsync = (searchPaths, progress, token) =>
-                BuildEnumerationBatchAsync(searchPaths, progress, token);
-            FinalizePendingNodesCore = (batch, chartsByPath) =>
-                FinalizePendingNodes(batch, chartsByPath);
-            PublishEnumerationCore = PublishEnumeration;
-        }
-
-        #endregion
 
         #region Private Fields
 
         private readonly List<SongListNode> _rootSongs = new();
         private readonly object _lockObject = new();
         private CancellationTokenSource? _enumCancellation;
-        private SongDatabaseService? _databaseService;
+        private readonly SongDatabaseService _database;
         private string[] _currentSearchPaths = Array.Empty<string>();
         private long _publicationVersion;
 
-        // Wired once from Game1.CreateLoadContentServices via ConfigureLogger;
-        // defaults to a null logger so independent tests stay silent.
-        private ILogger<SongManager> _logger = NullLogger<SongManager>.Instance;
+        // Supplied by the constructor; game construction passes the app logger,
+        // independent tests keep the null logger by default.
+        private readonly ILogger<SongLibrary> _logger;
 
         // Unreadable SET.def paths already reported; keeps the warning to one per file.
         private readonly object _setDefReportGate = new();
         private readonly HashSet<string> _reportedUnreadableSetDefs = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Supplies the singleton's logger (no constructor injection seam).
-        /// Null restores the null logger used by independent tests.
-        /// </summary>
-        internal void ConfigureLogger(ILogger<SongManager>? logger)
-        {
-            _logger = logger ?? NullLogger<SongManager>.Instance;
-        }
-
-        internal SongRootPolicy RootPolicy { get; set; } =
-            SongRootPolicy.ForCurrentPlatform();
+        internal SongRootPolicy RootPolicy { get; }
 
         /// <summary>
         /// The root whose folders merge into the library's top level rather than
         /// getting a root BOX. Callers decide whether to scan it at all.
         /// </summary>
-        internal string BundledSongsRoot { get; set; } = BundledSongs.Root;
+        internal string BundledSongsRoot { get; }
 
+        // Constructor seams (HPA-801 Decision E): immutable per instance so tests
+        // inject collaborators exactly once, at construction.
         internal Func<string, Task<(SongEntity song, SongChart chart)>>
-            ParseSongEntitiesCoreAsync { get; set; } =
-                DTXChartParser.ParseSongEntitiesAsync;
+            ParseSongEntitiesCoreAsync { get; }
 
-        internal Func<string, IEnumerable<string>> EnumerateFilesCore
-            { get; set; } = Directory.EnumerateFiles;
+        internal Func<string, IEnumerable<string>> EnumerateFilesCore { get; }
 
-        internal Func<string, IEnumerable<string>> EnumerateDirectoriesCore
-            { get; set; } = Directory.EnumerateDirectories;
+        internal Func<string, IEnumerable<string>> EnumerateDirectoriesCore { get; }
 
         internal Func<string, Encoding, CancellationToken, Task<string[]>>
-            ReadAllLinesCoreAsync { get; set; } =
-                static (path, encoding, token) =>
-                    File.ReadAllLinesAsync(path, encoding, token);
+            ReadAllLinesCoreAsync { get; }
 
         internal Func<
             SongDatabaseService,
@@ -126,22 +125,22 @@ namespace DTXMania.Game.Lib.Song
             IProgress<SongBulkImportProgress>?,
             CancellationToken,
             Task<SongBulkImportResult>> ImportSongsCoreAsync
-            { get; set; } = DefaultImportSongsAsync;
+            { get; }
 
         internal Func<
             string[],
             IProgress<EnumerationProgress>?,
             CancellationToken,
             Task<SongEnumerationBatch>> BuildEnumerationBatchCoreAsync
-            { get; set; }
+            { get; }
 
         internal Action<
             SongEnumerationBatch,
             IReadOnlyDictionary<string, SongChart>> FinalizePendingNodesCore
-            { get; set; }
+            { get; }
 
         internal Action<SongEnumerationBatch> PublishEnumerationCore
-            { get; set; }
+            { get; }
 
         // Initialization state tracking
         private bool _isInitialized = false;
@@ -163,7 +162,7 @@ namespace DTXMania.Game.Lib.Song
         #region Public Properties
 
         /// <summary>
-        /// Gets whether the SongManager has been initialized with song data
+        /// Gets whether the library has been initialized with song data
         /// </summary>
         public bool IsInitialized
         {
@@ -176,13 +175,19 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
-        private SongDatabaseService? GetDatabaseServiceSnapshot()
-        {
-            lock (_lockObject)
-            {
-                return _databaseService;
-            }
-        }
+        /// <summary>
+        /// The one database this library owns. Initialized by Startup via
+        /// <see cref="InitializeAsync"/>; <c>CreateContext</c> rejects use until then.
+        /// </summary>
+        internal SongDatabaseService Database => _database;
+
+        /// <summary>
+        /// The constructor-injected database reference. It is immutable for the
+        /// library's lifetime (HPA-801 removed the singleton's <c>Clear()</c>), so
+        /// this snapshot helper no longer takes a lock; call sites keep reading
+        /// identically to the pre-rename code.
+        /// </summary>
+        private SongDatabaseService GetDatabaseServiceSnapshot() => _database;
 
         private static Task<SongBulkImportResult> DefaultImportSongsAsync(
             SongDatabaseService database,
@@ -222,17 +227,9 @@ namespace DTXMania.Game.Lib.Song
         internal async Task<int> GetActiveDatabaseChartCountAsync(
             IReadOnlyList<string> activeRoots)
         {
-            // Copy reference under lock to avoid race with Clear()
-            SongDatabaseService? dbService;
-            lock (_lockObject)
-            {
-                dbService = _databaseService;
-            }
-
-            if (dbService == null) return 0;
             try
             {
-                return await dbService.GetActiveChartCountAsync(activeRoots);
+                return await _database.GetActiveChartCountAsync(activeRoots);
             }
             catch
             {
@@ -265,36 +262,21 @@ namespace DTXMania.Game.Lib.Song
         #region Individual Phase Operations
 
         /// <summary>
-        /// Initializes the database service (SongListDB and SongsDB phases)
+        /// Initializes the game-owned database (the SongListDB startup phase).
+        /// The database instance exists from library construction; this creates
+        /// its directory and schema. The path belongs to the game (HPA-801), so
+        /// there is no path parameter anymore.
         /// </summary>
-        public async Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
+        public async Task<bool> InitializeAsync(bool purgeDatabaseFirst = false)
         {
             try
             {
-                // Initialize and capture a stable reference under lock to avoid races with Clear()
-                SongDatabaseService? db;
-                lock (_lockObject)
-                {
-                        var resolvedDatabasePath = string.IsNullOrWhiteSpace(databasePath)
-                            ? Utilities.AppPaths.GetSongsDatabasePath()
-                            : databasePath;
-
-                    _databaseService ??=
-                        new SongDatabaseService(resolvedDatabasePath);
-                    db = _databaseService;
-                }
-
-                if (db == null)
-                {
-                    return false;
-                }
-
                 if (purgeDatabaseFirst)
                 {
-                    await db.PurgeDatabaseAsync().ConfigureAwait(false);
+                    await _database.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
 
-                await db.InitializeDatabaseAsync().ConfigureAwait(false);
+                await _database.InitializeDatabaseAsync().ConfigureAwait(false);
                 return true;
             }
             catch (Exception ex)
@@ -422,9 +404,12 @@ namespace DTXMania.Game.Lib.Song
                 // _enumCancellation stays non-null permanently and every
                 // subsequent enumeration is rejected as "already in progress".
                 cancellationToken.ThrowIfCancellationRequested();
-                var database = GetDatabaseServiceSnapshot()
-                    ?? throw new InvalidOperationException(
-                        "Song database is not initialized.");
+                var database = GetDatabaseServiceSnapshot();
+                // Readiness probe: the game-owned database exists from launch but
+                // is unusable until Startup's InitializeAsync runs. The probe throws
+                // before traversal (and releases the slot via the finally), keeping
+                // the pre-rename "fail before touching the filesystem" contract.
+                await database.HasAnySongsAsync().ConfigureAwait(false);
                 var batch = await BuildEnumerationBatchCoreAsync(
                     searchPaths,
                     progress,
@@ -1365,10 +1350,6 @@ namespace DTXMania.Game.Lib.Song
             string[] searchPaths)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null)
-            {
-                return null;
-            }
 
             try
             {
@@ -2303,13 +2284,7 @@ namespace DTXMania.Game.Lib.Song
             EInstrumentPart instrument,
             DTXMania.Game.Lib.Stage.Performance.PerformanceSummary summary)
         {
-            if (_databaseService == null)
-            {
-                return ScoreSaveResult.Failed(
-                    "The song database is unavailable, so the result could not be saved.");
-            }
-
-            var result = await _databaseService
+            var result = await _database
                 .UpdateScoreAsync(chartId, instrument, summary)
                 .ConfigureAwait(false);
 
@@ -2372,7 +2347,6 @@ namespace DTXMania.Game.Lib.Song
             int playSpeedPercent)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null) return ScoreRefreshOutcome.NoMatch;
 
             var fresh = await db.GetScoreWithHistoryAsync(
                 chartId,
@@ -2671,8 +2645,18 @@ namespace DTXMania.Game.Lib.Song
         {
             var result = new NxImportResult();
             var db = GetDatabaseServiceSnapshot();
-            if (db == null)
+            try
             {
+                using var probe = db.CreateContext();
+            }
+            catch (InvalidOperationException exception)
+            {
+                // The game-owned database exists from launch but Startup has not
+                // initialized it yet (or initialization failed): report the explicit
+                // unavailable result the Config stage maps to its status text.
+                _logger.LogWarning(
+                    exception,
+                    "NX import unavailable: song database is not initialized");
                 result.DbUnavailable = true;
                 return result;
             }
@@ -2754,7 +2738,9 @@ namespace DTXMania.Game.Lib.Song
         public async Task<List<SongListNode>> GetRecentlyPlayedNodesAsync(int limit = 20)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null || limit <= 0) return new List<SongListNode>();
+            // Pre-initialization queries read as empty (pre-HPA-801 contract);
+            // a genuinely broken database still throws from the query below.
+            if (!db.IsInitialized || limit <= 0) return new List<SongListNode>();
 
             // Push the active-root criterion into the DB query as a set of active
             // chart IDs so that grouping, ordering, AND pagination all use
@@ -2835,7 +2821,7 @@ namespace DTXMania.Game.Lib.Song
         public async Task<List<SongListNode>> GetBookmarkedNodesAsync()
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null) return new List<SongListNode>();
+            if (!db.IsInitialized) return new List<SongListNode>();
 
             var songs = await db.GetBookmarkedSongsAsync().ConfigureAwait(false);
             var nodes = new List<SongListNode>(songs.Count);
@@ -2859,7 +2845,9 @@ namespace DTXMania.Game.Lib.Song
         public async Task SetBookmarkAsync(int songId, bool bookmarked)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null) return;
+            // Writes fail clearly before Startup's initialization (HPA-801):
+            // a purged/never-initialized database must surface the fault to the
+            // caller's rollback path instead of silently no-oping.
             await db.SetBookmarkAsync(songId, bookmarked).ConfigureAwait(false);
         }
 
@@ -2902,14 +2890,14 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 // Check if database service exists and is accessible
-                if (_databaseService == null || !await _databaseService.DatabaseExistsAsync())
+                if (!await _database.DatabaseExistsAsync())
                 {
                     return true;
                 }
 
                 // If database has no songs, we need enumeration (narrow EXISTS
                 // read; the old five-COUNT aggregate statistics query is gone)
-                if (!await _databaseService.HasAnySongsAsync())
+                if (!await _database.HasAnySongsAsync())
                 {
                     return true;
                 }
@@ -2954,10 +2942,7 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                if (_databaseService == null)
-                    return false;
-
-                var charts = await _databaseService.GetActiveChartsAsync(activeRoots);
+                var charts = await _database.GetActiveChartsAsync(activeRoots);
                 int missingFiles = 0;
                 int updatedFiles = 0;
                 int totalFiles = 0;
@@ -3009,20 +2994,17 @@ namespace DTXMania.Game.Lib.Song
 
                 // Get current search paths
                 var searchPaths = new List<string>();
-                if (_databaseService != null)
+                // Add current search paths (fallback to defaults if none)
+                if (_currentSearchPaths.Length > 0)
                 {
-                    // Add current search paths (fallback to defaults if none)
-                    if (_currentSearchPaths.Length > 0)
-                    {
-                        searchPaths.AddRange(_currentSearchPaths);
-                    }
-                    else
-                    {
-                        searchPaths.AddRange(Resources.Constants.SongPaths.Default);
-                    }
-                    
-                    // You could extend this to get search paths from config if needed
+                    searchPaths.AddRange(_currentSearchPaths);
                 }
+                else
+                {
+                    searchPaths.AddRange(Resources.Constants.SongPaths.Default);
+                }
+
+                // You could extend this to get search paths from config if needed
 
                 // Search for the file in all DTX directories within search paths
                 foreach (var searchPath in searchPaths.Where(Directory.Exists))
@@ -3087,10 +3069,7 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                if (_databaseService == null)
-                    return;
-
-                using var context = _databaseService.CreateContext();
+                using var context = _database.CreateContext();
                 var chart = await context.SongCharts.FindAsync(chartId);
                 if (chart != null)
                 {
@@ -3208,8 +3187,6 @@ namespace DTXMania.Game.Lib.Song
             var watermarks = new Dictionary<string, DateTime>(
                 SongPathIdentity.CanonicalComparer);
             var database = GetDatabaseServiceSnapshot();
-            if (database == null)
-                return watermarks;
 
             foreach (var root in availableRoots)
             {
@@ -3518,12 +3495,7 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                if (_databaseService == null)
-                {
-                    return null;
-                }
-
-                var timestamp = await _databaseService.GetLastSuccessfulEnumerationUtcAsync();
+                var timestamp = await _database.GetLastSuccessfulEnumerationUtcAsync();
                 if (timestamp == null)
                 {
                     return null;
@@ -3581,8 +3553,6 @@ namespace DTXMania.Game.Lib.Song
         private async Task SetRejectedChartCountsAsync(SongEnumerationBatch batch)
         {
             var databaseService = GetDatabaseServiceSnapshot();
-            if (databaseService == null)
-                return;
 
             var counts = new Dictionary<string, int>(SongPathIdentity.CanonicalComparer);
             foreach (var root in batch.ActiveRoots)
@@ -3600,9 +3570,7 @@ namespace DTXMania.Game.Lib.Song
         private async Task<int> GetRejectedChartCountAsync(IReadOnlyList<string> roots)
         {
             var databaseService = GetDatabaseServiceSnapshot();
-            return databaseService == null
-                ? 0
-                : await databaseService.GetRejectedChartCountAsync(roots).ConfigureAwait(false);
+            return await databaseService.GetRejectedChartCountAsync(roots).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -3630,7 +3598,6 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 var databaseService = GetDatabaseServiceSnapshot();
-                if (databaseService == null) return;
 
                 var success = await databaseService
                     .SetEnumerationWatermarkAtomicallyAsync(startUtc, activeRoots)
@@ -3818,62 +3785,17 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Clears all data
+        /// The library is game-owned for the whole process lifetime (HPA-801):
+        /// the singleton-era <c>Clear()</c>/<c>ResetInstanceForTesting()</c> were
+        /// deleted, and disposal happens in <see cref="Dispose"/> when the game
+        /// shuts down.
         /// </summary>
-        public void Clear()
+        public void Dispose()
         {
-            SongLibrarySnapshot snapshot;
-            lock (_lockObject)
-            {
-                // Cancel any ongoing enumeration first
-                _enumCancellation?.Cancel();
-                _enumCancellation?.Dispose();
-                _enumCancellation = null;
-
-                _rootSongs.Clear();
-                _isInitialized = false;
-                _databaseService?.Dispose();
-                _databaseService = null;
-                _currentSearchPaths = Array.Empty<string>();
-                EnumeratedFileCount = 0;
-                DiscoveredScoreCount = 0;
-                _publicationVersion++;
-                ParseSongEntitiesCoreAsync =
-                    DTXChartParser.ParseSongEntitiesAsync;
-                EnumerateFilesCore = Directory.EnumerateFiles;
-                EnumerateDirectoriesCore = Directory.EnumerateDirectories;
-                ReadAllLinesCoreAsync =
-                    static (path, encoding, token) =>
-                        File.ReadAllLinesAsync(path, encoding, token);
-                ImportSongsCoreAsync = DefaultImportSongsAsync;
-                BuildEnumerationBatchCoreAsync =
-                    (searchPaths, progress, token) =>
-                        BuildEnumerationBatchAsync(searchPaths, progress, token);
-                FinalizePendingNodesCore = (batch, chartsByPath) =>
-                    FinalizePendingNodes(batch, chartsByPath);
-                PublishEnumerationCore = PublishEnumeration;
-                RootPolicy = SongRootPolicy.ForCurrentPlatform();
-                BundledSongsRoot = BundledSongs.Root;
-                snapshot = CreateSnapshotLocked();
-            }
-
-            SafeInvoke(
-                SongLibraryPublished,
-                this,
-                new SongLibraryPublishedEventArgs(snapshot),
-                nameof(SongLibraryPublished));
-        }
-
-        /// <summary>
-        /// Resets the singleton instance completely for testing purposes
-        /// </summary>
-        public static void ResetInstanceForTesting()
-        {
-            lock (_instanceLock)
-            {
-                _instance?.Clear();
-                _instance = null;
-            }
+            _enumCancellation?.Cancel();
+            _enumCancellation?.Dispose();
+            _enumCancellation = null;
+            _database.Dispose();
         }
 
         #endregion

@@ -22,7 +22,6 @@ using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
 namespace DTXMania.Test.Stage
 {
-    [Collection("SongManager")]
     [Trait("Category", "Unit")]
     public class SongSelectionStageTabTests
     {
@@ -541,11 +540,10 @@ namespace DTXMania.Test.Stage
                 return new SongDbContext(options);
             });
 
-            SongManager.ResetInstanceForTesting();
-            SetPrivateField(SongManager.Instance, "_databaseService", dbService);
+            var library = new SongLibrary(dbService);
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(library);
                 AttachCoreUi(stage, new SongListDisplay());
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
                 stage.InstallTestBackgroundScope();
@@ -566,7 +564,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                library.Dispose();
             }
         }
 
@@ -650,21 +648,37 @@ namespace DTXMania.Test.Stage
 
         // --- BeginRecentPlaysLoad faulted-result tests ---
         // These exercise the retirement staleness guard on the faulted path by making
-        // the SongManager singleton throw from GetRecentlyPlayedNodesAsync. The DB is
+        // the game-owned library throw from GetRecentlyPlayedNodesAsync. The DB is
         // purged after initialization so CreateContext() throws InvalidOperationException.
+
+        /// <summary>
+        /// A game-style library whose database is "initialized" but faults on
+        /// every context creation (HPA-801): models a broken/locked database for
+        /// the failure-path tests without relying on file deletion (SQLite
+        /// connection pooling keeps deleted files readable).
+        /// </summary>
+        private static SongLibrary CreateFaultingManager() => new(
+            new SongDatabaseService(
+                new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<
+                    DTXMania.Game.Lib.Song.Entities.SongDbContext>()
+                    .UseSqlite("Data Source=:memory:")
+                    .Options,
+                () => throw new InvalidOperationException("database unavailable"),
+                initialized: true));
 
         [Fact]
         public async Task BeginRecentPlaysLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_fault_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            // Break the initialized database: every context creation now faults,
+            // so the load/write paths surface their failure states.
+            manager = CreateFaultingManager();
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
@@ -679,7 +693,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -689,14 +703,15 @@ namespace DTXMania.Test.Stage
         public async Task BeginRecentPlaysLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_stale_fault_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            // Break the initialized database: every context creation now faults,
+            // so the load/write paths surface their failure states.
+            manager = CreateFaultingManager();
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
@@ -714,7 +729,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -899,14 +914,15 @@ namespace DTXMania.Test.Stage
         public async Task BeginBookmarksLoad_WhenDbThrows_ShouldSetLoadFailedAndFlagsRefresh()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_fault_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            // Break the initialized database: every context creation now faults,
+            // so the load/write paths surface their failure states.
+            manager = CreateFaultingManager();
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
@@ -921,7 +937,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -931,14 +947,15 @@ namespace DTXMania.Test.Stage
         public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_fault_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            // Break the initialized database: every context creation now faults,
+            // so the load/write paths surface their failure states.
+            manager = CreateFaultingManager();
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
@@ -956,7 +973,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -1038,14 +1055,15 @@ namespace DTXMania.Test.Stage
         public async Task BeginBookmarksLoad_WhenFaultedAndLoadVersionSuperseded_ShouldDiscardStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_load_{Guid.NewGuid():N}.db");
-            SongManager.ResetInstanceForTesting();
-            var manager = SongManager.Instance;
-            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
-            await SongManagerTestDb.Of(manager)!.PurgeDatabaseAsync();
+            var manager = new SongLibrary(new SongDatabaseService(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            // Break the initialized database: every context creation now faults,
+            // so the load/write paths surface their failure states.
+            manager = CreateFaultingManager();
 
             try
             {
-                var stage = CreateStage();
+                var stage = CreateStage(manager);
                 var display = new SongListDisplay();
                 AttachCoreUi(stage, display);
                 SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
@@ -1067,7 +1085,7 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
-                SongManager.ResetInstanceForTesting();
+                manager.Dispose();
                 if (File.Exists(dbPath))
                     try { File.Delete(dbPath); } catch { }
             }
@@ -1158,6 +1176,7 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromBookmarksTab_WhenStaleLoadCompletesAfterUnbookmark_ShouldKeepRowRemoved()
         {
             var stage = CreateStage();
+            await LibraryOf(stage).InitializeAsync(); // the toggle persists for real
             var node = Score("Song", 42, "/c/song.dtx");
             node.DatabaseSong!.IsBookmarked = true;
             var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
