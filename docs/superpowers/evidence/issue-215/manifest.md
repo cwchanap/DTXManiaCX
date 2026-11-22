@@ -9,9 +9,9 @@ Before: Mac game rebuilt from `a8de75f8` in an archived source copy inside this 
 | Committed pair | Observed change at that revision |
 | --- | --- |
 | [CXNeon normal Result](cxneon-result-normal-pair.png) | Group retains (830,310), with a translucent dark plate; skin value styling is unchanged. AutoPlay save status is `NotStarted`. |
-| [CXNeon failed-save Result](cxneon-result-failedsave-pair.png) | Extended plate improves orange retry/leave guidance contrast while retaining the background beam/particles. |
-| [CXNeon missing jacket](cxneon-missing-jacket-pair.png) | Empty score-bar slots acquire the dark gridded-disc default; profile clears BPM/preview. |
-| [CXNeon real jacket](cxneon-real-jacket-pair.png) | Selected bright real jacket remains intact; adjacent missing previews acquire the distinct dark default. |
+| [CXNeon failed-save Result](https://github.com/cwchanap/DTXManiaCX/blob/5e8b47e311badceafc8942b804a255f0527f9463/docs/superpowers/evidence/issue-215/cxneon-result-failedsave-pair.png) | Extended plate improves orange retry/leave guidance contrast while retaining the background beam/particles. |
+| [CXNeon missing jacket](https://github.com/cwchanap/DTXManiaCX/blob/5e8b47e311badceafc8942b804a255f0527f9463/docs/superpowers/evidence/issue-215/cxneon-missing-jacket-pair.png) | Empty score-bar slots acquire the dark gridded-disc default; profile clears BPM/preview. |
+| [CXNeon real jacket](https://github.com/cwchanap/DTXManiaCX/blob/5e8b47e311badceafc8942b804a255f0527f9463/docs/superpowers/evidence/issue-215/cxneon-real-jacket-pair.png) | Selected bright real jacket remains intact; adjacent missing previews acquire the distinct dark default. |
 
 The A/B/C fixtures have no PREIMAGE, a valid `jacket.png`, and a nonexistent `absent.png`, respectively. Real jackets copy the other skin's shipped default, so priority over the fallback is visually distinguishable. Failed-save fixtures make the sandbox `songs.db` read-only **before launch** and verify `Failed` / SQLite error 8 in telemetry. These pairs cover the enhanced song-bar path; the basic-path title/thumbnail fix is covered by focused draw-geometry tests, not a separate rendered screenshot.
 
@@ -21,7 +21,7 @@ This capture uses the reviewed branch plus the final geometry fixes. Opened the 
 
 | Committed full-resolution capture | Telemetry | Inspection |
 | --- | --- | --- |
-| [CXNeon Saved Result](cxneon-result-saved-1280x720.png) | [state](cxneon-result-saved-1280x720-state.json) | `SongComplete`, `scoreSaveStatus=Saved`, no error. Green Saved row is readable; group remains at (830,310) on its unchanged 432px-wide plate, with no jacket/value-panel collision. |
+| [CXNeon Saved Result](https://github.com/cwchanap/DTXManiaCX/blob/5e8b47e311badceafc8942b804a255f0527f9463/docs/superpowers/evidence/issue-215/cxneon-result-saved-1280x720.png) | [state](cxneon-result-saved-1280x720-state.json) | `SongComplete`, `scoreSaveStatus=Saved`, no error. Green Saved row is readable; group remains at (830,310) on its unchanged 432px-wide plate, with no jacket/value-panel collision. |
 
 **AutoPlay cannot produce Saved in this codebase.** `PerformanceSummary.IsSavable` rejects every run with `UsedAutoPlay=true`, before database saving is attempted. The CXNeon Saved capture uses a genuine **non-AutoPlay / NoFail** run (no input, every note missed); that run saves successfully. Replaying the same chart with all ten AutoPlay lanes enabled yields perfects and **`NotStarted`**, confirming that a prior score does not bypass the guard. No production save behavior or telemetry was altered to manufacture Saved evidence.
 
