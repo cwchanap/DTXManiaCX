@@ -11,7 +11,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -254,16 +253,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .AnyAsync();
         }
 
-
-        /// Get database file size in bytes
-        public long GetDatabaseSize()
-        {
-            if (File.Exists(_databasePath))
-            {
-                return new FileInfo(_databasePath).Length;
-            }
-            return 0;
-        }
 
         /// <summary>
         /// Purge the database file completely (for fresh rebuild)
@@ -1238,8 +1227,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // Only force-overwrite the best fields when the score row is
             // genuinely empty — either created in this transaction, or a
-            // placeholder row from AddScoreRecordAsync (PlayCount == 0 AND
-            // BestScore == 0). NX import can persist a BestScore > 0 with
+            // placeholder row (PlayCount == 0 AND BestScore == 0).
+            // NX import can persist a BestScore > 0 with
             // PlayCount == 0 (NxScoreData.HasDrumData allows that combination,
             // and NxScoreImporter writes best fields without requiring
             // PlayCount > 0). Using PlayCount == 0 alone as the "first play"
@@ -1729,45 +1718,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .OrderBy(s => s.Title)
                 .ThenBy(s => s.Id)
                 .ToListAsync();
-        }
-
-        /// Add a score record for a chart
-        private async Task AddScoreRecordAsync(SongDbContext context, int chartId, EInstrumentPart instrument)
-        {
-            var score = new SongScoreEntity
-            {
-                ChartId = chartId,
-                Instrument = instrument,
-                BestScore = 0,
-                BestRank = 0,
-                BestSkillPoint = 0.0,
-                BestAchievementRate = 0.0,
-                FullCombo = false,
-                Excellent = false,
-                PlayCount = 0,
-                ClearCount = 0,
-                MaxCombo = 0,
-                ProgressBar = "",
-                LastScore = 0,
-                LastSkillPoint = 0.0
-            };
-
-            context.SongScores.Add(score);
-            await context.SaveChangesAsync();
-        }
-
-        private string CalculateFileHash(string filePath)
-        {
-            if (!File.Exists(filePath)) return string.Empty;
-
-            using (var md5 = MD5.Create())
-            {
-                using (var stream = File.OpenRead(filePath))
-                {
-                    var hash = md5.ComputeHash(stream);
-                    return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-                }
-            }
         }
 
         /// <summary>
