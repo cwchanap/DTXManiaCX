@@ -2163,11 +2163,12 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task IsVerifiedMoveCandidate_WhenCandidateSizeMatchesPersisted_ShouldReturnTrue()
+        public async Task IsVerifiedMoveCandidate_WhenCandidateFingerprintMatchesPersisted_ShouldReturnTrue()
         {
-            // The persisted FileSize is the fingerprint: the original path is
-            // gone by definition, so a candidate whose length equals the
-            // persisted size verifies even with nothing left to compare on disk.
+            // The persisted FileSize+LastModified is the fingerprint: the
+            // original path is gone by definition, so a candidate whose length
+            // and mtime equal the persisted values verifies even with nothing
+            // left to compare on disk.
             var candidatePath = Path.Combine(_testRoot, "Candidate", "match.dtx");
             Directory.CreateDirectory(Path.GetDirectoryName(candidatePath)!);
             await File.WriteAllTextAsync(candidatePath, "same-size");
@@ -2178,11 +2179,36 @@ namespace DTXMania.Test.Song
                 new SongChart
                 {
                     FilePath = Path.Combine(_testRoot, "Original", "match.dtx"),
-                    FileSize = "same-size".Length
+                    FileSize = "same-size".Length,
+                    LastModified = File.GetLastWriteTime(candidatePath)
                 },
                 candidatePath);
 
             Assert.True(result);
+        }
+
+        [Fact]
+        public async Task IsVerifiedMoveCandidate_WhenCandidateMtimeDiffersFromPersisted_ShouldReturnFalse()
+        {
+            // A same-named, same-sized file is still a different chart when its
+            // mtime does not match the persisted fingerprint: accepting it
+            // would graft an unrelated file onto the missing chart's scores.
+            var candidatePath = Path.Combine(_testRoot, "Candidate", "match.dtx");
+            Directory.CreateDirectory(Path.GetDirectoryName(candidatePath)!);
+            await File.WriteAllTextAsync(candidatePath, "same-size");
+
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(
+                _manager.Scanner,
+                "IsVerifiedMoveCandidate",
+                new SongChart
+                {
+                    FilePath = Path.Combine(_testRoot, "Original", "match.dtx"),
+                    FileSize = "same-size".Length,
+                    LastModified = File.GetLastWriteTime(candidatePath).AddMinutes(-1)
+                },
+                candidatePath);
+
+            Assert.False(result);
         }
 
         [Fact]
@@ -2207,7 +2233,8 @@ namespace DTXMania.Test.Song
                 new SongChart
                 {
                     FilePath = Path.Combine(_testRoot, "Original", "song.dtx"),
-                    FileSize = "same-size".Length
+                    FileSize = "same-size".Length,
+                    LastModified = File.GetLastWriteTime(candidatePath)
                 },
                 candidatePath);
 

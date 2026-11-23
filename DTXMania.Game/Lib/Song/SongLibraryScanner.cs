@@ -872,35 +872,13 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
-                if (verified.Count == 1)
-                {
-                    return verified[0];
-                }
-
-                // Multiple same-named, same-sized candidates: only a matching
-                // persisted mtime can pick the true move target. Anything else
-                // stays unverified instead of guessing and grafting the missing
-                // chart's scores onto an unrelated file.
-                if (verified.Count > 1)
-                {
-                    var mtimeMatches = verified
-                        .Where(path =>
-                        {
-                            try
-                            {
-                                return new FileInfo(path).LastWriteTime ==
-                                    missingChart.LastModified;
-                            }
-                            catch (Exception)
-                            {
-                                return false;
-                            }
-                        })
-                        .ToList();
-                    return mtimeMatches.Count == 1 ? mtimeMatches[0] : null;
-                }
-
-                return null;
+                // Every verified candidate matches the full persisted
+                // fingerprint (name, size and mtime): a single match is the
+                // move target, zero or several leave the row missing for the
+                // rescan — identical copies have no provable owner, and
+                // guessing would graft the missing chart's scores onto an
+                // unrelated file.
+                return verified.Count == 1 ? verified[0] : null;
             }
             catch (Exception ex)
             {
@@ -914,9 +892,12 @@ namespace DTXMania.Game.Lib.Song
         /// the missing <paramref name="chart"/> using the persisted fingerprint.
         /// A filename match alone never suffices: this check only runs when the
         /// recorded path no longer exists, so there is no original file left to
-        /// compare sizes against — the persisted <see cref="SongChart.FileSize"/>
-        /// is the fingerprint. Charts without a persisted size (legacy or
-        /// seeded rows) are treated as unverifiable and left for the rescan.
+        /// compare against — the persisted <see cref="SongChart.FileSize"/> and
+        /// <see cref="SongChart.LastModified"/> are the fingerprint. A move
+        /// preserves mtime, so a same-named same-sized file with a different
+        /// mtime is a different chart and stays unverified. Charts without a
+        /// persisted fingerprint (legacy or seeded rows) are treated as
+        /// unverifiable and left for the rescan.
         /// The candidate's name must also equal the recorded name literally:
         /// the enumeration pattern treats '?' and '*' in the recorded name as
         /// wildcards, so without this a differently named same-size file could
@@ -929,11 +910,13 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
+                var candidateInfo = new FileInfo(candidatePath);
                 return chart.FileSize > 0 &&
                     SongPathIdentity.LegacyAliasComparer.Equals(
                         Path.GetFileName(chart.FilePath),
                         Path.GetFileName(candidatePath)) &&
-                    new FileInfo(candidatePath).Length == chart.FileSize;
+                    candidateInfo.Length == chart.FileSize &&
+                    candidateInfo.LastWriteTime == chart.LastModified;
             }
             catch (Exception)
             {

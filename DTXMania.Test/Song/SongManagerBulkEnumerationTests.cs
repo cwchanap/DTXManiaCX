@@ -2592,16 +2592,20 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     public async Task NeedsEnumerationAsync_WhenTwoMissingRowsClaimTheSameFile_ShouldRepairNeither()
     {
         // Identical copies under two directories that both disappear, with one
-        // file reappearing: either row could own it and the fingerprint cannot
-        // tell which. Repairing in row order would let the first save win while
-        // the second dies on the unique-path index and loses its scores to the
-        // rescan — a contested file stays missing for the rescan to resolve.
+        // file reappearing: either row could own it and the persisted
+        // fingerprint (name, size, mtime) cannot tell which. Repairing in row
+        // order would let the first save win while the second dies on the
+        // unique-path index and loses its scores to the rescan — a contested
+        // file stays missing for the rescan to resolve.
         var rootA = Path.Combine(_testRoot, "ContestA");
         var rootB = Path.Combine(_testRoot, "ContestB");
         WriteChart("ContestA/Pack1/dup.dtx", "Dup", 50);
         WriteChart("ContestB/Pack2/dup.dtx", "Dup", 50);
         var copyA = Path.Combine(rootA, "Pack1", "dup.dtx");
         var copyB = Path.Combine(rootB, "Pack2", "dup.dtx");
+        var stamp = DateTime.UtcNow.AddMinutes(-5);
+        File.SetLastWriteTimeUtc(copyA, stamp);
+        File.SetLastWriteTimeUtc(copyB, stamp);
 
         await _manager.InitializeAsync();
         await _manager.EnumerateAndImportSongsAsync(
@@ -2631,6 +2635,104 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenContestedFileMatchesOnlyOneRowFingerprint_ShouldRepairThatRow()
+    {
+        // Same-name same-size copies with distinct mtimes: the surviving file
+        // matches only its own row's persisted fingerprint, so that row is
+        // repaired — keeping its scores — while the deleted copy's row stays
+        // missing for the rescan.
+        var rootA = Path.Combine(_testRoot, "OwnerA");
+        var rootB = Path.Combine(_testRoot, "OwnerB");
+        var rootC = Path.Combine(_testRoot, "OwnerC");
+        Directory.CreateDirectory(rootC);
+        WriteChart("OwnerA/Pack1/dup.dtx", "Dup", 50);
+        WriteChart("OwnerB/Pack2/dup.dtx", "Dup", 50);
+        var copyA = Path.Combine(rootA, "Pack1", "dup.dtx");
+        var copyB = Path.Combine(rootB, "Pack2", "dup.dtx");
+        File.SetLastWriteTimeUtc(copyA, new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(copyB, new DateTime(2026, 11, 17, 0, 0, 0, DateTimeKind.Utc));
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB, rootC }, null, CancellationToken.None);
+
+        int chartAId;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var chartA = await seed.SongCharts.SingleAsync(
+                c => c.FilePath == SongPathIdentity.Normalize(copyA));
+            chartAId = chartA.Id;
+            var score = await seed.SongScores.SingleAsync(s => s.ChartId == chartAId);
+            score.PlayCount = 3;
+            await seed.SaveChangesAsync();
+        }
+
+        var survivor = Path.Combine(rootC, "Pack3", "dup.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(survivor)!);
+        File.Move(copyA, survivor);
+        File.Delete(copyB);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB, rootC }));
+
+        await using (var context = ManagerDatabaseService!.CreateContext())
+        {
+            var repaired = await context.SongCharts
+                .Include(c => c.Scores)
+                .SingleAsync(c => c.Id == chartAId);
+            Assert.Equal(SongPathIdentity.Normalize(survivor), repaired.FilePath);
+            var keptScore = Assert.Single(repaired.Scores);
+            Assert.Equal(3, keptScore.PlayCount);
+
+            var other = await context.SongCharts.SingleAsync(c => c.Id != chartAId);
+            Assert.Equal(SongPathIdentity.Normalize(copyB), other.FilePath);
+        }
+
+        // The rescan the freshness check triggered keeps the repaired row (and
+        // its score) on the survivor and removes only the truly deleted row.
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB, rootC }, null, CancellationToken.None);
+        await using var afterRescan = ManagerDatabaseService!.CreateContext();
+        var remaining = await afterRescan.SongCharts
+            .Include(c => c.Scores)
+            .ToListAsync();
+        var kept = Assert.Single(remaining);
+        Assert.Equal(chartAId, kept.Id);
+        Assert.Equal(SongPathIdentity.Normalize(survivor), kept.FilePath);
+        Assert.Single(kept.Scores);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenSameNameSameSizeDiffersInMtime_ShouldNotRepair()
+    {
+        // A different same-named, same-sized chart is not the missing file:
+        // the persisted mtime does not match, so the row keeps its recorded
+        // path for the rescan rather than grafting the replacement onto the
+        // old chart's scores.
+        var rootA = Path.Combine(_testRoot, "SameNameA");
+        var rootB = Path.Combine(_testRoot, "SameNameB");
+        Directory.CreateDirectory(rootB);
+        WriteChart("SameNameA/Pack1/dup.dtx", "Dup", 50);
+        var copyA = Path.Combine(rootA, "Pack1", "dup.dtx");
+        File.SetLastWriteTimeUtc(copyA, new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc));
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        File.Delete(copyA);
+        WriteChart("SameNameB/Pack2/dup.dtx", "Dup", 51);
+        var replacement = Path.Combine(rootB, "Pack2", "dup.dtx");
+        File.SetLastWriteTimeUtc(replacement, new DateTime(2026, 11, 17, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var context = ManagerDatabaseService!.CreateContext();
+        Assert.Equal(
+            SongPathIdentity.Normalize(copyA),
+            (await context.SongCharts.SingleAsync()).FilePath);
+    }
+
+    [Fact]
     public async Task RefreshSongListFromDatabaseAsync_WhenCurrentRootBecomesUnavailable_ShouldPreservePublishedSnapshot()
     {
         await SeedPublishedLibraryAsync();
@@ -2656,6 +2758,27 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // Without InitializeDatabaseServiceAsync, DatabaseService is null.
         // Should not throw.
         await _manager.RefreshSongListFromDatabaseAsync();
+    }
+
+    [Fact]
+    public async Task BuildHierarchyFromDatabaseOnceAsync_WhenPublicationAdvancedSinceCapture_ShouldSkipPublish()
+    {
+        // A refresh whose roots+version were captured before an intervening
+        // scan publication must not commit: the prepared hierarchy was built
+        // from stale roots, and publishing it would clobber the newer set.
+        await SeedPublishedLibraryAsync();
+        var before = _manager.GetLibrarySnapshot();
+        var publishEvents = 0;
+        _manager.SongLibraryPublished += (_, _) => publishEvents++;
+
+        await _manager.BuildHierarchyFromDatabaseOnceAsync(
+            before.ActiveRoots.ToArray(), expectedPublicationVersion: before.Version - 1);
+
+        var after = _manager.GetLibrarySnapshot();
+        Assert.Equal(0, publishEvents);
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.RootSongs, after.RootSongs);
+        Assert.Equal(before.ActiveRoots, after.ActiveRoots);
     }
 
     [Fact]

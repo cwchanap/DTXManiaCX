@@ -376,14 +376,22 @@ namespace DTXMania.Game.Lib.Song
         public async Task RefreshSongListFromDatabaseAsync()
         {
             string[] searchPaths;
+            long capturedVersion;
             lock (_lockObject)
             {
+                // Roots and the publication version must come from one critical
+                // section: a scan publishing between two separate reads would
+                // leave the build below holding the newer version alongside
+                // stale roots, so the commit-time version check would pass and
+                // overwrite the scan's publication.
                 searchPaths = _currentSearchPaths.ToArray();
+                capturedVersion = _publicationVersion;
             }
 
             if (searchPaths.Length > 0)
             {
-                await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
+                await BuildHierarchyFromDatabaseOnceAsync(searchPaths, capturedVersion)
+                    .ConfigureAwait(false);
             }
         }
 
@@ -721,15 +729,20 @@ namespace DTXMania.Game.Lib.Song
         /// Used when the database is already populated but _rootSongs is empty
         /// Preserves the original folder hierarchy structure
         /// </summary>
-        internal async Task BuildHierarchyFromDatabaseOnceAsync(string[] searchPaths)
+        internal async Task BuildHierarchyFromDatabaseOnceAsync(
+            string[] searchPaths,
+            long? expectedPublicationVersion = null)
         {
             // Capture the published version before the async prepare: a scan
             // that commits while the hierarchy is being built must not be
-            // overwritten by this (necessarily older) snapshot.
+            // overwritten by this (necessarily older) snapshot. Callers that
+            // already hold an atomically captured version (the refresh path)
+            // pass it in so the version always pairs with the roots snapshot it
+            // was taken beside.
             long capturedVersion;
             lock (_lockObject)
             {
-                capturedVersion = _publicationVersion;
+                capturedVersion = expectedPublicationVersion ?? _publicationVersion;
             }
 
             var hierarchy =
