@@ -66,7 +66,7 @@ Higher-level composition lives outside this folder: `SongLibrary`
 (`Lib/Song/SongLibrary.cs`) owns enumeration and publications, the stateless
 `SongLibraryScanner` performs cold scans, `SongHierarchyBuilder` rebuilds warm
 trees from the database, and `SongScoreService`/`SongQueryService` expose score
-mutations and recent-plays/bookmark/search queries.
+mutations and recent-plays/bookmark queries.
 
 ## Usage
 

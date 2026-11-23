@@ -78,22 +78,26 @@ namespace DTXMania.Game.Lib.Song
             var songs = await GetRecentlyPlayedSongsAsync(limit, 0, activeChartIds)
                 .ConfigureAwait(false);
             var nodes = new List<SongListNode>(songs.Count);
-            AppendActiveNodes(songs, limit, ref nodes);
+            AppendActiveNodes(songs, roots, limit, ref nodes);
             return nodes;
         }
 
         private void AppendActiveNodes(
             List<SongEntity> songs,
+            string[] roots,
             int limit,
             ref List<SongListNode> nodes)
         {
             // The DB query already orders by active-chart recency, so callers
             // receive songs in the correct global order; we only filter to each
-            // song's active charts and build nodes, preserving DB order.
+            // song's active charts and build nodes, preserving DB order. The
+            // same roots snapshot that fed the query filters the node charts —
+            // rereading the live snapshot after the awaits could drop every
+            // chart of a selected song when roots change mid-load.
             var items = songs
                 .Select(song =>
                 {
-                    var charts = GetActiveCharts(song);
+                    var charts = GetActiveCharts(song, roots);
                     var lastPlayedAt = charts
                         .SelectMany(chart =>
                             chart.Scores ?? Enumerable.Empty<SongScoreEntity>())
@@ -144,9 +148,10 @@ namespace DTXMania.Game.Lib.Song
 
             var songs = await GetBookmarkedSongsAsync().ConfigureAwait(false);
             var nodes = new List<SongListNode>(songs.Count);
+            var bookmarkRoots = _currentSearchPathsSnapshot();
             foreach (var song in songs)
             {
-                var charts = GetActiveCharts(song);
+                var charts = GetActiveCharts(song, bookmarkRoots);
                 if (charts.Length == 0)
                     continue;
                 song.Charts = charts;
@@ -306,9 +311,11 @@ namespace DTXMania.Game.Lib.Song
                 .ToListAsync();
         }
 
-        private SongChart[] GetActiveCharts(SongEntity song)
+        private SongChart[] GetActiveCharts(SongEntity song) =>
+            GetActiveCharts(song, _currentSearchPathsSnapshot());
+
+        private static SongChart[] GetActiveCharts(SongEntity song, string[] roots)
         {
-            var roots = _currentSearchPathsSnapshot();
             var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
             if (roots.Length == 0)
                 return charts;

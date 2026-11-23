@@ -90,17 +90,17 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Unit")]
         [Fact]
-        public void ResolveDifficultyLabel_EmptyPersistedLabel_ShouldRecoverFromSetDefByFileName()
+        public void ResolveDifficultyLabel_EmptyPersistedLabel_ShouldRecoverFromSetDefByChartPath()
         {
             var chart = new SongChart { FilePath = "/songs/song/adv.dtx", DifficultyLabel = "" };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["bas.dtx"] = "BASIC",
-                ["adv.dtx"] = "ADVANCED",
-                ["ext.dtx"] = "EXTREME"
+                ["/songs/song/bas.dtx"] = "BASIC",
+                ["/songs/song/adv.dtx"] = "ADVANCED",
+                ["/songs/song/ext.dtx"] = "EXTREME"
             };
 
-            // Legacy databases stored an empty label; recover the authentic name by chart file name.
+            // Legacy databases stored an empty label; recover the authentic name by resolved chart path.
             Assert.Equal("ADVANCED", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 1));
         }
 
@@ -111,7 +111,7 @@ namespace DTXMania.Test.Song
             var chart = new SongChart { FilePath = "/songs/song/MAS.DTX", DifficultyLabel = "   " };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["mas.dtx"] = "MASTER"
+                ["/songs/song/mas.dtx"] = "MASTER"
             };
 
             Assert.Equal("MASTER", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 3));
@@ -124,7 +124,7 @@ namespace DTXMania.Test.Song
             var chart = new SongChart { FilePath = "/songs/song/unknown.dtx", DifficultyLabel = "" };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["bas.dtx"] = "BASIC"
+                ["/songs/song/bas.dtx"] = "BASIC"
             };
 
             // scoreIndex 2 -> "Level 3" (one-based for display).
@@ -154,14 +154,16 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Unit")]
         [Fact]
-        public void ResolveDifficultyLabel_SubDirectoryChartPath_ShouldRecoverByFileName()
+        public void ResolveDifficultyLabel_SubDirectoryChartPath_ShouldRecoverByResolvedPath()
         {
             // End-to-end: a chart whose FilePath includes a subdirectory ("charts/bas.dtx") must
-            // recover its label from the normalized (file-name-keyed) SET.def map.
+            // recover its label via the resolved path the SET.def map is keyed on — a bare
+            // file-name key would collide with same-named charts elsewhere on disk.
             var chart = new SongChart { FilePath = "/songs/song/charts/bas.dtx", DifficultyLabel = "" };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["bas.dtx"] = "BASIC"
+                ["/songs/song/charts/bas.dtx"] = "BASIC",
+                ["/songs/song/other/bas.dtx"] = "MASTER"
             };
 
             Assert.Equal("BASIC", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 0));
@@ -200,12 +202,16 @@ namespace DTXMania.Test.Song
             await _songManager.InitializeAsync();
             await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
 
-            // Force the database-load path used on a normal launch (clears in-memory nodes and
-            // rebuilds them from persisted entities via CreateSongNodeFromDatabaseEntities).
-            await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
+            // Simulate a restart: a fresh library over the same database, so the
+            // assertions observe the warm DB-load path
+            // (CreateSongNodeFromDatabaseEntities) and not nodes left in memory
+            // by the scan.
+            using var reloaded = new SongLibrary(new SongDatabase(_testDbPath));
+            Assert.True(await reloaded.InitializeAsync());
+            await reloaded.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
             SongListNode? song = null;
-            foreach (var node in _songManager.RootSongs)
+            foreach (var node in reloaded.RootSongs)
             {
                 if (node.Type == NodeType.Score)
                 {
@@ -237,10 +243,15 @@ namespace DTXMania.Test.Song
 
             await _songManager.InitializeAsync();
             await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
-            await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
+
+            // Fresh library over the same database: observe the warm build, not
+            // nodes left in memory by the scan.
+            using var reloaded = new SongLibrary(new SongDatabase(_testDbPath));
+            Assert.True(await reloaded.InitializeAsync());
+            await reloaded.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
             SongListNode? song = null;
-            foreach (var node in _songManager.RootSongs)
+            foreach (var node in reloaded.RootSongs)
             {
                 if (node.Type == NodeType.Score)
                 {
@@ -281,12 +292,15 @@ namespace DTXMania.Test.Song
             await _songManager.InitializeAsync();
             await _songManager.EnumerateAndImportSongsAsync(new[] { dir });
 
-            // Simulate a subsequent launch where SET.def is gone (renamed/moved) but the DB persists.
+            // Simulate a subsequent launch where SET.def is gone (renamed/moved) but the DB persists:
+            // a fresh library over the same database exercises the real warm build.
             File.Delete(Path.Combine(dir, "set.def"));
-            await _songManager.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
+            using var reloaded = new SongLibrary(new SongDatabase(_testDbPath));
+            Assert.True(await reloaded.InitializeAsync());
+            await reloaded.BuildHierarchyFromDatabaseOnceAsync(new[] { dir });
 
             SongListNode? song = null;
-            foreach (var node in _songManager.RootSongs)
+            foreach (var node in reloaded.RootSongs)
             {
                 if (node.Type == NodeType.Score)
                 {

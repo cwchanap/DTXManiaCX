@@ -131,7 +131,13 @@ namespace DTXMania.Game.Lib.Song
         internal async Task<List<SongListNode>> BuildHierarchyFromCharts(string searchPath, List<(SongEntity song, SongChart chart)> charts)
         {
             var rootNodes = new List<SongListNode>();
-            var folderNodeCache = new Dictionary<string, SongListNode>(StringComparer.OrdinalIgnoreCase);
+            // Match the cold scanner's path identity: ordinal on case-sensitive
+            // filesystems so same-named directories differing only in case keep
+            // their separate BOXes, insensitive on Windows/macOS.
+            var folderNodeCache = new Dictionary<string, SongListNode>(
+                SongPathIdentity.IsCaseSensitive
+                    ? StringComparer.Ordinal
+                    : StringComparer.OrdinalIgnoreCase);
 
             // Persisted Song.Id is the grouping authority. Title/artist are display
             // metadata and can legitimately collide across different directories.
@@ -148,18 +154,23 @@ namespace DTXMania.Game.Lib.Song
 
             foreach (var songGroup in songGroups)
             {
-                var firstChart = songGroup.First().chart;
                 var firstSong = songGroup.First().song;
-                var allCharts = songGroup.Select(item => item.chart).ToArray();
 
-                if (string.IsNullOrEmpty(firstChart.FilePath))
+                // Drop charts whose files disappeared since the freshness check,
+                // per-chart: a missing first chart must not hide siblings that
+                // still exist, and a missing later chart must not reach the
+                // difficulty-slot builder. Skip the group only when nothing is left.
+                var existingCharts = songGroup
+                    .Select(item => item.chart)
+                    .Where(chart =>
+                        !string.IsNullOrEmpty(chart.FilePath) &&
+                        File.Exists(chart.FilePath))
+                    .ToArray();
+                if (existingCharts.Length == 0)
                     continue;
 
-                // Check if the file still exists at the recorded path
-                if (!File.Exists(firstChart.FilePath))
-                {
-                    continue;
-                }
+                var firstChart = existingCharts[0];
+                var allCharts = existingCharts;
 
                 // Get the directory path relative to the search path
                 var fullDirectoryPath = Path.GetDirectoryName(firstChart.FilePath);
@@ -400,7 +411,12 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         internal SongListNode CreateBoxNodeFromDirectory(DirectoryInfo directory, SongListNode? parent, BoxDefinition? boxDef)
         {
-            var title = boxDef?.Title ?? directory.Name;
+            // A box.def without #TITLE parses to an empty Title (not null), so
+            // ?? alone would publish a BOX with no name — treat blank as absent,
+            // matching the root-header fallback.
+            var title = string.IsNullOrWhiteSpace(boxDef?.Title)
+                ? directory.Name
+                : boxDef!.Title;
             var boxNode = SongListNode.CreateBoxNode(title, directory.FullName, parent);
 
             if (boxDef != null)
@@ -700,11 +716,12 @@ namespace DTXMania.Game.Lib.Song
             if (!string.IsNullOrWhiteSpace(chart.DifficultyLabel))
                 return chart.DifficultyLabel;
 
-            if (setDefLabels != null && !string.IsNullOrEmpty(chart.FilePath))
+            if (setDefLabels != null && !string.IsNullOrEmpty(chart.FilePath) &&
+                SongPathIdentity.TryNormalize(chart.FilePath, out var chartPath) &&
+                setDefLabels.TryGetValue(chartPath, out var label) &&
+                !string.IsNullOrWhiteSpace(label))
             {
-                var fileName = Path.GetFileName(chart.FilePath);
-                if (setDefLabels.TryGetValue(fileName, out var label) && !string.IsNullOrWhiteSpace(label))
-                    return label;
+                return label;
             }
 
             return $"Level {(chart.DifficultyLevel > 0 ? chart.DifficultyLevel : scoreIndex + 1)}";

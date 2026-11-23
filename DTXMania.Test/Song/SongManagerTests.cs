@@ -81,14 +81,16 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task DatabaseService_ShouldBeAvailableAfterInitialization()
         {
-            // Arrange
-            await _manager.InitializeAsync();
-
-            // Act
-            var databaseService = ManagerDatabaseService;
+            // Arrange & Act — ManagerDatabaseService is non-null from
+            // construction, so assert the effects of initialization itself.
+            var result = await _manager.InitializeAsync();
 
             // Assert
+            Assert.True(result);
+            var databaseService = ManagerDatabaseService;
             Assert.NotNull(databaseService);
+            using var context = databaseService!.CreateContext();
+            Assert.NotNull(context);
         }
 
         [Fact]
@@ -120,6 +122,7 @@ namespace DTXMania.Test.Song
 
             Assert.True(result);
             Assert.NotNull(ManagerDatabaseService);
+            Assert.True(File.Exists(_testDbPath));
         }
 
         [Fact]
@@ -1803,26 +1806,35 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task IsLikelyMatchAsync_WithMissingOriginalPath_ShouldReturnTrue()
+        public async Task IsVerifiedMoveCandidate_WithoutPersistedSize_ShouldReturnFalse()
         {
-            var missingPath = Path.Combine(_testRoot, "missing.dtx");
+            // A same-named candidate is never enough: a chart with no persisted
+            // fingerprint (FileSize <= 0, e.g. a legacy or seeded row) is
+            // unverifiable, so the missing row must be left for the rescan
+            // rather than grafted onto an unrelated file.
             var candidatePath = Path.Combine(_testRoot, "missing.dtx");
+            await File.WriteAllTextAsync(candidatePath, "content");
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "IsLikelyMatchAsync", missingPath, candidatePath);
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(
+                _manager.Scanner,
+                "IsVerifiedMoveCandidate",
+                new SongChart { FilePath = candidatePath, FileSize = 0 },
+                candidatePath);
 
-            Assert.True(result);
+            Assert.False(result);
         }
 
         [Fact]
-        public async Task IsLikelyMatchAsync_WithSizeMismatch_ShouldReturnFalse()
+        public async Task IsVerifiedMoveCandidate_WithSizeMismatch_ShouldReturnFalse()
         {
-            var originalPath = Path.Combine(_testRoot, "original.dtx");
             var candidatePath = Path.Combine(_testRoot, "candidate.dtx");
-
-            await File.WriteAllTextAsync(originalPath, "short");
             await File.WriteAllTextAsync(candidatePath, "this is a much longer file content");
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "IsLikelyMatchAsync", originalPath, candidatePath);
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(
+                _manager.Scanner,
+                "IsVerifiedMoveCandidate",
+                new SongChart { FilePath = Path.Combine(_testRoot, "original.dtx"), FileSize = 5 },
+                candidatePath);
 
             Assert.False(result);
         }
@@ -1854,7 +1866,7 @@ namespace DTXMania.Test.Song
             var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
                 _manager.Scanner,
                 "FindMovedFileAsync",
-                Path.DirectorySeparatorChar.ToString(),
+                new SongChart { FilePath = Path.DirectorySeparatorChar.ToString() },
                 new[] { _testRoot });
 
             Assert.Null(result);
@@ -1872,7 +1884,7 @@ namespace DTXMania.Test.Song
             var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
                 _manager.Scanner,
                 "FindMovedFileAsync",
-                Path.Combine(_testRoot, "missing.dtx"),
+                new SongChart { FilePath = Path.Combine(_testRoot, "missing.dtx") },
                 new[] { _testRoot });
 
             Assert.Null(result);
@@ -2149,31 +2161,38 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task IsLikelyMatchAsync_WhenFileSizesMatch_ShouldReturnTrue()
+        public async Task IsVerifiedMoveCandidate_WhenCandidateSizeMatchesPersisted_ShouldReturnTrue()
         {
-            var originalPath = Path.Combine(_testRoot, "Original", "match.dtx");
+            // The persisted FileSize is the fingerprint: the original path is
+            // gone by definition, so a candidate whose length equals the
+            // persisted size verifies even with nothing left to compare on disk.
             var candidatePath = Path.Combine(_testRoot, "Candidate", "match.dtx");
-
-            Directory.CreateDirectory(Path.GetDirectoryName(originalPath)!);
             Directory.CreateDirectory(Path.GetDirectoryName(candidatePath)!);
-            await File.WriteAllTextAsync(originalPath, "same-size");
             await File.WriteAllTextAsync(candidatePath, "same-size");
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "IsLikelyMatchAsync", originalPath, candidatePath);
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(
+                _manager.Scanner,
+                "IsVerifiedMoveCandidate",
+                new SongChart
+                {
+                    FilePath = Path.Combine(_testRoot, "Original", "match.dtx"),
+                    FileSize = "same-size".Length
+                },
+                candidatePath);
 
             Assert.True(result);
         }
 
         [Fact]
-        public async Task IsLikelyMatchAsync_WithInvalidCandidatePath_ShouldReturnFalse()
+        public void IsVerifiedMoveCandidate_WithInvalidCandidatePath_ShouldReturnFalse()
         {
-            var originalPath = Path.Combine(_testRoot, "Original", "match.dtx");
-            Directory.CreateDirectory(Path.GetDirectoryName(originalPath)!);
-            await File.WriteAllTextAsync(originalPath, "same-size");
-
             var candidatePath = $"{_testRoot}{Path.DirectorySeparatorChar}bad\0{Path.DirectorySeparatorChar}match.dtx";
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "IsLikelyMatchAsync", originalPath, candidatePath);
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(
+                _manager.Scanner,
+                "IsVerifiedMoveCandidate",
+                new SongChart { FilePath = Path.Combine(_testRoot, "match.dtx"), FileSize = 9 },
+                candidatePath);
 
             Assert.False(result);
         }
@@ -2411,7 +2430,7 @@ namespace DTXMania.Test.Song
             var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
                 _manager.Scanner,
                 "FindMovedFileAsync",
-                Path.Combine(_testRoot, "song.dtx"),
+                new SongChart { FilePath = Path.Combine(_testRoot, "song.dtx") },
                 new[] { Path.Combine(_testRoot, "NonExistentRoot") });
 
             Assert.Null(result);

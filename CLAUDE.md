@@ -159,7 +159,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - SongLibrary: game-owned central song database and enumeration owner (no singleton); constructed in `CreateLoadContentServices` and exposed via `IStageGame.SongLibrary`
 - `SongDatabase` + `SongCatalogStore`/`SongScoreStore` (`Entities/`): database path/lifecycle/schema versioning, short-lived context creation, and the catalog vs score persistence split
 - `SongLibraryScanner` (stateless cold scan) and `SongHierarchyBuilder` (warm rebuild) share one BOX/root node factory and one `SongDefinitionReader` for SET.def/box.def reading
-- `SongScoreService` / `SongQueryService`: score mutations and recent-plays/bookmark/search reads over short-lived contexts
+- `SongScoreService` / `SongQueryService`: score mutations and recent-plays/bookmark reads over short-lived contexts
 - DTXChartParser: Parses .dtx, .gda, .g2d, .bms, .bme, .bml files
 - `Import/TabChartConverter` (HPA-693): Guitar Pro (.gp/.gpx/.gp5/.gp4/.gp3) and MusicXML (.musicxml/.mxl) tabs are converted in memory to DTX text, which DTXChartParser then parses as usual. AlphaTab reads the tab and renders its drum track to MIDI (repeats expanded); DryWetMidi reads that back onto a 192-per-whole-note grid with GM drum note -> DTX channel mapping, an empty count-in bar, and `#DLEVEL: 50`. Hits are silent (no WAVs). MuseScore users export MusicXML (.mscz is not readable)
 - 10 NX drum lane mapping: LC, HH, LP, SN, HT, BD, LT, FT, CY, RD

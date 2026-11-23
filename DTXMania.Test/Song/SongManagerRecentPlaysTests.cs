@@ -33,7 +33,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_ReturnsScoreNodesNewestFirst()
+        public async Task GetRecentlyPlayedNodesAsync_ShouldReturnScoreNodesNewestFirst()
         {
             var manager = new SongLibrary(new SongDatabase(_dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
@@ -61,7 +61,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenNothingPlayed_ReturnsEmptyList()
+        public async Task GetRecentlyPlayedNodesAsync_WhenNothingPlayed_ShouldReturnEmptyList()
         {
             var manager = new SongLibrary(new SongDatabase(_dbPath));
             await manager.InitializeAsync(purgeDatabaseFirst: true);
@@ -72,7 +72,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseUninitialized_ReturnsEmptyList()
+        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseUninitialized_ShouldReturnEmptyList()
         {
             // HPA-801: the library's database exists from construction but is
             // unusable until Startup's InitializeAsync runs; queries read as
@@ -86,7 +86,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseThrows_PropagatesException()
+        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseThrows_ShouldPropagateException()
         {
             // A broken initialized database (context creation faults) must
             // propagate: BeginRecentPlaysLoad sets _recentPlaysLoadFailed and the
@@ -99,7 +99,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenInitializationAttemptFailed_ThrowsLikeBrokenDatabase()
+        public async Task GetRecentlyPlayedNodesAsync_WhenInitializationAttemptFailed_ShouldThrowLikeBrokenDatabase()
         {
             // HPA-801 fix round 1: a failed initialization is a failure state,
             // not availability. The pre-rename service reference was already
@@ -117,7 +117,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenPurgeCannotReinitialize_ThrowsLikeBrokenDatabase()
+        public async Task GetRecentlyPlayedNodesAsync_WhenPurgeCannotReinitialize_ShouldThrowLikeBrokenDatabase()
         {
             // Purging an initialized database was also a throwing state
             // pre-rename: the service reference stayed non-null, so the query
@@ -146,7 +146,7 @@ namespace DTXMania.Test.Song
                 initialized: true));
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_HydratesAllSpeedsAndIdentifiesLatestVariant()
+        public async Task GetRecentlyPlayedNodesAsync_ShouldHydrateAllSpeedsAndIdentifyLatestVariant()
         {
             await _manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = _manager.Database;

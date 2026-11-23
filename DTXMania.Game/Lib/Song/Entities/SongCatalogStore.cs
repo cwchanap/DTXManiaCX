@@ -838,11 +838,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// not flagged as missing on every startup. Returns an empty list for an
         /// empty root set.
         /// </summary>
-        public async Task<IReadOnlyList<(int Id, string FilePath)>> GetActiveChartsAsync(
+        public async Task<IReadOnlyList<SongChart>> GetActiveChartsAsync(
             IReadOnlyList<string> roots)
         {
             if (roots == null || roots.Count == 0)
-                return Array.Empty<(int, string)>();
+                return Array.Empty<SongChart>();
 
             // Normalize defensively so blank or malformed roots (which
             // CountDTXFilesAsync also skips) do not abort the lookup. Mirrors
@@ -856,13 +856,19 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .Where(r => !string.IsNullOrEmpty(r))
                 .ToArray();
             if (normalizedRoots.Length == 0)
-                return Array.Empty<(int, string)>();
+                return Array.Empty<SongChart>();
             using var context = _database.CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
-                .Select(chart => new { chart.Id, chart.FilePath })
+                .Select(chart => new SongChart
+                {
+                    Id = chart.Id,
+                    FilePath = chart.FilePath,
+                    FileSize = chart.FileSize,
+                    LastModified = chart.LastModified
+                })
                 .ToListAsync();
-            var active = new List<(int Id, string FilePath)>(charts.Count);
+            var active = new List<SongChart>(charts.Count);
             foreach (var chart in charts)
             {
                 if (!string.IsNullOrEmpty(chart.FilePath) &&
@@ -870,7 +876,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                     normalizedRoots.Any(root =>
                         SongPathIdentity.IsUnderRoot(normalized, root)))
                 {
-                    active.Add((chart.Id, chart.FilePath));
+                    active.Add(chart);
                 }
             }
             return active;

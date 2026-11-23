@@ -723,6 +723,15 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         internal async Task BuildHierarchyFromDatabaseOnceAsync(string[] searchPaths)
         {
+            // Capture the published version before the async prepare: a scan
+            // that commits while the hierarchy is being built must not be
+            // overwritten by this (necessarily older) snapshot.
+            long capturedVersion;
+            lock (_lockObject)
+            {
+                capturedVersion = _publicationVersion;
+            }
+
             var hierarchy =
                 await PrepareHierarchyFromDatabaseOnceAsync(searchPaths)
                     .ConfigureAwait(false);
@@ -736,7 +745,8 @@ namespace DTXMania.Game.Lib.Song
                 PublishDatabaseHierarchy(
                     hierarchy.RootNodes,
                     hierarchy.ActiveRoots,
-                    hierarchy.ActiveChartCount);
+                    hierarchy.ActiveChartCount,
+                    capturedVersion);
             }
             catch (Exception ex)
             {
@@ -772,11 +782,23 @@ namespace DTXMania.Game.Lib.Song
         private void PublishDatabaseHierarchy(
             IReadOnlyList<SongListNode> rootNodes,
             IReadOnlyList<string> activeRoots,
-            int activeChartCount)
+            int activeChartCount,
+            long? expectedPublicationVersion = null)
         {
             SongLibrarySnapshot snapshot;
             lock (_lockObject)
             {
+                // A scan or empty-library publication committed while the
+                // hierarchy was being prepared; publishing now would replace
+                // those newer roots with a snapshot built from stale state.
+                if (expectedPublicationVersion.HasValue &&
+                    _publicationVersion != expectedPublicationVersion.Value)
+                {
+                    _logger.LogInformation(
+                        "Skipping database hierarchy publication: published version changed during prepare");
+                    return;
+                }
+
                 _rootSongs.Clear();
                 _rootSongs.AddRange(rootNodes);
                 _currentSearchPaths = activeRoots.ToArray();
