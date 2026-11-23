@@ -2806,25 +2806,33 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         _manager.SongLibraryPublished += (_, _) => publishEvents++;
 
         var refresh = _manager.RefreshSongListFromDatabaseAsync();
-        Assert.True(
-            prepareReached.Wait(TimeSpan.FromSeconds(5)),
-            "refresh did not reach hierarchy prepare within the gate timeout");
-        // An intervening publication bumps the version between the refresh's
-        // capture and its commit.
-        _manager.PublishEnumeration(new SongEnumerationBatch
+        try
         {
-            ActiveRoots = new[] { _songsRoot },
-            DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
-            Candidates = new List<SongImportCandidate>(),
-            RootNodes = new List<SongListNode>
+            Assert.True(
+                prepareReached.Wait(TimeSpan.FromSeconds(5)),
+                "refresh did not reach hierarchy prepare within the gate timeout");
+            // An intervening publication bumps the version between the refresh's
+            // capture and its commit.
+            _manager.PublishEnumeration(new SongEnumerationBatch
             {
-                new() { Type = NodeType.Score, Title = "Intervening" }
-            },
-            PendingSongs = new List<PendingSongNode>(),
-            Errors = new List<SongEnumerationError>(),
-            IsComplete = true
-        });
-        releasePrepare.Set();
+                ActiveRoots = new[] { _songsRoot },
+                DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+                Candidates = new List<SongImportCandidate>(),
+                RootNodes = new List<SongListNode>
+                {
+                    new() { Type = NodeType.Score, Title = "Intervening" }
+                },
+                PendingSongs = new List<PendingSongNode>(),
+                Errors = new List<SongEnumerationError>(),
+                IsComplete = true
+            });
+        }
+        finally
+        {
+            // A failed assertion must still release the worker: leaving it
+            // blocked on the gate turns a test failure into a hang.
+            releasePrepare.Set();
+        }
         await refresh;
 
         var after = _manager.GetLibrarySnapshot();
@@ -2907,6 +2915,126 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         else
         {
             Assert.Equal(SongPathIdentity.Normalize(original), row.FilePath);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenSetDefAliasDiffersFromRecordedCase_ShouldStillRepair()
+    {
+        // The set.def inventory carries the authored spelling: 'BASIC.DTX'
+        // names the moved 'basic.dtx' wherever the volume folds case.
+        // Rejecting that alias strands the row missing and the rescan deletes
+        // its scores.
+        var rootA = Path.Combine(_testRoot, "AliasA");
+        var rootB = Path.Combine(_testRoot, "AliasB");
+        var original = WriteChart("AliasA/Pack/basic.dtx", "Mover", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var setDir = Path.Combine(rootB, "SetBacked");
+        Directory.CreateDirectory(setDir);
+        File.Move(original, Path.Combine(setDir, "basic.dtx"));
+        await File.WriteAllTextAsync(
+            Path.Combine(setDir, "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE BASIC.DTX\n");
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var context = ManagerDatabaseService!.CreateContext();
+        var row = await context.SongCharts.SingleAsync();
+        if (File.Exists(Path.Combine(setDir, "BASIC.DTX")))
+        {
+            // Case-folding volume: the authored alias resolves to the moved
+            // file and the repair targets the spelling the rescan imports.
+            Assert.Equal(
+                SongPathIdentity.Normalize(Path.Combine(setDir, "BASIC.DTX")),
+                row.FilePath);
+        }
+        else
+        {
+            // Case-sensitive volume: the alias resolves to nothing, so the
+            // moved file is undiscoverable and the row keeps its recorded
+            // path.
+            Assert.Equal(original, row.FilePath);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenSetDefAliasNamesOwnedChart_ShouldNotRedirectMissingRow()
+    {
+        // The surviving copy is owned by its own row under the disk spelling
+        // 'DUPE.dtx'; the set.def authored 'dupe.dtx' aliases it where the
+        // volume folds case. Letting the missing row claim that alias
+        // redirects it onto another chart's file, and the rescan then
+        // deletes the real owner's row and its scores.
+        var rootA = Path.Combine(_testRoot, "ClaimA");
+        var rootB = Path.Combine(_testRoot, "ClaimB");
+        var copyA = WriteChart("ClaimA/Pack/dupe.dtx", "Dupe", 50);
+        var copyB = WriteChart("ClaimB/Held/DUPE.dtx", "Dupe", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(copyA, stamp);
+        File.SetLastWriteTimeUtc(copyB, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        int ownerId;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var owner = await seed.SongCharts.SingleAsync(c => c.FilePath == copyB);
+            ownerId = owner.Id;
+            var score = await seed.SongScores.SingleAsync(s => s.ChartId == ownerId);
+            score.PlayCount = 7;
+            await seed.SaveChangesAsync();
+        }
+
+        var heldDir = Path.Combine(rootB, "Held");
+        File.Delete(copyA);
+        await File.WriteAllTextAsync(
+            Path.Combine(heldDir, "set.def"),
+            "#TITLE Held Set\n#L1LABEL BASIC\n#L1FILE dupe.dtx\n");
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using (var check = ManagerDatabaseService!.CreateContext())
+        {
+            // The missing row keeps its recorded path rather than claiming
+            // the owned file through the alias.
+            var rows = await check.SongCharts.Select(c => c.FilePath).ToListAsync();
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(copyA, rows);
+            Assert.Contains(copyB, rows);
+        }
+
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        await using var after = ManagerDatabaseService!.CreateContext();
+        var surviving = await after.SongCharts
+            .Include(c => c.Scores)
+            .ToListAsync();
+        if (File.Exists(Path.Combine(heldDir, "dupe.dtx")))
+        {
+            // Case-folding volume: the owned chart keeps its row id and its
+            // scores while the truly missing row is rescan-deleted.
+            var kept = Assert.Single(surviving);
+            Assert.Equal(ownerId, kept.Id);
+            Assert.Equal(
+                SongPathIdentity.Normalize(Path.Combine(heldDir, "dupe.dtx")),
+                kept.FilePath);
+            var keptScore = Assert.Single(kept.Scores);
+            Assert.Equal(7, keptScore.PlayCount);
+        }
+        else
+        {
+            // Case-sensitive volume: the authored alias resolves to nothing,
+            // so the set.def dir contributes no chart and both rows are
+            // rescan-deleted.
+            Assert.Empty(surviving);
         }
     }
 

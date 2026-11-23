@@ -864,7 +864,7 @@ namespace DTXMania.Game.Lib.Song
                     // A path owned by another chart row is that row's file:
                     // it can neither be the repair target nor break the
                     // unique-match tie-break.
-                    if (ownedPaths.Contains(entry.Path))
+                    if (OwnedByAnotherChart(entry.Path, ownedPaths))
                     {
                         continue;
                     }
@@ -888,6 +888,46 @@ namespace DTXMania.Game.Lib.Song
                 _logger.LogWarning(ex, "Error finding moved file {OriginalPath}", originalPath);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Whether <paramref name="candidatePath"/> resolves to a file already
+        /// owned by a chart row. A set.def's authored spelling can alias an
+        /// owned file where the volume folds case — 'dupe.dtx' resolving to
+        /// the recorded 'DUPE.dtx' — and the ordinal set misses it, letting a
+        /// missing row claim another chart's file. Resolving the entry's
+        /// on-disk name catches the alias without folding the stored paths,
+        /// so spellings that differ only by case stay distinct on volumes
+        /// that treat them so.
+        /// </summary>
+        private static bool OwnedByAnotherChart(
+            string candidatePath,
+            ISet<string> ownedPaths)
+        {
+            if (ownedPaths.Contains(candidatePath))
+            {
+                return true;
+            }
+
+            var directory = Path.GetDirectoryName(candidatePath);
+            var spelling = Path.GetFileName(candidatePath);
+            if (string.IsNullOrEmpty(directory) ||
+                string.IsNullOrEmpty(spelling) ||
+                !Directory.Exists(directory))
+            {
+                return false;
+            }
+
+            var resolvedName = ResolveDirectoryEntryName(
+                directory,
+                spelling,
+                Directory
+                    .EnumerateFiles(directory)
+                    .Select(Path.GetFileName)
+                    .ToList());
+            return resolvedName != null &&
+                !string.Equals(resolvedName, spelling, StringComparison.Ordinal) &&
+                ownedPaths.Contains(Path.Combine(directory, resolvedName));
         }
 
         /// <summary>
@@ -929,12 +969,13 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// The candidate's filename must equal the recorded one, or be a
-        /// spelling the filesystem resolves to the same entry. On a
+        /// spelling that resolves to the same directory entry. On a
         /// case-sensitive volume 'SONG.DTX' is a different file than the
-        /// recorded 'song.dtx': resolving the recorded spelling beside the
-        /// candidate then either misses or names a distinct sibling, so the
-        /// candidate is rejected. Only a filesystem that folds the spellings
-        /// resolves the recorded name back to the candidate itself.
+        /// recorded 'song.dtx': the recorded spelling either resolves to a
+        /// distinct sibling or does not resolve, so the candidate is rejected.
+        /// Only a volume that folds the spellings resolves both to one entry —
+        /// and there the directory entry carrying the recorded spelling is
+        /// the candidate itself, not a separate file.
         /// </summary>
         private bool FileNameMatchesRecordedFile(
             string? recordedName,
@@ -952,32 +993,99 @@ namespace DTXMania.Game.Lib.Song
             {
                 return true;
             }
-            if (!SongPathIdentity.LegacyAliasComparer.Equals(
-                    recordedName,
-                    candidateInfo.Name))
-            {
-                return false;
-            }
 
             var directory = candidateInfo.Directory?.FullName;
-            if (string.IsNullOrEmpty(directory) ||
-                !File.Exists(Path.Combine(directory, recordedName)))
+            if (string.IsNullOrEmpty(directory))
             {
                 return false;
             }
 
-            // The recorded spelling resolved to a file beside the candidate.
-            // It is the candidate itself only when no distinct directory entry
-            // carries that spelling: on a case-sensitive volume a real
-            // recorded-name file is a different file whose own inventory entry
-            // is the one to verify.
-            return !Directory
+            var entryNames = Directory
                 .EnumerateFiles(directory)
                 .Select(Path.GetFileName)
-                .Contains(recordedName, StringComparer.Ordinal);
+                .ToList();
+            var candidateEntry = ResolveDirectoryEntryName(
+                directory, candidateInfo.Name, entryNames);
+            var recordedEntry = ResolveDirectoryEntryName(
+                directory, recordedName, entryNames);
+            return candidateEntry != null &&
+                string.Equals(
+                    candidateEntry, recordedEntry, StringComparison.Ordinal);
         }
 
-        private static readonly IReadOnlyList<TimeZoneInfo> FingerprintZones =
+        /// <summary>
+        /// Returns the on-disk entry name <paramref name="spelling"/> resolves
+        /// to inside <paramref name="directory"/>, or null when it resolves to
+        /// nothing or cannot be tied to a single entry. An exact directory
+        /// entry wins on any volume. A folded match counts only when the
+        /// filesystem itself resolves the spelling — the
+        /// <see cref="File.Exists(string)"/> gate — which proves the volume
+        /// folds case: a case-sensitive volume never resolves 'dupe.dtx' to a
+        /// sibling 'DUPE.dtx'. The folded compare also normalizes, because
+        /// APFS stores NFD while authored paths (set.def) tend to carry NFC.
+        /// </summary>
+        private static string? ResolveDirectoryEntryName(
+            string directory,
+            string spelling,
+            IReadOnlyList<string?> directoryEntryNames)
+        {
+            if (!File.Exists(Path.Combine(directory, spelling)))
+            {
+                return null;
+            }
+
+            string? normalizedSpelling = null;
+            try
+            {
+                normalizedSpelling = spelling.Normalize();
+            }
+            catch (ArgumentException)
+            {
+            }
+
+            string? folded = null;
+            var foldedCount = 0;
+            foreach (var entryName in directoryEntryNames)
+            {
+                if (string.Equals(entryName, spelling, StringComparison.Ordinal))
+                {
+                    return entryName;
+                }
+                if (entryName != null &&
+                    (string.Equals(
+                        entryName,
+                        spelling,
+                        StringComparison.OrdinalIgnoreCase) ||
+                     FoldedNameEquals(entryName, normalizedSpelling)))
+                {
+                    folded = entryName;
+                    foldedCount++;
+                }
+            }
+
+            return foldedCount == 1 ? folded : null;
+        }
+
+        private static bool FoldedNameEquals(string entryName, string? normalizedSpelling)
+        {
+            if (normalizedSpelling == null)
+            {
+                return false;
+            }
+            try
+            {
+                return string.Equals(
+                    entryName.Normalize(),
+                    normalizedSpelling,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        private static readonly IReadOnlyList<TimeZoneInfo> _fingerprintZones =
             TimeZoneInfo.GetSystemTimeZones();
 
         /// <summary>
@@ -1004,7 +1112,7 @@ namespace DTXMania.Game.Lib.Song
 
             var candidateUtc = candidateInfo.LastWriteTimeUtc;
             var offset = storedReading - candidateUtc;
-            return FingerprintZones.Any(zone =>
+            return _fingerprintZones.Any(zone =>
                 zone.GetUtcOffset(candidateUtc) == offset);
         }
 
