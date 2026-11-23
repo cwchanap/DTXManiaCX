@@ -674,15 +674,6 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
-                // An accessible but empty catalog cannot back a warm start even
-                // when roots carry watermarks (every song pruned or rejected):
-                // enumerate instead of publishing an empty hierarchy.
-                if (!await _catalog.HasAnySongsAsync())
-                {
-                    return true;
-                }
-
-                // Check for filesystem changes by comparing directory modification times
                 // Cache freshness must evaluate the same canonical root set as database
                 // hierarchy rebuilds and filesystem enumeration. Otherwise duplicate or
                 // overlapping configured roots can double-count charts here while the
@@ -690,6 +681,22 @@ namespace DTXMania.Game.Lib.Song
                 var canonicalRoots = _rootPolicy.Validate(searchPaths)
                     .CanonicalRoots
                     .ToArray();
+
+                // An accessible but empty catalog cannot back a warm start even
+                // when roots carry watermarks (every song pruned): enumerate
+                // instead of publishing an empty hierarchy. Persisted
+                // rejected-tab counts are the exception: a catalog the last
+                // scan itself emptied by rejecting every tab is a stable result
+                // the freshness check below can reuse, so startup does not
+                // re-enumerate unchanged files just to rediscover them.
+                if (!await _catalog.HasAnySongsAsync()
+                    && await _catalog.GetRejectedChartCountAsync(canonicalRoots)
+                        .ConfigureAwait(false) == 0)
+                {
+                    return true;
+                }
+
+                // Check for filesystem changes by comparing directory modification times
                 var changeDetected = await DetectFilesystemChangesAsync(canonicalRoots);
                 if (changeDetected)
                 {
@@ -740,6 +747,7 @@ namespace DTXMania.Game.Lib.Song
                 int missingFiles = 0;
                 int updatedFiles = 0;
                 int totalFiles = 0;
+                var repairs = new List<(SongChart Chart, string NewPath)>();
 
                 foreach (var chart in charts)
                 {
@@ -751,14 +759,49 @@ namespace DTXMania.Game.Lib.Song
 
                         if (!string.IsNullOrEmpty(newPath))
                         {
-                            // Found the file in a new location - update database
-                            await UpdateChartFilePathAsync(chart.Id, newPath);
-                            updatedFiles++;
+                            repairs.Add((chart, newPath));
                         }
                         else
                         {
                             missingFiles++;
                         }
+                    }
+                }
+
+                // Two missing rows can verify against the same file (identical
+                // copies of a chart under two deleted directories, one
+                // reappearing elsewhere). Persisting in row order would let the
+                // first save win while the second dies on the unique FilePath
+                // index — and the rescan would then delete the loser with its
+                // scores. A contested file has no provable owner, so every
+                // claim on it is left missing for the rescan to resolve.
+                var claimsByPath = new Dictionary<string, int>(
+                    SongPathIdentity.CanonicalComparer);
+                foreach (var (_, newPath) in repairs)
+                {
+                    if (SongPathIdentity.TryNormalize(newPath, out var normalizedClaim))
+                    {
+                        claimsByPath[normalizedClaim] =
+                            claimsByPath.GetValueOrDefault(normalizedClaim) + 1;
+                    }
+                }
+
+                foreach (var (chart, newPath) in repairs)
+                {
+                    var contested =
+                        SongPathIdentity.TryNormalize(newPath, out var normalizedClaim) &&
+                        claimsByPath[normalizedClaim] > 1;
+
+                    // Found the file in a new location - update database. Only a
+                    // repair that persists counts: a failed save stays missing
+                    // so the rescan still runs.
+                    if (!contested && await UpdateChartFilePathAsync(chart.Id, newPath))
+                    {
+                        updatedFiles++;
+                    }
+                    else
+                    {
+                        missingFiles++;
                     }
                 }
 
@@ -874,20 +917,22 @@ namespace DTXMania.Game.Lib.Song
         /// compare sizes against — the persisted <see cref="SongChart.FileSize"/>
         /// is the fingerprint. Charts without a persisted size (legacy or
         /// seeded rows) are treated as unverifiable and left for the rescan.
-        /// The candidate's name must also equal the recorded name exactly: the
-        /// enumeration pattern treats '?' and '*' in the recorded name as
+        /// The candidate's name must also equal the recorded name literally:
+        /// the enumeration pattern treats '?' and '*' in the recorded name as
         /// wildcards, so without this a differently named same-size file could
-        /// inherit the missing chart's scores.
+        /// inherit the missing chart's scores. Case folds where the filesystem
+        /// does — SET.def stores its written spelling while enumeration
+        /// returns the disk spelling, and on Windows/macOS a case-only
+        /// difference still names the same file.
         /// </summary>
         private bool IsVerifiedMoveCandidate(SongChart chart, string candidatePath)
         {
             try
             {
                 return chart.FileSize > 0 &&
-                    string.Equals(
+                    SongPathIdentity.LegacyAliasComparer.Equals(
                         Path.GetFileName(chart.FilePath),
-                        Path.GetFileName(candidatePath),
-                        StringComparison.Ordinal) &&
+                        Path.GetFileName(candidatePath)) &&
                     new FileInfo(candidatePath).Length == chart.FileSize;
             }
             catch (Exception)
@@ -899,21 +944,25 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Updates the file path for a chart in the database
         /// </summary>
-        private async Task UpdateChartFilePathAsync(int chartId, string newPath)
+        private async Task<bool> UpdateChartFilePathAsync(int chartId, string newPath)
         {
             try
             {
                 using var context = _database.CreateContext();
                 var chart = await context.SongCharts.FindAsync(chartId);
-                if (chart != null)
+                if (chart == null)
                 {
-                    chart.FilePath = newPath;
-                    await context.SaveChangesAsync();
+                    return false;
                 }
+
+                chart.FilePath = newPath;
+                await context.SaveChangesAsync();
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error updating chart file path for ID {ChartId}", chartId);
+                return false;
             }
         }
 
