@@ -1,6 +1,6 @@
 # Issue #215 — committed visual evidence
 
-This directory contains **four historical before/after pair PNGs**, plus **one final-fix-wave full-resolution PNG and its telemetry JSON** listed below. Only these images/JSONs and this manifest are committed here. Pair frames are reduced to 640×360 each; the new single-frame export is a 1280×720 virtual-target capture. Resizing/annotation is evidence assembly, not production artwork.
+This directory now keeps only the **normal-Result pair PNG**, the **Saved-run telemetry JSON** and this manifest; the other linked captures resolve to the historical capture commit `5e8b47e3` in Git history. Pair frames are reduced to 640×360 each; the single-frame export is a 1280×720 virtual-target capture. Resizing/annotation is evidence assembly, not production artwork.
 
 ## Historical matched-fixture pairs (Tasks 1–4)
 

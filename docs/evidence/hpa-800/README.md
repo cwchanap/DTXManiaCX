@@ -25,6 +25,8 @@ Baseline and implementation Result screenshots were byte-identical.
   from the real MCP transcript, including Lanes/Tab screenshots, Result and
   Performance-to-SongSelect Back. The suite drove the game through JSON-RPC;
   MCP observed and captured it. The shell ran the test commands.
+  The Result state reported `stageCompleted` `true` and `completionReason`
+  `SongComplete`. The following SongSelect state reported `stagePhase` `Normal`.
 
 The native game used the null audio driver and reported silent GameTime clock
 fallback in gameplay. These results do not establish audible playback or audio
