@@ -380,6 +380,13 @@ namespace DTXMania.Game.Lib.Song
                 placeholder.DatabaseSong = resolvedCharts[0].Song;
                 placeholder.DatabaseChart = resolvedCharts[0];
                 placeholder.DatabaseSongId = resolvedCharts[0].SongId;
+                // The chart set the slots were built from, exactly as the warm
+                // rebuild attaches it in CreateSongNodeFromDatabaseEntities:
+                // GetCurrentDifficultyChart selects from this, not the
+                // DatabaseSong.Charts navigation collection, so a persisted
+                // row whose parse failed on this scan can never be picked for
+                // gameplay while its slot shows a successful sibling.
+                placeholder.ExistingCharts = resolvedCharts.ToArray();
                 HydrateScoreVariants(placeholder, resolvedCharts);
             }
         }

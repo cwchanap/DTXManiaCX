@@ -60,7 +60,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             CancellationToken,
             Task<SongEnumerationBatch>>? buildEnumerationBatchAsync = null,
         Action<SongEnumerationBatch, IReadOnlyDictionary<string, SongChart>>? finalizePendingNodes = null,
-        Action<SongEnumerationBatch>? publishEnumeration = null)
+        Action<SongEnumerationBatch>? publishEnumeration = null,
+        Func<string[], Task<SongDatabaseHierarchy?>>? prepareHierarchyFromDatabaseOnceAsync = null)
     {
         return new SongLibrary(
             new SongDatabase(_databasePath),
@@ -73,7 +74,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             importSongsAsync: importSongsAsync,
             buildEnumerationBatchAsync: buildEnumerationBatchAsync,
             finalizePendingNodes: finalizePendingNodes,
-            publishEnumeration: publishEnumeration);
+            publishEnumeration: publishEnumeration,
+            prepareHierarchyFromDatabaseOnceAsync: prepareHierarchyFromDatabaseOnceAsync);
     }
 
     [Fact]
@@ -2779,6 +2781,274 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal(before.Version, after.Version);
         Assert.Equal(before.RootSongs, after.RootSongs);
         Assert.Equal(before.ActiveRoots, after.ActiveRoots);
+    }
+
+    [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WhenPublicationAdvancesDuringPrepare_ShouldSkipCommit()
+    {
+        // The refresh captures roots and publication version under one lock,
+        // so a scan publishing while the hierarchy builds leaves the prepared
+        // snapshot stale: its commit must be skipped rather than clobber the
+        // newer publication.
+        using var prepareReached = new ManualResetEventSlim(false);
+        using var releasePrepare = new ManualResetEventSlim(false);
+        SongLibrary inner = null!;
+        inner = CreateManager(prepareHierarchyFromDatabaseOnceAsync: async paths =>
+        {
+            prepareReached.Set();
+            await Task.Run(() => releasePrepare.Wait());
+            return await inner.Hierarchy.PrepareHierarchyFromDatabaseOnceAsync(paths);
+        });
+        _manager = inner;
+        await SeedPublishedLibraryAsync();
+        var before = _manager.GetLibrarySnapshot();
+        var publishEvents = 0;
+        _manager.SongLibraryPublished += (_, _) => publishEvents++;
+
+        var refresh = _manager.RefreshSongListFromDatabaseAsync();
+        Assert.True(
+            prepareReached.Wait(TimeSpan.FromSeconds(5)),
+            "refresh did not reach hierarchy prepare within the gate timeout");
+        // An intervening publication bumps the version between the refresh's
+        // capture and its commit.
+        _manager.PublishEnumeration(new SongEnumerationBatch
+        {
+            ActiveRoots = new[] { _songsRoot },
+            DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+            Candidates = new List<SongImportCandidate>(),
+            RootNodes = new List<SongListNode>
+            {
+                new() { Type = NodeType.Score, Title = "Intervening" }
+            },
+            PendingSongs = new List<PendingSongNode>(),
+            Errors = new List<SongEnumerationError>(),
+            IsComplete = true
+        });
+        releasePrepare.Set();
+        await refresh;
+
+        var after = _manager.GetLibrarySnapshot();
+        Assert.Equal(1, publishEvents);
+        Assert.Equal(before.Version + 1, after.Version);
+        var surviving = Assert.Single(after.RootSongs);
+        Assert.Equal("Intervening", surviving.Title);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenIdenticalCopyIsOutsideImportScope_ShouldRepairPlayableDestination()
+    {
+        // An identical backup lives in a set.def directory that does not
+        // reference it: the importer ignores it, so it can neither be the
+        // repair target nor veto the single playable destination.
+        var rootA = Path.Combine(_testRoot, "ScopeA");
+        var rootB = Path.Combine(_testRoot, "ScopeB");
+        var original = WriteChart("ScopeA/Pack1/move.dtx", "Mover", 50);
+        var other = WriteChart("ScopeB/SetBacked/other.dtx", "Other", 30);
+        var backup = WriteChart("ScopeB/SetBacked/move.dtx", "Mover", 50);
+        await File.WriteAllTextAsync(
+            Path.Combine(rootB, "SetBacked", "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE other.dtx\n");
+        var stamp = DateTime.UtcNow.AddMinutes(-5);
+        File.SetLastWriteTimeUtc(original, stamp);
+        File.SetLastWriteTimeUtc(backup, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var moved = Path.Combine(rootB, "Playable", "move.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+        File.Move(original, moved);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var context = ManagerDatabaseService!.CreateContext();
+        var paths = (await context.SongCharts
+                .Select(c => c.FilePath)
+                .ToListAsync())
+            .OrderBy(p => p, StringComparer.Ordinal);
+        Assert.Equal(
+            new[] { other, SongPathIdentity.Normalize(moved) }
+                .OrderBy(p => p, StringComparer.Ordinal),
+            paths);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenMoveCandidateDiffersOnlyByNameCase_ShouldVerifyOnlyWhenVolumeFoldsCase()
+    {
+        // 'alias.dtx' and 'ALIAS.dtx' are the same file only where the
+        // filesystem folds case; on a case-sensitive volume the differently
+        // cased candidate must not inherit the missing chart's scores.
+        var rootA = Path.Combine(_testRoot, "CaseA");
+        var rootB = Path.Combine(_testRoot, "CaseB");
+        var original = WriteChart("CaseA/Pack/alias.dtx", "Alias", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var candidateDir = Path.Combine(rootB, "Pack2");
+        var candidate = Path.Combine(candidateDir, "ALIAS.dtx");
+        Directory.CreateDirectory(candidateDir);
+        File.Copy(original, candidate);
+        File.SetLastWriteTimeUtc(candidate, stamp);
+        File.Delete(original);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var context = ManagerDatabaseService!.CreateContext();
+        var row = await context.SongCharts.SingleAsync();
+        if (File.Exists(Path.Combine(candidateDir, "alias.dtx")))
+        {
+            Assert.Equal(SongPathIdentity.Normalize(candidate), row.FilePath);
+        }
+        else
+        {
+            Assert.Equal(SongPathIdentity.Normalize(original), row.FilePath);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenStoredMtimeReadsUnderAnotherZone_ShouldStillRepair()
+    {
+        // The persisted fingerprint is a local-time reading without an
+        // offset: a chart indexed at UTC+13:45 (Chatham) and verified under
+        // this machine's zone is the same instant read differently, so the
+        // moved file must still verify instead of losing the row's scores.
+        var rootA = Path.Combine(_testRoot, "ZoneA");
+        var rootB = Path.Combine(_testRoot, "ZoneB");
+        var original = WriteChart("ZoneA/Pack/zoned.dtx", "Zoned", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        // Re-stamp the stored fingerprint to the reading another zone would
+        // have produced for the same instant.
+        await using (var context = ManagerDatabaseService!.CreateContext())
+        {
+            var row = await context.SongCharts.SingleAsync();
+            row.LastModified = stamp + TimeSpan.FromMinutes(13 * 60 + 45);
+            await context.SaveChangesAsync();
+        }
+
+        var moved = Path.Combine(rootB, "Pack2", "zoned.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+        File.Move(original, moved);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        Assert.Equal(
+            SongPathIdentity.Normalize(moved),
+            (await check.SongCharts.SingleAsync()).FilePath);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenStoredMtimeDiffersBeyondAnyZone_ShouldNotRepair()
+    {
+        // A stored reading no installed zone's offset can produce belongs to
+        // a different file: the replacement keeps the row missing for the
+        // rescan rather than grafting the old chart's scores onto it.
+        var rootA = Path.Combine(_testRoot, "OffsetA");
+        var rootB = Path.Combine(_testRoot, "OffsetB");
+        var original = WriteChart("OffsetA/Pack/shift.dtx", "Shift", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        await using (var context = ManagerDatabaseService!.CreateContext())
+        {
+            var row = await context.SongCharts.SingleAsync();
+            row.LastModified = stamp + TimeSpan.FromHours(26);
+            await context.SaveChangesAsync();
+        }
+
+        var moved = Path.Combine(rootB, "Pack2", "shift.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+        File.Move(original, moved);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        Assert.Equal(
+            SongPathIdentity.Normalize(original),
+            (await check.SongCharts.SingleAsync()).FilePath);
+    }
+
+    [Fact]
+    public async Task UpdateChartFilePathAsync_WhenStagedRepairWentStale_ShouldLeaveRowUntouched()
+    {
+        await SeedPublishedLibraryAsync();
+        SongChart snapshot;
+        await using (var context = ManagerDatabaseService!.CreateContext())
+        {
+            snapshot = await context.SongCharts.AsNoTracking().SingleAsync();
+        }
+
+        // A verified-lookalike destination while the recorded file is back on
+        // disk: the save must leave the row for the path-matching rescan
+        // instead of redirecting it.
+        var staged = Path.Combine(
+            _songsRoot, "Returned", Path.GetFileName(snapshot.FilePath));
+        Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+        File.Copy(snapshot.FilePath, staged);
+        File.SetLastWriteTimeUtc(
+            staged, new FileInfo(snapshot.FilePath).LastWriteTimeUtc);
+
+        Assert.False(
+            await _manager.Scanner.UpdateChartFilePathAsync(snapshot, staged));
+
+        // A snapshot whose recorded path drifted from the live row also fails.
+        snapshot.FilePath += ".stale";
+        Assert.False(
+            await _manager.Scanner.UpdateChartFilePathAsync(snapshot, staged));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        var row = await check.SongCharts.SingleAsync();
+        Assert.False(row.FilePath.EndsWith(".stale", StringComparison.Ordinal));
+        Assert.NotEqual(SongPathIdentity.Normalize(staged), row.FilePath);
+    }
+
+    [Fact]
+    public async Task FinalizePendingNodes_ShouldAttachOnlyResolvedChartsAsExistingCharts()
+    {
+        await _manager.InitializeAsync();
+        var first = WriteChart("Songs/Filtered/basic.dtx", "Filtered", 30);
+        WriteChart("Songs/Filtered/extreme.dtx", "Filtered", 80);
+
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+        var pending = Assert.Single(batch.PendingSongs);
+        Assert.Equal(2, pending.OrderedChartPaths.Count);
+
+        // Only one of the pending chart paths resolves to a persisted row:
+        // the node's gameplay chart set must be that resolved set, not the
+        // song's navigation collection — a failed-parse row can linger there.
+        var import = await new SongCatalogStore(ManagerDatabaseService!)
+            .ImportSongsAsync(
+                new SongBulkImportRequest(
+                    batch.ActiveRoots,
+                    batch.DiscoveredChartPaths,
+                    batch.Candidates),
+                progress: null,
+                CancellationToken.None);
+        var resolvedOnly = import.ChartsByPath
+            .Where(pair => pair.Key == first)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        _manager.Hierarchy.FinalizePendingNodes(batch, resolvedOnly);
+
+        var existingCharts = Assert.IsType<SongChart[]>(
+            pending.Placeholder.ExistingCharts);
+        var existing = Assert.Single(existingCharts);
+        Assert.Equal(first, existing.FilePath);
     }
 
     [Fact]

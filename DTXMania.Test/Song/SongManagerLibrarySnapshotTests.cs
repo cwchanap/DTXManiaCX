@@ -150,20 +150,30 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
 
             return titles.ToArray();
         });
-        Assert.True(
-            iterationStarted.Wait(TimeSpan.FromSeconds(5)),
-            "iteration task did not start within the gate timeout");
-        _manager.PublishEnumeration(CreateBatch(
-            ["/roots/two"],
-            [CreateScoreNode("Second")]));
-        releaseIteration.Set();
-        var enumeratedTitles = await iterationTask;
+        try
+        {
+            Assert.True(
+                iterationStarted.Wait(TimeSpan.FromSeconds(5)),
+                "iteration task did not start within the gate timeout");
+            _manager.PublishEnumeration(CreateBatch(
+                ["/roots/two"],
+                [CreateScoreNode("Second")]));
+            releaseIteration.Set();
+            var enumeratedTitles = await iterationTask;
 
-        Assert.Equal(["First"], enumeratedTitles);
-        Assert.Equal([firstNode], stableSnapshot.RootSongs);
-        Assert.Equal(
-            [System.IO.Path.GetFullPath("/roots/one")],
-            stableSnapshot.ActiveRoots);
+            Assert.Equal(["First"], enumeratedTitles);
+            Assert.Equal([firstNode], stableSnapshot.RootSongs);
+            Assert.Equal(
+                [System.IO.Path.GetFullPath("/roots/one")],
+                stableSnapshot.ActiveRoots);
+        }
+        finally
+        {
+            // Join the worker before the using-scope disposes either gate,
+            // including when the wait assertion or the publication failed.
+            releaseIteration.Set();
+            await iterationTask;
+        }
     }
 
     [Fact]

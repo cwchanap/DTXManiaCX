@@ -52,7 +52,8 @@ namespace DTXMania.Game.Lib.Song
                 CancellationToken,
                 Task<SongEnumerationBatch>>? buildEnumerationBatchAsync = null,
             Action<SongEnumerationBatch, IReadOnlyDictionary<string, SongChart>>? finalizePendingNodes = null,
-            Action<SongEnumerationBatch>? publishEnumeration = null)
+            Action<SongEnumerationBatch>? publishEnumeration = null,
+            Func<string[], Task<SongDatabaseHierarchy?>>? prepareHierarchyFromDatabaseOnceAsync = null)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
             // Both stores share the same non-null database instance (HPA-801).
@@ -111,6 +112,9 @@ namespace DTXMania.Game.Lib.Song
             FinalizePendingNodesCore = finalizePendingNodes
                 ?? ((batch, chartsByPath) => _hierarchy.FinalizePendingNodes(batch, chartsByPath));
             PublishEnumerationCore = publishEnumeration ?? PublishEnumeration;
+            PrepareHierarchyFromDatabaseOnceCoreAsync =
+                prepareHierarchyFromDatabaseOnceAsync
+                ?? PrepareHierarchyFromDatabaseOnceAsync;
         }
 
         #region Private Fields
@@ -200,6 +204,10 @@ namespace DTXMania.Game.Lib.Song
             { get; }
 
         internal Action<SongEnumerationBatch> PublishEnumerationCore
+            { get; }
+
+        internal Func<string[], Task<SongDatabaseHierarchy?>>
+            PrepareHierarchyFromDatabaseOnceCoreAsync
             { get; }
 
         // Initialization state tracking
@@ -746,7 +754,7 @@ namespace DTXMania.Game.Lib.Song
             }
 
             var hierarchy =
-                await PrepareHierarchyFromDatabaseOnceAsync(searchPaths)
+                await PrepareHierarchyFromDatabaseOnceCoreAsync(searchPaths)
                     .ConfigureAwait(false);
             if (hierarchy == null)
             {
