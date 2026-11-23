@@ -210,12 +210,6 @@ namespace DTXMania.Test.Song
                 Assert.Equal(1, score.PlayCount);
                 Assert.Equal(1, score.ClearCount);
                 Assert.True(score.FullCombo);
-                Assert.Equal(
-                    95,
-                    score.BestRank);
-                Assert.Equal(1, score.PlayCount);
-                Assert.Equal(1, score.ClearCount);
-                Assert.True(score.FullCombo);
                 // The summary save also records its own run line; the seeded
                 // retained run must survive the reopen alongside it.
                 Assert.Contains(

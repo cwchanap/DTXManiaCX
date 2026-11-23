@@ -360,38 +360,46 @@ namespace DTXMania.Test.Stage
                 var stageGame = DTXMania.Test.TestData.ReflectionHelpers.CreateGame();
                 SetPrivateField(stage, "_game", stageGame);
                 var (connection, library) = CreateInMemoryLibrary();
-                // Seed a real chart so the save transaction completes and the
-                // replacement task resolves (missing charts raise KeyNotFound).
-                var seededChart = await library.Database.SeedSongReturningChartAsync(
-                    new SongEntity { Title = "Retry Song" },
-                    new SongChart { FilePath = "/c/retry.dtx", HasDrumChart = true, DrumLevel = 50 });
-                SetPrivateField(stageGame, "_songLibrary", library);
-
-                var completedTask = Task.FromResult(ScoreSaveResult.Failed("previous"));
-                SetPrivateField(stage, "_scoreSaveTask", completedTask);
-                SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
-                SetPrivateField(stage, "_scoreSaveTimedOut", false);
-                SetPrivateField(stage, "_scoreSaveStopwatch", null);
-
-                SetPrivateField(stage, "_scoreSaveChart", seededChart.Chart);
-                SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
+                try
                 {
-                    RunId = Guid.NewGuid(),
-                    CompletionReason = CompletionReason.SongComplete
-                });
+                    // Seed a real chart so the save transaction completes and the
+                    // replacement task resolves (missing charts raise KeyNotFound).
+                    var seededChart = await library.Database.SeedSongReturningChartAsync(
+                        new SongEntity { Title = "Retry Song" },
+                        new SongChart { FilePath = "/c/retry.dtx", HasDrumChart = true, DrumLevel = 50 });
+                    SetPrivateField(stageGame, "_songLibrary", library);
 
-                InvokePrivateMethod(stage, "StartPerformanceSummarySave", seededChart.Chart);
+                    var completedTask = Task.FromResult(ScoreSaveResult.Failed("previous"));
+                    SetPrivateField(stage, "_scoreSaveTask", completedTask);
+                    SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
+                    SetPrivateField(stage, "_scoreSaveTimedOut", false);
+                    SetPrivateField(stage, "_scoreSaveStopwatch", null);
 
-                // The prior completed task was replaced (the method proceeded past the
-                // guard and started a new save).
-                var replacementTask = GetPrivateField<Task<ScoreSaveResult>>(stage, "_scoreSaveTask");
-                Assert.NotNull(replacementTask);
-                Assert.NotSame(completedTask, replacementTask);
+                    SetPrivateField(stage, "_scoreSaveChart", seededChart.Chart);
+                    SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
+                    {
+                        RunId = Guid.NewGuid(),
+                        CompletionReason = CompletionReason.SongComplete
+                    });
 
-                // Observe the replacement task so a late fault cannot leak. Against
-                // the empty in-memory database this resolves to Failed.
-                var replacementResult = await replacementTask!;
-                Assert.NotNull(replacementResult);
+                    InvokePrivateMethod(stage, "StartPerformanceSummarySave", seededChart.Chart);
+
+                    // The prior completed task was replaced (the method proceeded past the
+                    // guard and started a new save).
+                    var replacementTask = GetPrivateField<Task<ScoreSaveResult>>(stage, "_scoreSaveTask");
+                    Assert.NotNull(replacementTask);
+                    Assert.NotSame(completedTask, replacementTask);
+
+                    // Observe the replacement task so a late fault cannot leak. Against
+                    // the empty in-memory database this resolves to Failed.
+                    var replacementResult = await replacementTask!;
+                    Assert.NotNull(replacementResult);
+                }
+                finally
+                {
+                    library.Dispose();
+                    connection.Dispose();
+                }
             }
         }
 

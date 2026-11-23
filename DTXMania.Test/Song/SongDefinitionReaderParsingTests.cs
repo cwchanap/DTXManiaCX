@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,7 @@ namespace DTXMania.Test.Song;
 /// SongDefinitionReader took ownership of definition line reading, encoding
 /// fallback, normalization, parsing and metadata (HPA-801 Decision C/E).
 /// </summary>
+[Trait("Category", "Unit")]
 public class SongDefinitionReaderParsingTests : IDisposable
 {
     private readonly SongDefinitionReader _reader = new();
@@ -100,7 +102,6 @@ public class SongDefinitionReaderParsingTests : IDisposable
         Assert.Equal("#TITLE My Song", result);
     }
 
-    [Trait("Category", "Unit")]
     [Theory]
     [InlineData("#  TITLE Sample Song", "#TITLE Sample Song")]
     [InlineData("#TITLE  Sample Song", "#TITLE Sample Song")]
@@ -323,13 +324,23 @@ public class SongDefinitionReaderParsingTests : IDisposable
         // The injected ReadAllLines seam is the one read seam for the fallback
         // chain (HPA-801 Decision E): every configured encoding is retried, and
         // a persistent failure is still reported exactly once per file.
+        var expectedEncodings = (List<Encoding>)typeof(SongDefinitionReader)
+            .GetMethod("BuildSetDefEncodings", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, null)!;
+
+        var attempts = 0;
         var (reader, logger) = CreateLoggedReader((_, _, _) =>
-            Task.FromException<string[]>(new IOException("injected read failure")));
+        {
+            Interlocked.Increment(ref attempts);
+            return Task.FromException<string[]>(new IOException("injected read failure"));
+        });
         var path = Path.Combine(CreateTempDirectory(), "set.def");
 
         Assert.Null(reader.ReadSetDefLines(path));
         Assert.Null(reader.ReadSetDefLines(path));
 
+        // Each call walks the whole encoding list before giving up.
+        Assert.Equal(expectedEncodings.Count * 2, attempts);
         logger.Verify(
             l => l.Log(
                 LogLevel.Warning,

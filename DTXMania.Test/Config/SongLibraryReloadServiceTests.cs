@@ -235,32 +235,31 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
                 // SQLite can briefly retain a sidecar file after disposal.
             }
         }
-
     }
 
-        /// <summary>
-        /// Minimal IStageGame stub exposing one game-owned library, for wiring
-        /// the production SongLibraryReloadService constructor (HPA-801).
-        /// </summary>
-        private sealed class TestStageGame : DTXMania.Game.Lib.Stage.IStageGame
-        {
-            public TestStageGame(SongLibrary library) => SongLibrary = library;
+    /// <summary>
+    /// Minimal IStageGame stub exposing one game-owned library, for wiring
+    /// the production SongLibraryReloadService constructor (HPA-801).
+    /// </summary>
+    private sealed class TestStageGame : DTXMania.Game.Lib.Stage.IStageGame
+    {
+        public TestStageGame(SongLibrary library) => SongLibrary = library;
 
-            public SongLibrary? SongLibrary { get; }
+        public SongLibrary? SongLibrary { get; }
 
-            public Microsoft.Xna.Framework.Graphics.GraphicsDevice GraphicsDevice => throw new NotSupportedException();
-            public DTXMania.Game.Lib.Stage.IStageManager StageManager => throw new NotSupportedException();
-            public DTXMania.Game.Lib.Config.IConfigManager ConfigManager => throw new NotSupportedException();
-            public DTXMania.Game.Lib.Input.InputManagerCompat InputManager => throw new NotSupportedException();
-            public DTXMania.Game.Lib.Graphics.IGraphicsManager GraphicsManager => throw new NotSupportedException();
-            public DTXMania.Game.Lib.Resources.IResourceManager ResourceManager => throw new NotSupportedException();
-            public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory => throw new NotSupportedException();
-            public bool CanPerformStageTransition() => throw new NotSupportedException();
-            public void MarkStageTransition() { }
-            public Microsoft.Xna.Framework.Point? MapMouseToVirtual(Microsoft.Xna.Framework.Point windowPoint) => null;
-            public DTXMania.Game.Lib.UI.Components.ITextInputSource? GetTextInputSource() => null;
-            public void RequestExit() { }
-        }
+        public Microsoft.Xna.Framework.Graphics.GraphicsDevice GraphicsDevice => throw new NotSupportedException();
+        public DTXMania.Game.Lib.Stage.IStageManager StageManager => throw new NotSupportedException();
+        public DTXMania.Game.Lib.Config.IConfigManager ConfigManager => throw new NotSupportedException();
+        public DTXMania.Game.Lib.Input.InputManagerCompat InputManager => throw new NotSupportedException();
+        public DTXMania.Game.Lib.Graphics.IGraphicsManager GraphicsManager => throw new NotSupportedException();
+        public DTXMania.Game.Lib.Resources.IResourceManager ResourceManager => throw new NotSupportedException();
+        public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory => throw new NotSupportedException();
+        public bool CanPerformStageTransition() => throw new NotSupportedException();
+        public void MarkStageTransition() { }
+        public Microsoft.Xna.Framework.Point? MapMouseToVirtual(Microsoft.Xna.Framework.Point windowPoint) => null;
+        public DTXMania.Game.Lib.UI.Components.ITextInputSource? GetTextInputSource() => null;
+        public void RequestExit() { }
+    }
 
     private static SongEnumerationResult CreateResult(
         SongEnumerationOutcome outcome,

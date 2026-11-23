@@ -387,28 +387,6 @@ namespace DTXMania.Test.Song
             Assert.True(score.FullCombo);  // preserved from the first clear, not overwritten
         }
 
-        [Fact]
-        public async Task GetTopScoresForSpeedAsync_ShouldReturnScoresSortedByBestScoreAndRespectLimit()
-        {
-            await _databaseService.InitializeDatabaseAsync();
-
-            var (_, firstChart) = await AddSongAsync("First", "Coverage Bot", "first.dtx", drumLevel: 50);
-            var (_, secondChart) = await AddSongAsync("Second", "Coverage Bot", "second.dtx", drumLevel: 50);
-            var (_, thirdChart) = await AddSongAsync("Third", "Coverage Bot", "third.dtx", drumLevel: 50);
-
-            await SaveScoreAsync(firstChart.Id, 600_000, 60.0, fullCombo: false);
-            await SaveScoreAsync(secondChart.Id, 950_000, 98.0, fullCombo: true);
-            await SaveScoreAsync(thirdChart.Id, 800_000, 83.0, fullCombo: false);
-
-            var topScores = await new SongScoreStore(_databaseService).GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 2);
-
-            Assert.Equal(2, topScores.Count);
-            Assert.Equal(950_000, topScores[0].BestScore);
-            Assert.Equal("Second", topScores[0].Chart.Song.Title);
-            Assert.Equal(800_000, topScores[1].BestScore);
-            Assert.Equal("Third", topScores[1].Chart.Song.Title);
-        }
-
         private async Task<(int SongId, SongChart Chart)> AddSongAsync(
             string title,
             string artist,

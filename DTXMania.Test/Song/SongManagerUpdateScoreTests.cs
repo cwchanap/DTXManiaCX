@@ -22,9 +22,6 @@ public class SongManagerUpdateScoreTests : IDisposable
 
     public SongManagerUpdateScoreTests()
     {
-        _manager = new SongLibrary(new SongDatabase(Path.Combine(
-            Path.GetTempPath(), $"score_{Guid.NewGuid()}.db")));
-
         _testRoot = Path.Combine(
             Path.GetTempPath(),
             "DTXManiaCX_Tests",
@@ -33,6 +30,10 @@ public class SongManagerUpdateScoreTests : IDisposable
         _testDbPath = Path.Combine(_testRoot, "songs.db");
 
         Directory.CreateDirectory(_testRoot);
+
+        // The manager's own database lives inside _testRoot so Dispose's
+        // recursive delete removes it (HPA-801 fix wave).
+        _manager = new SongLibrary(new SongDatabase(_testDbPath));
     }
 
     public void Dispose()
@@ -86,9 +87,10 @@ public class SongManagerUpdateScoreTests : IDisposable
 
         Assert.True(result.IsSuccess);
 
-        var scores = await new SongScoreStore(ManagerDatabaseService!).GetTopScoresForSpeedAsync(EInstrumentPart.DRUMS, PlaySpeedRange.Default, 1);
-        var score = Assert.Single(scores);
-        Assert.Equal(chart.Id, score.ChartId);
+        var score = await new SongScoreStore(ManagerDatabaseService!).GetScoreWithHistoryAsync(
+            chart.Id, EInstrumentPart.DRUMS, PlaySpeedRange.Default);
+        Assert.NotNull(score);
+        Assert.Equal(chart.Id, score!.ChartId);
         Assert.Equal(800_000, score.BestScore);
         Assert.Equal(162.6, score.HighSkill, 1);
         Assert.Equal(162.6, score.SongSkill, 1);

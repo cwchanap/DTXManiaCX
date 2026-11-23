@@ -46,47 +46,59 @@ This directory contains the **fully implemented** Entity Framework Core entities
   - Enum conversions and cascade delete behaviors
   - Ready for production use
 
-- **SongDatabaseService** (`SongDatabaseService.cs`) ✅ **COMPREHENSIVE**
-  - **All-in-one database service** with both low-level and high-level operations
-  - Database initialization, migrations, backup/restore
-  - Complete CRUD operations for songs, scores, and hierarchy
-  - Search and query functionality
-  - Health checks and statistics
-  - Production-ready with example usage patterns built-in
+- **SongDatabase** (`SongDatabase.cs`) ✅
+  - Owns the database path/options, initialization lifecycle, schema versioning
+    (`PRAGMA user_version`) and short-lived `SongDbContext` creation (HPA-801)
+  - One shared instance backs both stores below; there is no all-in-one
+    service and no singleton
 
-## 🚀 Usage
+- **SongCatalogStore** (`SongCatalogStore.cs`) ✅
+  - Catalog-side persistence over the shared `SongDatabase`
+  - Atomic bulk import/cleanup (internal, driven by the library's scan),
+    chart inventory queries, per-root scan watermarks and rejected-tab counts
 
-### Initialize Database
+- **SongScoreStore** (`SongScoreStore.cs`) ✅
+  - Score-side persistence over the shared `SongDatabase`
+  - Transactional score saves with RunId receipt idempotency/race resolution,
+    plus score and play-history reads (one row per chart/instrument/speed variant)
+
+Higher-level composition lives outside this folder: `SongLibrary`
+(`Lib/Song/SongLibrary.cs`) owns enumeration and publications, the stateless
+`SongLibraryScanner` performs cold scans, `SongHierarchyBuilder` rebuilds warm
+trees from the database, and `SongScoreService`/`SongQueryService` expose score
+mutations and recent-plays/bookmark/search queries.
+
+## Usage
+
+### Initialize the database and share it across the stores
 ```csharp
-var databaseService = new SongDatabaseService("songs.db");
-await databaseService.InitializeDatabaseAsync();
+var database = new SongDatabase("songs.db");
+await database.InitializeDatabaseAsync();
+var catalog = new SongCatalogStore(database);
+var scores = new SongScoreStore(database);
 ```
 
-### Basic Operations
+### Common operations
 ```csharp
-// All operations are now in the single SongDatabaseService
-var databaseService = new SongDatabaseService("songs.db");
+// Update scores (uses ChartId, not SongId + DifficultyId)
+await scores.UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, performanceSummary);
 
-// Add a song from metadata (creates Song + SongChart + initial SongScores)
-int songId = await databaseService.AddSongAsync(songMetadata);
+// Read one score variant with its play history
+var score = await scores.GetScoreWithHistoryAsync(
+    chartId, EInstrumentPart.DRUMS, playSpeedPercent: 100);
 
-// Search songs
-var results = await databaseService.SearchSongsAsync("My Song Title");
-
-// Update scores (now uses ChartId instead of SongId + DifficultyId)
-await databaseService.UpdateScoreAsync(chartId, EInstrumentPart.DRUMS, 95000, 0.95, true);
-
-// Get top scores
-var topScores = await databaseService.GetTopScoresAsync(EInstrumentPart.DRUMS, 10);
-
-// Create folders and organize hierarchy
-int folderId = await databaseService.CreateFolderAsync("J-Rock", "Rock");
-await databaseService.AddSongToHierarchyAsync(songId, folderId);
+// Chart inventory and scan watermarks
+var songs = await catalog.GetSongsAsync();
+await catalog.SetEnumerationWatermarkAtomicallyAsync(watermarkUtc, canonicalRoots);
 ```
+
+Song/chart seeding for tests uses the `SongDbSeeder` extension methods in
+`DTXMania.Test/TestData/`; bulk import runs inside the library's scan
+transaction and is not a public store API.
 
 ### Direct DbContext Usage
 ```csharp
-using var context = databaseService.CreateContext();
+using var context = database.CreateContext();
 var topSongs = await context.Songs
     .Include(s => s.Charts)
     .ThenInclude(c => c.Scores)
@@ -103,7 +115,7 @@ var topSongs = await context.Songs
 - ✅ **DTXMania Compatibility**: Maintains compatibility with existing DTXMania patterns
 - ✅ **Migration Ready**: Supports EF Core migrations for database schema updates
 - ✅ **Cross-Platform**: SQLite support for Windows and Mac
-- ✅ **Production Ready**: Includes service layer and example implementations
+- ✅ **Production Ready**: Split catalog/score stores over one shared database instance
 
 ## Database Schema
 

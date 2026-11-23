@@ -159,7 +159,8 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Sets or clears the bookmark flag on a song. No-op if the song id is not
-        /// found. Safe no-op when the database is unavailable.
+        /// found. Throws when the database is unavailable so the caller's rollback
+        /// path can surface the fault (HPA-801).
         /// </summary>
         public async Task SetBookmarkAsync(int songId, bool bookmarked)
         {

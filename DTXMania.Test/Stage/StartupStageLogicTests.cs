@@ -151,9 +151,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public async Task UpdateCurrentPhase_WhenEnumerationCanceledWhileScopeActive_ShouldPostTerminalAndContinue()
         {
-            // Cancellation independent of stage retirement (e.g.
-            // SongLibrary.CancelEnumeration) must still publish a terminal
-            // outcome: _asyncPhaseSucceeded stays null otherwise and
+            // Cancellation independent of stage retirement must still publish a
+            // terminal outcome: _asyncPhaseSucceeded stays null otherwise and
             // UpdateCurrentPhase would never advance (startup hangs).
             var stage = CreateControlledStage();
             stage.PublishedHierarchy = new SongListNode { Title = "Original" };
@@ -1545,9 +1544,11 @@ namespace DTXMania.Test.Stage
             // HPA-801: inject a real test-owned library (never initialized; the
             // database constructor has no filesystem side effects) so tests that
             // exercise real operations get one, while the virtual seams stay in
-            // control for the controlled-stage subclasses.
+            // control for the controlled-stage subclasses. The path stays under
+            // the DTXManiaCX_Tests convention folder.
             ReflectionHelpers.SetPrivateField(stage, "_songLibrary", new SongLibrary(new SongDatabase(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"startup_logic_{Guid.NewGuid():N}.db"))));
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DTXManiaCX_Tests", "StartupStageLogicTests",
+                    $"startup_logic_{Guid.NewGuid():N}.db"))));
             ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(effectiveConfigData));
             ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<StartupStage>.Instance);
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "initial" });

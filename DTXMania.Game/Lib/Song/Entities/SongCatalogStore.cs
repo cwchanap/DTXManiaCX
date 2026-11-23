@@ -1025,11 +1025,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
-        /// Persists the UTC timestamp of the most recent successful enumeration.
-        /// Called only after an <see cref="SongEnumerationOutcome.ImportedAndPublished"/>
-        /// result so unrelated <c>SaveChangesAsync</c> calls (bookmark toggles, score
-        /// saves) cannot advance the recorded enumeration time and mask later chart
-        /// edits.
+        /// Writes a legacy global enumeration watermark into the
+        /// __EnumerationMetadata table. Production writes go through
+        /// <see cref="SetEnumerationWatermarkAtomicallyAsync"/>; this method is
+        /// retained as a test seeding helper for watermark/freshness states
+        /// (HPA-801). Never aborts the caller over metadata failures.
         /// </summary>
         public async Task SetLastSuccessfulEnumerationUtcAsync(DateTime utc)
         {
@@ -1050,9 +1050,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
-        /// Persists the same enumeration watermark for each canonical root that
-        /// participated in the successful scan. Roots omitted from the list keep
-        /// their previous watermark, which is required for partial multi-root scans.
+        /// Writes the same enumeration watermark for each given canonical root.
+        /// Production writes go through
+        /// <see cref="SetEnumerationWatermarkAtomicallyAsync"/>; this overload is
+        /// retained as a test seeding helper for per-root watermark states
+        /// (HPA-801). Roots omitted from the list keep their previous watermark.
         /// <para>
         /// Each root key is built with <see cref="SongPathIdentity.GetStableRootKey"/>
         /// so that a casing-only change in configuration cannot make a root's
