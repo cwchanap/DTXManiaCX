@@ -353,43 +353,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
-        /// Gets top scores for one explicit gameplay-speed bucket.
-        /// </summary>
-        public async Task<List<SongScoreEntity>> GetTopScoresForSpeedAsync(
-            EInstrumentPart instrument,
-            int playSpeedPercent,
-            int limit = 10)
-        {
-            using var context = _database.CreateContext();
-
-            return await context.SongScores
-                .Where(s => s.Instrument == instrument
-                    && s.PlaySpeedPercent == playSpeedPercent
-                    && s.BestScore > 0)
-                .Include(s => s.Chart)
-                .ThenInclude(c => c.Song)
-                .OrderByDescending(s => s.BestScore)
-                .Take(limit)
-                .ToListAsync();
-        }
-
-        /// <summary>
-        /// Loads a single <see cref="SongScore"/> with its <see cref="SongScore.PerformanceHistory"/>
-        /// collection eagerly loaded. Used by <see cref="SongLibrary"/> to refresh the
-        /// in-memory score cache after a score update without rebuilding the entire
-        /// song-list tree. This overload is retained only for legacy callers and reads
-        /// the default 100% speed variant.
-        /// </summary>
-        public async Task<SongScoreEntity> GetScoreWithHistoryAsync(int chartId, EInstrumentPart instrument)
-        {
-            return await GetScoreWithHistoryAsync(
-                chartId,
-                instrument,
-                playSpeedPercent: 100,
-                CancellationToken.None).ConfigureAwait(false);
-        }
-
-        /// <summary>
         /// Loads one exact chart/instrument/speed score variant with its own history.
         /// Returns null when that specific speed has not been played; another speed's
         /// score is never substituted.

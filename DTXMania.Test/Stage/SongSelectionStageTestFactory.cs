@@ -18,8 +18,11 @@ namespace DTXMania.Test.Stage
             game ??= CreateGame();
             // HPA-801: every test stage gets its own game-owned library over a
             // never-initialized temp database (construction is side-effect free).
+            // The path lives under the DTXManiaCX_Tests convention folder so any
+            // database a test materializes stays out of the %TEMP% root.
             SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabase(
-                Path.Combine(Path.GetTempPath(), $"songselect_logic_{System.Guid.NewGuid():N}.db"))));
+                Path.Combine(Path.GetTempPath(), "DTXManiaCX_Tests", "SongSelectionStageTestFactory",
+                    $"{System.Guid.NewGuid():N}.db"))));
             return new SongSelectionStage(game);
         }
 

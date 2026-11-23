@@ -65,9 +65,6 @@ namespace DTXMania.Test.Song
                 seeded.ChartId,
                 EInstrumentPart.DRUMS,
                 playSpeedPercent: 125);
-            var compatibilityDefault = await new SongScoreStore(_service).GetScoreWithHistoryAsync(
-                seeded.ChartId,
-                EInstrumentPart.DRUMS);
 
             Assert.NotNull(defaultSpeed);
             Assert.Equal(100, defaultSpeed.PlaySpeedPercent);
@@ -80,8 +77,6 @@ namespace DTXMania.Test.Song
             Assert.Equal(4, Assert.Single(slowerSpeed.PerformanceHistory).PitchSemitones);
 
             Assert.Null(unplayedSpeed);
-            Assert.NotNull(compatibilityDefault);
-            Assert.Equal(100, compatibilityDefault.PlaySpeedPercent);
         }
 
         [Fact]
@@ -117,30 +112,6 @@ namespace DTXMania.Test.Song
                     .PitchSemitones);
             Assert.True(
                 variants[75].LastPlayedAt > variants[100].LastPlayedAt);
-        }
-
-        [Fact]
-        public async Task GetTopScoresForSpeedAsync_ShouldReturnOnlyRequestedSpeedBucket()
-        {
-            await _service.InitializeDatabaseAsync();
-            await SeedSongAsync(
-                "Top variants",
-                (100, 100000, 0, DateTime.UtcNow.AddMinutes(-1)),
-                (75, 900000, 0, DateTime.UtcNow));
-
-            var defaultBucket = await new SongScoreStore(_service).GetTopScoresForSpeedAsync(
-                EInstrumentPart.DRUMS,
-                playSpeedPercent: 100);
-            var slower = await new SongScoreStore(_service).GetTopScoresForSpeedAsync(
-                EInstrumentPart.DRUMS,
-                playSpeedPercent: 75);
-
-            Assert.Single(defaultBucket);
-            Assert.Equal(100, defaultBucket[0].PlaySpeedPercent);
-            Assert.Equal(100000, defaultBucket[0].BestScore);
-            Assert.Single(slower);
-            Assert.Equal(75, slower[0].PlaySpeedPercent);
-            Assert.Equal(900000, slower[0].BestScore);
         }
 
         private async Task<(int SongId, int ChartId)> SeedSongAsync(

@@ -253,13 +253,6 @@ namespace DTXMania.Test.Song
             }
         }
 
-        [Fact]
-        public void CancelEnumeration_ShouldNotThrow()
-        {
-            // Act & Assert (should not throw)
-            _manager.CancelEnumeration();
-        }
-
         #endregion
 
         #region Helper Method Tests

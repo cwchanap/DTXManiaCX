@@ -2,20 +2,15 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
-using DTXMania.Game.Lib.Song.Import;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
-using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Game.Lib.Song
 {
@@ -363,7 +358,6 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// <summary>
         /// Marks the song manager as fully initialized
         /// </summary>
         public void SetInitialized()
@@ -391,15 +385,7 @@ namespace DTXMania.Game.Lib.Song
             {
                 await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
             }
-            else
-            {
-            }
         }
-
-        #endregion
-
-        #region Initialization and Database Management
-
 
         #endregion
 
@@ -728,17 +714,6 @@ namespace DTXMania.Game.Lib.Song
             IProgress<T>
         {
             public void Report(T value) => report(value);
-        }
-
-        /// <summary>
-        /// Cancels ongoing enumeration
-        /// </summary>
-        public void CancelEnumeration()
-        {
-            lock (_lockObject)
-            {
-                _enumCancellation?.Cancel();
-            }
         }
 
         /// <summary>
@@ -1229,7 +1204,6 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
-        /// <summary>
         /// <summary>
         /// The library is game-owned for the whole process lifetime (HPA-801):
         /// the singleton-era <c>Clear()</c>/<c>ResetInstanceForTesting()</c> were

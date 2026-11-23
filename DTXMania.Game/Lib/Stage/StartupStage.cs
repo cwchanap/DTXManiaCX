@@ -830,9 +830,8 @@ namespace DTXMania.Game.Lib.Stage
             IProgress<EnumerationProgress> progress = new InlineProgress<EnumerationProgress>(
                 scope.Latest<EnumerationProgress>(ApplyEnumerationProgress));
 
-            // A cancellation that is not a stage retirement (e.g.
-            // SongLibrary.CancelEnumeration) reaches onError via the scope, so the
-            // phase still gets a terminal outcome and advances.
+            // A cancellation that is not a stage retirement reaches onError via
+            // the scope, so the phase still gets a terminal outcome and advances.
             scope.RunAsync(
                 _ => RunSongLoadChainAsync(songPaths, progress, scope),
                 onSuccess: _ =>

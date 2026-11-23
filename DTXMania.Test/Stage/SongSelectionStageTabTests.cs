@@ -1176,44 +1176,55 @@ namespace DTXMania.Test.Stage
         public async Task ToggleBookmarkFromBookmarksTab_WhenStaleLoadCompletesAfterUnbookmark_ShouldKeepRowRemoved()
         {
             var stage = CreateStage();
-            await LibraryOf(stage).InitializeAsync(); // the toggle persists for real
-            var node = Score("Song", 42, "/c/song.dtx");
-            node.DatabaseSong!.IsBookmarked = true;
-            var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
-            AttachCoreUi(stage, display);
-            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
-            SetPrivateField(stage, "_bookmarkNodes", new List<SongListNode> { node });
-            SetPrivateField(stage, "_uiManager", null);
-            var loadStarted = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseLoad = new TaskCompletionSource<List<SongListNode>>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            SetPrivateField(stage, "_loadBookmarkedNodesAsync",
-                new Func<Task<List<SongListNode>>>(() =>
-                {
-                    loadStarted.TrySetResult(true);
-                    return releaseLoad.Task;
-                }));
-            stage.InstallTestBackgroundScope();
+            var dbPath = LibraryOf(stage).Database.DatabasePath;
+            try
+            {
+                await LibraryOf(stage).InitializeAsync(); // the toggle persists for real
+                var node = Score("Song", 42, "/c/song.dtx");
+                node.DatabaseSong!.IsBookmarked = true;
+                var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+                SetPrivateField(stage, "_bookmarkNodes", new List<SongListNode> { node });
+                SetPrivateField(stage, "_uiManager", null);
+                var loadStarted = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var releaseLoad = new TaskCompletionSource<List<SongListNode>>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                SetPrivateField(stage, "_loadBookmarkedNodesAsync",
+                    new Func<Task<List<SongListNode>>>(() =>
+                    {
+                        loadStarted.TrySetResult(true);
+                        return releaseLoad.Task;
+                    }));
+                stage.InstallTestBackgroundScope();
 
-            InvokePrivateMethod(stage, "BeginBookmarksLoad");
-            await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                InvokePrivateMethod(stage, "BeginBookmarksLoad");
+                await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-            var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
-                stage, "_pendingBookmarkWrites");
-            var releaseWrite = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            pending[42] = releaseWrite.Task;
+                var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
+                    stage, "_pendingBookmarkWrites");
+                var releaseWrite = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                pending[42] = releaseWrite.Task;
 
-            InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
-            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+                Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
 
-            releaseLoad.SetResult(new List<SongListNode> { node });
-            DrainAfterTerminalQueued(stage);
+                releaseLoad.SetResult(new List<SongListNode> { node });
+                DrainAfterTerminalQueued(stage);
 
-            Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
-            releaseWrite.SetResult(true);
-            await pending[42].WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
+                releaseWrite.SetResult(true);
+                await pending[42].WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                // Best-effort cleanup of the one database this test materializes;
+                // the remaining factory databases stay uninitialized (no file).
+                SqliteConnection.ClearAllPools();
+                try { File.Delete(dbPath); } catch { /* ignore */ }
+            }
         }
 
         // Fake InputManager that reports Tab key pressed on the first poll.

@@ -26,9 +26,6 @@ public class AchievementRateRoundTripTests : IDisposable
 
     public AchievementRateRoundTripTests()
     {
-        _manager = new SongLibrary(new SongDatabase(Path.Combine(
-            Path.GetTempPath(), $"achievement_{Guid.NewGuid()}.db")));
-
         _testRoot = Path.Combine(
             Path.GetTempPath(),
             "DTXManiaCX_Tests",
@@ -37,6 +34,10 @@ public class AchievementRateRoundTripTests : IDisposable
         _testDbPath = Path.Combine(_testRoot, "songs.db");
 
         Directory.CreateDirectory(_testRoot);
+
+        // The manager's own database lives inside _testRoot so Dispose's
+        // recursive delete removes it (HPA-801 fix wave).
+        _manager = new SongLibrary(new SongDatabase(_testDbPath));
     }
 
     [Fact]
@@ -158,6 +159,8 @@ public class AchievementRateRoundTripTests : IDisposable
 
     public void Dispose()
     {
+        _manager.Dispose();
+
         try
         {
             if (Directory.Exists(_testRoot))
