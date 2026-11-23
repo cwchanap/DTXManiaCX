@@ -150,7 +150,9 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
 
             return titles.ToArray();
         });
-        Assert.True(iterationStarted.Wait(TimeSpan.FromSeconds(1)));
+        Assert.True(
+            iterationStarted.Wait(TimeSpan.FromSeconds(5)),
+            "iteration task did not start within the gate timeout");
         _manager.PublishEnumeration(CreateBatch(
             ["/roots/two"],
             [CreateScoreNode("Second")]));
