@@ -48,7 +48,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetBookmarkedNodesAsync_ReturnsScoreNodesAlphabetically()
+        public async Task GetBookmarkedNodesAsync_ShouldReturnScoreNodesAlphabetically()
         {
             await _manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = ManagerDatabaseService!;
@@ -66,7 +66,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetBookmarkedNodesAsync_WhenDatabaseUninitialized_ReturnsEmptyList()
+        public async Task GetBookmarkedNodesAsync_WhenDatabaseUninitialized_ShouldReturnEmptyList()
         {
             // HPA-801: the database is never initialized in this fixture; queries
             // read as empty instead of throwing (pre-rename contract).
@@ -75,7 +75,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task SetBookmarkAsync_PersistsThroughManager()
+        public async Task SetBookmarkAsync_ShouldPersistThroughManager()
         {
             await _manager.InitializeAsync(purgeDatabaseFirst: true);
             var db = ManagerDatabaseService!;
@@ -87,7 +87,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task SetBookmarkAsync_WhenDatabaseUninitialized_ThrowsClearError()
+        public async Task SetBookmarkAsync_WhenDatabaseUninitialized_ShouldThrowClearError()
         {
             // HPA-801: writes fail clearly before Startup's initialization so the
             // caller's fault/rollback paths still engage.
@@ -96,7 +96,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetBookmarkedNodesAsync_WhenInitializationAttemptFailed_ThrowsLikeBrokenDatabase()
+        public async Task GetBookmarkedNodesAsync_WhenInitializationAttemptFailed_ShouldThrowLikeBrokenDatabase()
         {
             // HPA-801 fix round 1: a failed initialization is a failure state,
             // not availability. The pre-rename service reference was already
@@ -114,7 +114,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetBookmarkedNodesAsync_WhenPurgeCannotReinitialize_ThrowsLikeBrokenDatabase()
+        public async Task GetBookmarkedNodesAsync_WhenPurgeCannotReinitialize_ShouldThrowLikeBrokenDatabase()
         {
             // Purging an initialized database was also a throwing state
             // pre-rename: the service reference stayed non-null, so the query

@@ -674,14 +674,6 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
-                // If database has no songs, we need enumeration (narrow EXISTS
-                // read; the old five-COUNT aggregate statistics query is gone)
-                if (!await _catalog.HasAnySongsAsync())
-                {
-                    return true;
-                }
-
-
                 // Check for filesystem changes by comparing directory modification times
                 // Cache freshness must evaluate the same canonical root set as database
                 // hierarchy rebuilds and filesystem enumeration. Otherwise duplicate or
@@ -732,7 +724,7 @@ namespace DTXMania.Game.Lib.Song
                     if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                     {
                         // File is missing from recorded path - try to find it in new location
-                        string? newPath = await FindMovedFileAsync(chart.FilePath, activeRoots);
+                        string? newPath = await FindMovedFileAsync(chart, activeRoots);
 
                         if (!string.IsNullOrEmpty(newPath))
                         {
@@ -761,7 +753,10 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Attempts to find a moved file by searching for it in the supplied
-        /// canonical active roots. Returns the new path if found, null if not found.
+        /// canonical active roots. Returns the new path only when exactly one
+        /// candidate verifies against the persisted chart fingerprint; null
+        /// otherwise, leaving the missing row for the normal rescan to recreate
+        /// rather than redirecting it to an unrelated same-named chart.
         /// <para>
         /// HPA-801 Decision B: the roots are passed in explicitly by
         /// <see cref="CheckDatabaseFilesStillExist"/> instead of being read from
@@ -773,14 +768,17 @@ namespace DTXMania.Game.Lib.Song
         /// </para>
         /// </summary>
         private async Task<string?> FindMovedFileAsync(
-            string originalPath,
+            SongChart missingChart,
             IReadOnlyList<string> activeRoots)
         {
+            var originalPath = missingChart.FilePath;
             try
             {
                 var fileName = Path.GetFileName(originalPath);
                 if (string.IsNullOrEmpty(fileName))
                     return null;
+
+                var verified = new List<string>();
 
                 // Search for the file in all DTX directories within the active roots
                 foreach (var searchPath in activeRoots.Where(Directory.Exists))
@@ -791,12 +789,39 @@ namespace DTXMania.Game.Lib.Song
 
                     foreach (var foundFile in foundFiles)
                     {
-                        // Verify it's actually a DTX file and has similar content/size
-                        if (await IsLikelyMatchAsync(originalPath, foundFile))
+                        if (IsVerifiedMoveCandidate(missingChart, foundFile))
                         {
-                            return foundFile;
+                            verified.Add(foundFile);
                         }
                     }
+                }
+
+                if (verified.Count == 1)
+                {
+                    return verified[0];
+                }
+
+                // Multiple same-named, same-sized candidates: only a matching
+                // persisted mtime can pick the true move target. Anything else
+                // stays unverified instead of guessing and grafting the missing
+                // chart's scores onto an unrelated file.
+                if (verified.Count > 1)
+                {
+                    var mtimeMatches = verified
+                        .Where(path =>
+                        {
+                            try
+                            {
+                                return new FileInfo(path).LastWriteTime ==
+                                    missingChart.LastModified;
+                            }
+                            catch (Exception)
+                            {
+                                return false;
+                            }
+                        })
+                        .ToList();
+                    return mtimeMatches.Count == 1 ? mtimeMatches[0] : null;
                 }
 
                 return null;
@@ -809,31 +834,23 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Checks if a found file is likely the same as the original file
-        /// Uses filename and file size as basic heuristics
+        /// Checks whether <paramref name="candidatePath"/> is the same file as
+        /// the missing <paramref name="chart"/> using the persisted fingerprint.
+        /// A filename match alone never suffices: this check only runs when the
+        /// recorded path no longer exists, so there is no original file left to
+        /// compare sizes against — the persisted <see cref="SongChart.FileSize"/>
+        /// is the fingerprint. Charts without a persisted size (legacy or
+        /// seeded rows) are treated as unverifiable and left for the rescan.
         /// </summary>
-        private async Task<bool> IsLikelyMatchAsync(string originalPath, string candidatePath)
+        private bool IsVerifiedMoveCandidate(SongChart chart, string candidatePath)
         {
             try
             {
-                // Basic filename match (already checked by caller)
-                if (Path.GetFileName(originalPath) != Path.GetFileName(candidatePath))
-                    return false;
-
-                // Check file sizes match (good indicator it's the same file)
-                if (File.Exists(originalPath))
-                {
-                    var originalSize = new FileInfo(originalPath).Length;
-                    var candidateSize = new FileInfo(candidatePath).Length;
-                    return originalSize == candidateSize;
-                }
-
-                // If original doesn't exist, assume candidate is a match based on filename
-                return true;
+                return chart.FileSize > 0 &&
+                    new FileInfo(candidatePath).Length == chart.FileSize;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogWarning(ex, "Error comparing files {OriginalPath} vs {CandidatePath}", originalPath, candidatePath);
                 return false;
             }
         }
@@ -919,17 +936,23 @@ namespace DTXMania.Game.Lib.Song
                     + await _catalog.GetRejectedChartCountAsync(availableRoots).ConfigureAwait(false);
 
 
-                if (currentFileCount != databaseChartCount)
+                // Check if files in database still exist at their recorded paths
+                // (detects moves) BEFORE the count comparison: a verified move
+                // must repair the persisted path while the row is still matched
+                // to it. When a move coincides with an add/remove, the early
+                // count return would skip this repair, and the rescan — which
+                // matches charts by path only — would import the moved file as
+                // a new chart and delete the old row along with its scores.
+                // Scoped to the same available roots as the file/DB counts so
+                // retained charts belonging to a removed or unavailable root
+                // are not flagged as missing.
+                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(availableRoots);
+                if (filesMovedOrDeleted)
                 {
                     return true;
                 }
 
-                // Check if files in database still exist at their recorded paths
-                // (detects moves). Scoped to the same available roots as the
-                // file/DB counts above so retained charts belonging to a removed
-                // or unavailable root are not flagged as missing.
-                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(availableRoots);
-                if (filesMovedOrDeleted)
+                if (currentFileCount != databaseChartCount)
                 {
                     return true;
                 }

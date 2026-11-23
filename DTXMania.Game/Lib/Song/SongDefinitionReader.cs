@@ -70,15 +70,32 @@ namespace DTXMania.Game.Lib.Song
                 processedLine = NullBytePattern.Replace(processedLine, "");
                 processedLine = processedLine.Trim();
                 
-                // Quick check: if it's already a proper command line, return it
-                if (processedLine.StartsWith("#") && !processedLine.Contains("  ") && processedLine.Length > 1)
+                // Quick check: if it's already a proper command line, return it.
+                // A space right after '#' means the command itself is spaced out
+                // ("# L 5 F I L E x.dtx"), which is NOT intact and must go
+                // through reconstruction below.
+                if (processedLine.StartsWith("#") && !processedLine.Contains("  ") &&
+                    processedLine.Length > 1 && !char.IsWhiteSpace(processedLine[1]))
                 {
                     return processedLine;
                 }
-                
+
                 // Step 2: Handle spaced-out commands using compiled regex
                 if (processedLine.Contains("#"))
                 {
+                    // Spaced command: '#' separated from the command letters
+                    // ("# TITLE x", "# L 5 F I L E x.dtx") or a one-letter token
+                    // with a spaced continuation ("#T I T L E x"). The
+                    // single-token regexes below can only capture one fragment
+                    // ("L"), so rebuild the command token-by-token.
+                    var firstSpace = processedLine.IndexOf(' ');
+                    if (processedLine.StartsWith("#") &&
+                        processedLine.Length > 1 &&
+                        (char.IsWhiteSpace(processedLine[1]) || firstSpace == 2))
+                    {
+                        return ReconstructCorruptedLine(processedLine);
+                    }
+
                     // Try simple spaced pattern first: "# TITLE My Song" -> "#TITLE My Song"
                     var simpleMatch = HashSpacePattern.Match(processedLine);
                     if (simpleMatch.Success)
@@ -350,11 +367,11 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Reads the SET.def in <paramref name="directory"/> (if any) and returns a map of
-        /// chart file name (e.g. "bas.dtx", case-insensitive) to its authentic #LnLABEL
-        /// (e.g. "BASIC"). The database-load path uses this to recover difficulty-tier labels
-        /// for the performance-stage difficulty badge when the persisted SongChart.DifficultyLabel
-        /// is empty (legacy databases never stored it). Returns an empty map when there is no
-        /// SET.def or it declares no labelled difficulties.
+        /// resolved chart path to its authentic #LnLABEL (e.g. "BASIC"). The database-load
+        /// path uses this to recover difficulty-tier labels for the performance-stage
+        /// difficulty badge when the persisted SongChart.DifficultyLabel is empty (legacy
+        /// databases never stored it). Returns an empty map when there is no SET.def or it
+        /// declares no labelled difficulties.
         /// </summary>
         internal Dictionary<string, string> GetSetDefLabelsByFile(string directory)
         {
@@ -371,6 +388,7 @@ namespace DTXMania.Game.Lib.Song
             if (setDefPath == null)
                 return result;
 
+            var setDefDirectory = Path.GetDirectoryName(setDefPath);
             var lines = ReadSetDefLines(setDefPath);
             if (lines == null)
                 return result;
@@ -380,12 +398,15 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (!string.IsNullOrEmpty(file) && !string.IsNullOrEmpty(label))
                 {
-                    // Normalize to the bare file name. A legacy SET.def may reference a chart via a
-                    // relative path (e.g. "#L1FILE charts/bas.dtx"), but ResolveDifficultyLabel looks
-                    // up by Path.GetFileName(chart.FilePath) ("bas.dtx"). Storing the file name only
-                    // keeps the producer and consumer keys consistent so subdirectory references also
-                    // resolve; plain file names ("bas.dtx") are unaffected by GetFileName.
-                    result[Path.GetFileName(file)] = label;
+                    // Key by the chart's resolved path, not its file name: a
+                    // SET.def can list same-named charts in different
+                    // subdirectories ("easy/song.dtx" vs "hard/song.dtx"), and a
+                    // file-name key would let the last one overwrite the rest.
+                    // ResolveDifficultyLabel looks up the chart's full path, so
+                    // bare file names resolve relative to the set.def folder.
+                    var resolved = Path.GetFullPath(
+                        Path.Combine(setDefDirectory ?? "", file));
+                    result[SongPathIdentity.Normalize(resolved)] = label;
                 }
             }
             return result;

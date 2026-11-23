@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace DTXMania.Test.Song
+namespace DTXMania.Test.TestData
 {
     /// <summary>
     /// A database service whose schema initialization is scripted: the optional

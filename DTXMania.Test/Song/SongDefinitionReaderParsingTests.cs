@@ -79,7 +79,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
     #region NormalizeSetDefLine
 
     [Fact]
-    public void NormalizeSetDefLine_WhenNullLineIsProvided_ReturnsEmptyString()
+    public void NormalizeSetDefLine_WhenNullLineIsProvided_ShouldReturnEmptyString()
     {
         var result = _reader.NormalizeSetDefLine(null!);
 
@@ -87,7 +87,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
     }
 
     [Fact]
-    public void NormalizeSetDefLine_WhenHashSeparatedCommandIsUsed_CollapsesToSingleCommand()
+    public void NormalizeSetDefLine_WhenHashSeparatedCommandIsUsed_ShouldCollapseToSingleCommand()
     {
         var result = _reader.NormalizeSetDefLine("#  TITLE My Song");
 
@@ -95,7 +95,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
     }
 
     [Fact]
-    public void NormalizeSetDefLine_WhenBomAndNullBytesArePresent_StripsNoiseBeforeReturning()
+    public void NormalizeSetDefLine_WhenBomAndNullBytesArePresent_ShouldStripNoiseBeforeReturning()
     {
         var result = _reader.NormalizeSetDefLine("\uFEFF#TITLE My Song\u0000");
 
@@ -116,23 +116,21 @@ public class SongDefinitionReaderParsingTests : IDisposable
     }
 
     [Fact]
-    public void NormalizeSetDefLine_WithSpacedCommand_ShouldNotReturnEmpty()
+    public void NormalizeSetDefLine_WithSpacedCommand_ShouldNormalizeToUsableFileCommand()
     {
         var result = _reader.NormalizeSetDefLine("# L 5 F I L E hard.dtx");
 
-        Assert.NotNull(result);
-        Assert.NotEmpty(result!);
-        Assert.Contains("hard.dtx", result);
+        // Exact match: an unchanged input string must fail (a spaced command
+        // returned verbatim is dropped by ParseSetDefContent, losing the chart).
+        Assert.Equal("#L5FILE hard.dtx", result);
     }
 
     [Fact]
-    public void NormalizeSetDefLine_WithL1LabelSpacedPattern_ShouldNotReturnEmpty()
+    public void NormalizeSetDefLine_WithL1LabelSpacedPattern_ShouldNormalizeToUsableLabelCommand()
     {
         var result = _reader.NormalizeSetDefLine("# L 1 L A B E L Expert");
 
-        Assert.NotNull(result);
-        Assert.NotEmpty(result!);
-        Assert.Contains("Expert", result);
+        Assert.Equal("#L1LABEL Expert", result);
     }
 
     #endregion
@@ -140,7 +138,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
     #region ReconstructCorruptedLine
 
     [Fact]
-    public void ReconstructCorruptedLine_WhenSpacedKnownCommandIsUsed_RebuildsCommandAndValue()
+    public void ReconstructCorruptedLine_WhenSpacedKnownCommandIsUsed_ShouldRebuildCommandAndValue()
     {
         var result = _reader.ReconstructCorruptedLine("#T I T L E My Song");
 
@@ -148,7 +146,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
     }
 
     [Fact]
-    public void ReconstructCorruptedLine_WhenCommandCannotBeCompleted_UsesFinalFallback()
+    public void ReconstructCorruptedLine_WhenCommandCannotBeCompleted_ShouldUseFinalFallback()
     {
         var result = _reader.ReconstructCorruptedLine("#A B C Mystery Value");
 
@@ -161,7 +159,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
 
     [Theory]
     [MemberData(nameof(TryParseColorCases))]
-    public void TryParseColor_WhenInputIsProvided_ReturnsExpectedResult(string colorValue, bool expectedParsed, Color expectedColor)
+    public void TryParseColor_WhenInputIsProvided_ShouldReturnExpectedResult(string colorValue, bool expectedParsed, Color expectedColor)
     {
         var parsed = _reader.TryParseColor(colorValue, out var color);
 
@@ -170,7 +168,7 @@ public class SongDefinitionReaderParsingTests : IDisposable
     }
 
     [Fact]
-    public void TryParseColor_WhenNullIsProvided_ReturnsFalseAndLeavesDefaultColor()
+    public void TryParseColor_WhenNullIsProvided_ShouldReturnFalseAndLeaveDefaultColor()
     {
         var parsed = _reader.TryParseColor(null, out var color);
 
@@ -383,11 +381,11 @@ public class SongDefinitionReaderParsingTests : IDisposable
 
         var labels = _reader.GetSetDefLabelsByFile(dir);
 
-        Assert.Equal("BASIC", labels["bas.dtx"]);
-        Assert.Equal("ADVANCED", labels["adv.dtx"]);
-        Assert.Equal("EXTREME", labels["ext.dtx"]);
-        Assert.Equal("MASTER", labels["mas.dtx"]);
-        Assert.Equal("REAL", labels["real.dtx"]);
+        Assert.Equal("BASIC", labels[LabelKey(dir, "bas.dtx")]);
+        Assert.Equal("ADVANCED", labels[LabelKey(dir, "adv.dtx")]);
+        Assert.Equal("EXTREME", labels[LabelKey(dir, "ext.dtx")]);
+        Assert.Equal("MASTER", labels[LabelKey(dir, "mas.dtx")]);
+        Assert.Equal("REAL", labels[LabelKey(dir, "real.dtx")]);
     }
 
     [Fact]
@@ -410,11 +408,11 @@ public class SongDefinitionReaderParsingTests : IDisposable
 
         var labels = _reader.GetSetDefLabelsByFile(dir);
 
-        Assert.Equal("BASIC", labels["bas.dtx"]);
-        Assert.Equal("ADVANCED", labels["adv.dtx"]);
-        Assert.Equal("EXTREME", labels["ext.dtx"]);
-        Assert.Equal("MASTER", labels["mas.dtx"]);
-        Assert.Equal("初級", labels["haj.dtx"]);
+        Assert.Equal("BASIC", labels[LabelKey(dir, "bas.dtx")]);
+        Assert.Equal("ADVANCED", labels[LabelKey(dir, "adv.dtx")]);
+        Assert.Equal("EXTREME", labels[LabelKey(dir, "ext.dtx")]);
+        Assert.Equal("MASTER", labels[LabelKey(dir, "mas.dtx")]);
+        Assert.Equal("初級", labels[LabelKey(dir, "haj.dtx")]);
     }
 
     [Fact]
@@ -444,17 +442,18 @@ public class SongDefinitionReaderParsingTests : IDisposable
         var labels = _reader.GetSetDefLabelsByFile(dir);
 
         // The malformed lines are skipped; the well-formed L1 pair still resolves.
-        Assert.Equal("BASIC", labels["bas.dtx"]);
+        Assert.Equal("BASIC", labels[LabelKey(dir, "bas.dtx")]);
     }
 
     [Fact]
-    public void GetSetDefLabelsByFile_RelativeSubdirectoryPath_ShouldNormalizeKeyToFileName()
+    public void GetSetDefLabelsByFile_RelativeSubdirectoryPath_ShouldNormalizeKeyToResolvedPath()
     {
         // A legacy SET.def may reference a chart through a relative path such as
-        // "#L1FILE charts/bas.dtx". ResolveDifficultyLabel looks up by
-        // Path.GetFileName(chart.FilePath) ("bas.dtx"), so the label map must be keyed by
-        // the bare file name rather than the raw relative path, otherwise subdirectory
-        // references never match and the badge falls back to "Level N"/DTX.
+        // "#L1FILE charts/bas.dtx". ResolveDifficultyLabel looks up by the
+        // chart's resolved FilePath, so the label map must key on the path
+        // resolved relative to the set.def folder — not the raw relative path
+        // and not the bare file name, which would collide for same-named
+        // charts in different subdirectories.
         var dir = CreateTempDirectory();
         var content =
             "#TITLE Subdir song\n" +
@@ -464,10 +463,29 @@ public class SongDefinitionReaderParsingTests : IDisposable
 
         var labels = _reader.GetSetDefLabelsByFile(dir);
 
-        Assert.Equal("BASIC", labels["bas.dtx"]);
-        Assert.Equal("EXTREME", labels["ext.dtx"]);
-        Assert.False(labels.ContainsKey("charts/bas.dtx"));
-        Assert.False(labels.ContainsKey("charts/ext.dtx"));
+        Assert.Equal("BASIC", labels[LabelKey(dir, "charts/bas.dtx")]);
+        Assert.Equal("EXTREME", labels[LabelKey(dir, "charts/ext.dtx")]);
+        Assert.False(labels.ContainsKey("bas.dtx"));
+        Assert.False(labels.ContainsKey("ext.dtx"));
+    }
+
+    [Fact]
+    public void GetSetDefLabelsByFile_SameFileNameInDifferentSubdirectories_ShouldKeepDistinctLabels()
+    {
+        // "#L1FILE easy/song.dtx" BASIC and "#L3FILE hard/song.dtx" EXTREME:
+        // a file-name key would let EXTREME overwrite BASIC for both charts.
+        var dir = CreateTempDirectory();
+        var content =
+            "#TITLE Same-name song\n" +
+            "#L1LABEL BASIC\n#L1FILE easy/song.dtx\n" +
+            "#L3LABEL EXTREME\n#L3FILE hard/song.dtx\n";
+        File.WriteAllText(Path.Combine(dir, "set.def"), content, Encoding.UTF8);
+
+        var labels = _reader.GetSetDefLabelsByFile(dir);
+
+        Assert.Equal("BASIC", labels[LabelKey(dir, "easy/song.dtx")]);
+        Assert.Equal("EXTREME", labels[LabelKey(dir, "hard/song.dtx")]);
+        Assert.Equal(2, labels.Count);
     }
 
     [Fact]
@@ -490,8 +508,8 @@ public class SongDefinitionReaderParsingTests : IDisposable
         // Pass the chart's directory (charts/), not the song root.
         var labels = _reader.GetSetDefLabelsByFile(chartsDir);
 
-        Assert.Equal("BASIC", labels["bas.dtx"]);
-        Assert.Equal("EXTREME", labels["ext.dtx"]);
+        Assert.Equal("BASIC", labels[LabelKey(songDir, "charts/bas.dtx")]);
+        Assert.Equal("EXTREME", labels[LabelKey(songDir, "charts/ext.dtx")]);
     }
 
     [Fact]
@@ -530,8 +548,17 @@ public class SongDefinitionReaderParsingTests : IDisposable
         var dir = CreateTempDirectory();
         File.WriteAllText(Path.Combine(dir, "set.def"), "ignored on disk", Encoding.UTF8);
 
-        Assert.Equal("BASIC", reader.GetSetDefLabelsByFile(dir)["bas.dtx"]);
+        Assert.Equal("BASIC", reader.GetSetDefLabelsByFile(dir)[LabelKey(dir, "bas.dtx")]);
     }
+
+    /// <summary>
+    /// The dictionary key GetSetDefLabelsByFile writes for a chart reference:
+    /// the path resolved relative to the folder holding set.def, normalized the
+    /// same way ResolveDifficultyLabel normalizes the persisted chart path.
+    /// </summary>
+    private static string LabelKey(string setDefDirectory, string referencedPath) =>
+        SongPathIdentity.Normalize(
+            Path.GetFullPath(Path.Combine(setDefDirectory, referencedPath)));
 
     #endregion
 }

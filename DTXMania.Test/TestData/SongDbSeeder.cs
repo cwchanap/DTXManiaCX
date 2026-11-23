@@ -26,9 +26,11 @@ namespace DTXMania.Test.TestData
             ArgumentNullException.ThrowIfNull(chart);
 
             using var context = databaseService.CreateContext();
+            await using var transaction = await context.Database.BeginTransactionAsync();
             chart.Song = song;
             context.Songs.Add(song);
             context.SongCharts.Add(chart);
+            // The first save assigns chart.Id for the score rows below.
             await context.SaveChangesAsync();
 
             foreach (var instrument in EnumerateDeclaredInstruments(chart))
@@ -37,6 +39,7 @@ namespace DTXMania.Test.TestData
             }
 
             await context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return song.Id;
         }

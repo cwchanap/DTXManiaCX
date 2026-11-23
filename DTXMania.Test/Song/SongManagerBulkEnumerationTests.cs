@@ -388,6 +388,9 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     public async Task EnumerateAndImportSongsAsync_WithEmptyRoot_ShouldPublishEmptySnapshot()
     {
         await _manager.InitializeAsync();
+        var versionBefore = _manager.GetLibrarySnapshot().Version;
+        var publishEvents = 0;
+        _manager.SongLibraryPublished += (_, _) => publishEvents++;
 
         var result = await _manager.EnumerateAndImportSongsAsync(
             new[] { _songsRoot }, null, CancellationToken.None);
@@ -396,6 +399,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.True(result.Batch.IsComplete);
         Assert.Empty(_manager.RootSongs);
         Assert.Equal(0, _manager.DiscoveredScoreCount);
+        // The name promises a published empty snapshot: the version must have
+        // advanced exactly once, or a skipped publication would pass unseen.
+        Assert.Equal(versionBefore + 1, _manager.GetLibrarySnapshot().Version);
+        Assert.Equal(1, publishEvents);
     }
 
     [Fact]
@@ -2343,6 +2350,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // Subscribe after the warm rebuild so publishEvents counts only the test scan.
         acceptedEmpty.SongLibraryPublished += (_, _) => publishEvents++;
         var before = acceptedEmpty.GetLibrarySnapshot();
+        // The warm build must have actually published the seeded hierarchy —
+        // an empty `before` would make the preserved-snapshot asserts vacuous.
+        Assert.NotEmpty(before.RootSongs);
+        Assert.Contains(_songsRoot, before.ActiveRoots);
 
         var result = await acceptedEmpty.EnumerateAndImportSongsAsync(
             new[] { _songsRoot }, null, CancellationToken.None);
@@ -2450,15 +2461,23 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             new[] { _songsRoot }, null, CancellationToken.None);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        manager.Dispose();
+        try
+        {
+            manager.Dispose();
 
-        // Dispose cancels but does not mutate the slot: the enumeration still
-        // owns the source until its finally runs.
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
-            manager, "_enumCancellation"));
+            // Dispose cancels but does not mutate the slot: the enumeration still
+            // owns the source until its finally runs.
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+                manager, "_enumCancellation"));
+        }
+        finally
+        {
+            // A failed assertion must not leave the importer parked: release the
+            // gate and observe the scan so teardown doesn't hang on it.
+            release.SetResult();
+            try { await scan; } catch (OperationCanceledException) { }
+        }
 
-        release.SetResult();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan);
         Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
             manager, "_enumCancellation"));
     }
