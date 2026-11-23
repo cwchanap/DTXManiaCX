@@ -674,6 +674,14 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
+                // An accessible but empty catalog cannot back a warm start even
+                // when roots carry watermarks (every song pruned or rejected):
+                // enumerate instead of publishing an empty hierarchy.
+                if (!await _catalog.HasAnySongsAsync())
+                {
+                    return true;
+                }
+
                 // Check for filesystem changes by comparing directory modification times
                 // Cache freshness must evaluate the same canonical root set as database
                 // hierarchy rebuilds and filesystem enumeration. Otherwise duplicate or
@@ -714,6 +722,21 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 var charts = await _catalog.GetActiveChartsAsync(activeRoots);
+
+                // Paths already assigned to a catalog row belong to that row:
+                // an identical untouched copy of a moved chart must not count
+                // as a move candidate or break the unique-match tie-break,
+                // which would leave the moved chart unrepaired and lose its
+                // scores to the rescan.
+                var ownedPaths = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+                foreach (var ownedChart in charts)
+                {
+                    if (SongPathIdentity.TryNormalize(ownedChart.FilePath, out var ownedPath))
+                    {
+                        ownedPaths.Add(ownedPath);
+                    }
+                }
+
                 int missingFiles = 0;
                 int updatedFiles = 0;
                 int totalFiles = 0;
@@ -724,7 +747,7 @@ namespace DTXMania.Game.Lib.Song
                     if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                     {
                         // File is missing from recorded path - try to find it in new location
-                        string? newPath = await FindMovedFileAsync(chart, activeRoots);
+                        string? newPath = await FindMovedFileAsync(chart, activeRoots, ownedPaths);
 
                         if (!string.IsNullOrEmpty(newPath))
                         {
@@ -769,7 +792,8 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private async Task<string?> FindMovedFileAsync(
             SongChart missingChart,
-            IReadOnlyList<string> activeRoots)
+            IReadOnlyList<string> activeRoots,
+            ISet<string> ownedPaths)
         {
             var originalPath = missingChart.FilePath;
             try
@@ -789,6 +813,15 @@ namespace DTXMania.Game.Lib.Song
 
                     foreach (var foundFile in foundFiles)
                     {
+                        // A path owned by another chart row is that row's file:
+                        // it can neither be the repair target nor break the
+                        // unique-match tie-break.
+                        if (SongPathIdentity.TryNormalize(foundFile, out var normalizedFound) &&
+                            ownedPaths.Contains(normalizedFound))
+                        {
+                            continue;
+                        }
+
                         if (IsVerifiedMoveCandidate(missingChart, foundFile))
                         {
                             verified.Add(foundFile);
@@ -841,12 +874,20 @@ namespace DTXMania.Game.Lib.Song
         /// compare sizes against — the persisted <see cref="SongChart.FileSize"/>
         /// is the fingerprint. Charts without a persisted size (legacy or
         /// seeded rows) are treated as unverifiable and left for the rescan.
+        /// The candidate's name must also equal the recorded name exactly: the
+        /// enumeration pattern treats '?' and '*' in the recorded name as
+        /// wildcards, so without this a differently named same-size file could
+        /// inherit the missing chart's scores.
         /// </summary>
         private bool IsVerifiedMoveCandidate(SongChart chart, string candidatePath)
         {
             try
             {
                 return chart.FileSize > 0 &&
+                    string.Equals(
+                        Path.GetFileName(chart.FilePath),
+                        Path.GetFileName(candidatePath),
+                        StringComparison.Ordinal) &&
                     new FileInfo(candidatePath).Length == chart.FileSize;
             }
             catch (Exception)

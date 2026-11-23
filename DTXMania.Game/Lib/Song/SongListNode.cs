@@ -167,6 +167,15 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public int? RecentPlaySpeedPercent { get; internal set; }
 
+        /// <summary>
+        /// The chart set this node's difficulty slots were built from. The warm
+        /// database rebuild drops charts whose files no longer exist while
+        /// <see cref="DatabaseSong"/>.Charts still carries every persisted row;
+        /// chart selection prefers this set so a missing file cannot be picked
+        /// for gameplay while its slot shows an existing sibling.
+        /// </summary>
+        internal SongChart[]? ExistingCharts { get; set; }
+
         #endregion
 
         #region EF Core Integration Methods

@@ -2483,6 +2483,84 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenCatalogIsEmpty_ShouldEnumerate()
+    {
+        // An accessible but empty catalog cannot back a warm start even when
+        // roots carry watermarks: enumerate rather than reuse an empty
+        // hierarchy. Seeding the watermark directly isolates the presence check.
+        await _manager.InitializeAsync();
+        var canonicalRoot = _manager.RootPolicy
+            .Validate(new[] { _songsRoot }).CanonicalRoots.Single();
+        Assert.True(await new SongCatalogStore(ManagerDatabaseService!)
+            .SetEnumerationWatermarkAtomicallyAsync(
+                DateTime.UtcNow, new[] { canonicalRoot }));
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { _songsRoot }));
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRecordedNameContainsWildcard_ShouldNotRepairToDifferentName()
+    {
+        // '?' in the persisted filename is a wildcard in the enumeration
+        // pattern: a different same-size file must not inherit the chart's row.
+        await _manager.InitializeAsync();
+        WriteChart("Songs/Wild/songX.dtx", "Wild", 50);
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        var wildcardPath = Path.Combine(_songsRoot, "Wild", "song?.dtx");
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            (await seed.SongCharts.SingleAsync()).FilePath = wildcardPath;
+            await seed.SaveChangesAsync();
+        }
+        File.Move(
+            Path.Combine(_songsRoot, "Wild", "songX.dtx"),
+            Path.Combine(_songsRoot, "Wild", "song1.dtx"));
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { _songsRoot }));
+
+        await using var context = ManagerDatabaseService!.CreateContext();
+        Assert.Equal(
+            SongPathIdentity.Normalize(wildcardPath),
+            (await context.SongCharts.SingleAsync()).FilePath);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenIdenticalCopyOwnsAnotherRow_ShouldRepairMovedChart()
+    {
+        // Two indexed copies with identical name, size and mtime: the untouched
+        // copy's path is owned by its own row and must not tie the repair for
+        // the moved one — otherwise the rescan deletes the moved chart's row
+        // and its scores.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        var rootB = Path.Combine(_testRoot, "RootB");
+        WriteChart("RootA/Pack1/basic.dtx", "Copy", 50);
+        WriteChart("RootB/Pack2/basic.dtx", "Copy", 50);
+        var copyA = Path.Combine(rootA, "Pack1", "basic.dtx");
+        var copyB = Path.Combine(rootB, "Pack2", "basic.dtx");
+        var stamp = DateTime.UtcNow.AddMinutes(-5);
+        File.SetLastWriteTimeUtc(copyA, stamp);
+        File.SetLastWriteTimeUtc(copyB, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var movedPath = Path.Combine(rootA, "NewDir", "basic.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(movedPath)!);
+        File.Move(copyA, movedPath);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var context = ManagerDatabaseService!.CreateContext();
+        var paths = await context.SongCharts.Select(c => c.FilePath).ToListAsync();
+        Assert.Equal(2, paths.Count);
+        Assert.Contains(SongPathIdentity.Normalize(movedPath), paths);
+        Assert.Contains(SongPathIdentity.Normalize(copyB), paths);
+    }
+
+    [Fact]
     public async Task RefreshSongListFromDatabaseAsync_WhenCurrentRootBecomesUnavailable_ShouldPreservePublishedSnapshot()
     {
         await SeedPublishedLibraryAsync();
