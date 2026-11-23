@@ -724,7 +724,9 @@ namespace DTXMania.Game.Lib.Song
         /// applied to the filesystem and database chart counts in
         /// <see cref="DetectFilesystemChangesAsync"/>.
         /// </summary>
-        private async Task<bool> CheckDatabaseFilesStillExist(IReadOnlyList<string> activeRoots)
+        private async Task<bool> CheckDatabaseFilesStillExist(
+            IReadOnlyList<string> activeRoots,
+            IReadOnlyList<ChartInventoryEntry> inventoryCharts)
         {
             try
             {
@@ -755,7 +757,7 @@ namespace DTXMania.Game.Lib.Song
                     if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                     {
                         // File is missing from recorded path - try to find it in new location
-                        string? newPath = await FindMovedFileAsync(chart, activeRoots, ownedPaths);
+                        string? newPath = FindMovedFile(chart, inventoryCharts, ownedPaths);
 
                         if (!string.IsNullOrEmpty(newPath))
                         {
@@ -795,7 +797,7 @@ namespace DTXMania.Game.Lib.Song
                     // Found the file in a new location - update database. Only a
                     // repair that persists counts: a failed save stays missing
                     // so the rescan still runs.
-                    if (!contested && await UpdateChartFilePathAsync(chart.Id, newPath))
+                    if (!contested && await UpdateChartFilePathAsync(chart, newPath))
                     {
                         updatedFiles++;
                     }
@@ -818,24 +820,23 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Attempts to find a moved file by searching for it in the supplied
-        /// canonical active roots. Returns the new path only when exactly one
-        /// candidate verifies against the persisted chart fingerprint; null
-        /// otherwise, leaving the missing row for the normal rescan to recreate
-        /// rather than redirecting it to an unrelated same-named chart.
+        /// Attempts to find a moved file inside the chart inventory the
+        /// freshness check already walked — exactly the files a rescan would
+        /// import. Returns the new path only when exactly one candidate
+        /// verifies against the persisted chart fingerprint; null otherwise,
+        /// leaving the missing row for the normal rescan to recreate rather
+        /// than redirecting it to an unrelated same-named chart.
         /// <para>
-        /// HPA-801 Decision B: the roots are passed in explicitly by
-        /// <see cref="CheckDatabaseFilesStillExist"/> instead of being read from
-        /// the library's published search paths (still empty on a warm start
-        /// before the first publication, where the old code fell back to
-        /// hard-coded defaults). This keeps the scanner free of published state
-        /// and makes the move heuristic search the roots the caller is about to
-        /// refresh.
+        /// Restricting candidates to <paramref name="inventoryCharts"/> matters
+        /// beyond precision: a same-named file the importer would ignore
+        /// (unreferenced in a set.def directory, inside an unreadable subtree)
+        /// can neither be the repair target nor break the unique-match
+        /// tie-break, because the rescan would never attach the row to it.
         /// </para>
         /// </summary>
-        private async Task<string?> FindMovedFileAsync(
+        private string? FindMovedFile(
             SongChart missingChart,
-            IReadOnlyList<string> activeRoots,
+            IReadOnlyList<ChartInventoryEntry> inventoryCharts,
             ISet<string> ownedPaths)
         {
             var originalPath = missingChart.FilePath;
@@ -847,28 +848,30 @@ namespace DTXMania.Game.Lib.Song
 
                 var verified = new List<string>();
 
-                // Search for the file in all DTX directories within the active roots
-                foreach (var searchPath in activeRoots.Where(Directory.Exists))
+                foreach (var entry in inventoryCharts)
                 {
-                    // Use async enumeration to avoid blocking
-                    var foundFiles = await Task.Run(() =>
-                        Directory.EnumerateFiles(searchPath, fileName, SearchOption.AllDirectories).ToList());
-
-                    foreach (var foundFile in foundFiles)
+                    // Filename prefilter: it admits alias spellings (case folds
+                    // where the filesystem does) so the verifier below decides
+                    // identity, then skips the FileInfo probe for every
+                    // non-matching entry.
+                    if (!SongPathIdentity.LegacyAliasComparer.Equals(
+                            fileName,
+                            Path.GetFileName(entry.Path)))
                     {
-                        // A path owned by another chart row is that row's file:
-                        // it can neither be the repair target nor break the
-                        // unique-match tie-break.
-                        if (SongPathIdentity.TryNormalize(foundFile, out var normalizedFound) &&
-                            ownedPaths.Contains(normalizedFound))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        if (IsVerifiedMoveCandidate(missingChart, foundFile))
-                        {
-                            verified.Add(foundFile);
-                        }
+                    // A path owned by another chart row is that row's file:
+                    // it can neither be the repair target nor break the
+                    // unique-match tie-break.
+                    if (ownedPaths.Contains(entry.Path))
+                    {
+                        continue;
+                    }
+
+                    if (IsVerifiedMoveCandidate(missingChart, entry.Path))
+                    {
+                        verified.Add(entry.Path);
                     }
                 }
 
@@ -898,13 +901,13 @@ namespace DTXMania.Game.Lib.Song
         /// mtime is a different chart and stays unverified. Charts without a
         /// persisted fingerprint (legacy or seeded rows) are treated as
         /// unverifiable and left for the rescan.
-        /// The candidate's name must also equal the recorded name literally:
-        /// the enumeration pattern treats '?' and '*' in the recorded name as
-        /// wildcards, so without this a differently named same-size file could
-        /// inherit the missing chart's scores. Case folds where the filesystem
-        /// does — SET.def stores its written spelling while enumeration
-        /// returns the disk spelling, and on Windows/macOS a case-only
-        /// difference still names the same file.
+        /// The candidate's name must also equal the recorded name literally —
+        /// without it a differently named same-size file could inherit the
+        /// missing chart's scores. A case-only difference names the same file
+        /// only where the filesystem folds case — proven per file by
+        /// <see cref="FileNameMatchesRecordedFile"/>, not assumed from the OS:
+        /// a case-sensitive volume can host 'song.dtx' and 'SONG.DTX' as
+        /// distinct files.
         /// </summary>
         private bool IsVerifiedMoveCandidate(SongChart chart, string candidatePath)
         {
@@ -912,11 +915,11 @@ namespace DTXMania.Game.Lib.Song
             {
                 var candidateInfo = new FileInfo(candidatePath);
                 return chart.FileSize > 0 &&
-                    SongPathIdentity.LegacyAliasComparer.Equals(
+                    FileNameMatchesRecordedFile(
                         Path.GetFileName(chart.FilePath),
-                        Path.GetFileName(candidatePath)) &&
+                        candidateInfo) &&
                     candidateInfo.Length == chart.FileSize &&
-                    candidateInfo.LastWriteTime == chart.LastModified;
+                    IsFingerprintTimestamp(candidateInfo, chart.LastModified);
             }
             catch (Exception)
             {
@@ -925,26 +928,120 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Updates the file path for a chart in the database
+        /// The candidate's filename must equal the recorded one, or be a
+        /// spelling the filesystem resolves to the same entry. On a
+        /// case-sensitive volume 'SONG.DTX' is a different file than the
+        /// recorded 'song.dtx': resolving the recorded spelling beside the
+        /// candidate then either misses or names a distinct sibling, so the
+        /// candidate is rejected. Only a filesystem that folds the spellings
+        /// resolves the recorded name back to the candidate itself.
         /// </summary>
-        private async Task<bool> UpdateChartFilePathAsync(int chartId, string newPath)
+        private bool FileNameMatchesRecordedFile(
+            string? recordedName,
+            FileInfo candidateInfo)
+        {
+            if (string.IsNullOrEmpty(recordedName) ||
+                string.IsNullOrEmpty(candidateInfo.Name))
+            {
+                return false;
+            }
+            if (string.Equals(
+                    recordedName,
+                    candidateInfo.Name,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+            if (!SongPathIdentity.LegacyAliasComparer.Equals(
+                    recordedName,
+                    candidateInfo.Name))
+            {
+                return false;
+            }
+
+            var directory = candidateInfo.Directory?.FullName;
+            if (string.IsNullOrEmpty(directory) ||
+                !File.Exists(Path.Combine(directory, recordedName)))
+            {
+                return false;
+            }
+
+            // The recorded spelling resolved to a file beside the candidate.
+            // It is the candidate itself only when no distinct directory entry
+            // carries that spelling: on a case-sensitive volume a real
+            // recorded-name file is a different file whose own inventory entry
+            // is the one to verify.
+            return !Directory
+                .EnumerateFiles(directory)
+                .Select(Path.GetFileName)
+                .Contains(recordedName, StringComparer.Ordinal);
+        }
+
+        private static readonly IReadOnlyList<TimeZoneInfo> FingerprintZones =
+            TimeZoneInfo.GetSystemTimeZones();
+
+        /// <summary>
+        /// The persisted <see cref="SongChart.LastModified"/> is the file's
+        /// local-time reading under the timezone in effect when it was
+        /// indexed, stored without an offset the schema could reinterpret.
+        /// Comparing it to the current local reading strands a move whenever
+        /// the timezone (or its rules) changed between launches — the same
+        /// instant reads differently — so the fingerprint accepts any reading
+        /// a real zone could have produced of the same instant: an exact
+        /// local match, or a stored value whose difference from the
+        /// candidate's UTC mtime equals some installed zone's offset at that
+        /// instant (e.g. a chart indexed at UTC+13:45 and read at UTC−8).
+        /// A difference no real zone explains is a different file's mtime.
+        /// </summary>
+        private bool IsFingerprintTimestamp(
+            FileInfo candidateInfo,
+            DateTime storedReading)
+        {
+            if (candidateInfo.LastWriteTime == storedReading)
+            {
+                return true;
+            }
+
+            var candidateUtc = candidateInfo.LastWriteTimeUtc;
+            var offset = storedReading - candidateUtc;
+            return FingerprintZones.Any(zone =>
+                zone.GetUtcOffset(candidateUtc) == offset);
+        }
+
+        /// <summary>
+        /// Updates the file path for a chart in the database. The row is
+        /// re-read and re-verified before saving: it must still point at the
+        /// (still missing) original path, and the staged destination must
+        /// still satisfy the fingerprint — a file restored or replaced while
+        /// the repair was staged must not inherit the row's scores. This
+        /// narrows, but cannot eliminate, the window between the existence
+        /// check and the write; a contested or stale claim is left missing
+        /// for the rescan to resolve.
+        /// </summary>
+        internal async Task<bool> UpdateChartFilePathAsync(SongChart chart, string newPath)
         {
             try
             {
                 using var context = _database.CreateContext();
-                var chart = await context.SongCharts.FindAsync(chartId);
-                if (chart == null)
+                var row = await context.SongCharts.FindAsync(chart.Id);
+                if (row == null ||
+                    !string.Equals(
+                        row.FilePath,
+                        chart.FilePath,
+                        StringComparison.Ordinal) ||
+                    File.Exists(row.FilePath) ||
+                    !IsVerifiedMoveCandidate(row, newPath))
                 {
                     return false;
                 }
 
-                chart.FilePath = newPath;
+                row.FilePath = newPath;
                 await context.SaveChangesAsync();
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error updating chart file path for ID {ChartId}", chartId);
+                _logger.LogWarning(ex, "Error updating chart file path for ID {ChartId}", chart.Id);
                 return false;
             }
         }
@@ -1018,8 +1115,12 @@ namespace DTXMania.Game.Lib.Song
                 // a new chart and delete the old row along with its scores.
                 // Scoped to the same available roots as the file/DB counts so
                 // retained charts belonging to a removed or unavailable root
-                // are not flagged as missing.
-                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(availableRoots);
+                // are not flagged as missing. Move candidates come from the
+                // inventory above so a file the import would ignore cannot
+                // claim — or veto — a repair.
+                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(
+                    availableRoots,
+                    inventory.Charts);
                 if (filesMovedOrDeleted)
                 {
                     return true;

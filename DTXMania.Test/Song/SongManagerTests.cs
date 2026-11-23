@@ -1485,7 +1485,17 @@ namespace DTXMania.Test.Song
             Directory.CreateDirectory(movedFolder);
             File.Move(originalPath, movedPath);
 
-            var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "CheckDatabaseFilesStillExist", new object[] { new[] { songsRoot } });
+            var inventory = await ReflectionHelpers.InvokePrivateMethodAsync<ChartInventory>(
+                _manager.Scanner,
+                "ScanChartInventoryAsync",
+                new[] { songsRoot },
+                CancellationToken.None);
+            Assert.NotNull(inventory);
+
+            var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+                _manager.Scanner,
+                "CheckDatabaseFilesStillExist",
+                new object[] { new[] { songsRoot }, inventory!.Charts });
             Assert.NotNull(checkTask);
 
             var changeDetected = await checkTask!;
@@ -1797,7 +1807,17 @@ namespace DTXMania.Test.Song
 
             File.Delete(chartPath);
 
-            var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "CheckDatabaseFilesStillExist", new object[] { new[] { songsRoot } });
+            var inventory = await ReflectionHelpers.InvokePrivateMethodAsync<ChartInventory>(
+                _manager.Scanner,
+                "ScanChartInventoryAsync",
+                new[] { songsRoot },
+                CancellationToken.None);
+            Assert.NotNull(inventory);
+
+            var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+                _manager.Scanner,
+                "CheckDatabaseFilesStillExist",
+                new object[] { new[] { songsRoot }, inventory!.Charts });
             Assert.NotNull(checkTask);
 
             var changeDetected = await checkTask!;
@@ -1842,7 +1862,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task CheckDatabaseFilesStillExist_WithoutDatabaseService_ShouldReturnFalse()
         {
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
+            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager.Scanner, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot }, Array.Empty<ChartInventoryEntry>() });
 
             Assert.False(result);
         }
@@ -1853,40 +1873,40 @@ namespace DTXMania.Test.Song
             var brokenLibrary = new SongLibrary(
                 CreateBrokenDatabaseServiceWithDatabasePath("\0invalid"));
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(brokenLibrary.Scanner, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
+            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(brokenLibrary.Scanner, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot }, Array.Empty<ChartInventoryEntry>() });
 
             Assert.False(result);
         }
 
         [Fact]
-        public async Task FindMovedFileAsync_WhenOriginalPathHasNoFilename_ShouldReturnNull()
+        public async Task FindMovedFile_WhenOriginalPathHasNoFilename_ShouldReturnNull()
         {
             await _manager.InitializeAsync();
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
+            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
                 _manager.Scanner,
-                "FindMovedFileAsync",
+                "FindMovedFile",
                 new SongChart { FilePath = Path.DirectorySeparatorChar.ToString() },
-                new[] { _testRoot },
+                Array.Empty<ChartInventoryEntry>(),
                 new HashSet<string>(SongPathIdentity.CanonicalComparer));
 
             Assert.Null(result);
         }
 
-        // HPA-801 Decision B: the moved-file heuristic searches the explicitly
-        // passed canonical active roots. The old fallback to the library's
-        // published search paths (or hard-coded defaults when nothing was
-        // published) is gone; a missing file yields null either way.
+        // HPA-801 Decision B: the moved-file heuristic searches only the
+        // chart inventory the freshness check already walked. A file the
+        // importer would not pick up is not a move candidate either, so a
+        // missing file yields null.
         [Fact]
-        public async Task FindMovedFileAsync_WhenFileIsMissingFromActiveRoots_ShouldReturnNull()
+        public async Task FindMovedFile_WhenFileIsMissingFromInventory_ShouldReturnNull()
         {
             await _manager.InitializeAsync();
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
+            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
                 _manager.Scanner,
-                "FindMovedFileAsync",
+                "FindMovedFile",
                 new SongChart { FilePath = Path.Combine(_testRoot, "missing.dtx") },
-                new[] { _testRoot },
+                Array.Empty<ChartInventoryEntry>(),
                 new HashSet<string>(SongPathIdentity.CanonicalComparer));
 
             Assert.Null(result);
@@ -2261,7 +2281,11 @@ namespace DTXMania.Test.Song
             var task = (Task)ReflectionHelpers.InvokePrivateMethod(
                 _manager.Scanner,
                 "UpdateChartFilePathAsync",
-                1,
+                new SongChart
+                {
+                    Id = 1,
+                    FilePath = Path.Combine(_testRoot, "original.dtx")
+                },
                 Path.Combine(_testRoot, "updated.dtx"))!;
 
             await task;
@@ -2277,7 +2301,11 @@ namespace DTXMania.Test.Song
             var task = (Task)ReflectionHelpers.InvokePrivateMethod(
                 brokenLibrary.Scanner,
                 "UpdateChartFilePathAsync",
-                1,
+                new SongChart
+                {
+                    Id = 1,
+                    FilePath = Path.Combine(_testRoot, "original.dtx")
+                },
                 Path.Combine(_testRoot, "updated.dtx"))!;
 
             await task;
@@ -2479,17 +2507,17 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task FindMovedFileAsync_WhenActiveRootsAreMissing_ShouldReturnNull()
+        public async Task FindMovedFile_WhenInventoryIsEmpty_ShouldReturnNull()
         {
             await _manager.InitializeAsync();
 
-            // HPA-801 Decision B: the scanner consults only the roots passed to
-            // it. Non-existent (or empty) active roots simply find nothing.
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
+            // HPA-801 Decision B: the scanner consults only the inventory
+            // passed to it. An empty inventory simply finds nothing.
+            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
                 _manager.Scanner,
-                "FindMovedFileAsync",
+                "FindMovedFile",
                 new SongChart { FilePath = Path.Combine(_testRoot, "song.dtx") },
-                new[] { Path.Combine(_testRoot, "NonExistentRoot") },
+                Array.Empty<ChartInventoryEntry>(),
                 new HashSet<string>(SongPathIdentity.CanonicalComparer));
 
             Assert.Null(result);
