@@ -171,5 +171,31 @@ namespace DTXMania.Test.Song
         }
 
         #endregion
+
+        #region Filtered chart set
+
+        [Fact]
+        public void GetCurrentDifficultyChart_NodeCarriesFilteredCharts_ShouldSelectOnlyFromThem()
+        {
+            // The warm rebuild drops charts whose files no longer exist into
+            // ExistingCharts while DatabaseSong.Charts still carries every
+            // persisted row: selection must not reach the missing chart.
+            var missing = new SongChart { FilePath = "/gone/bas.dtx", DrumLevel = 30, HasDrumChart = true };
+            var existing = new SongChart { FilePath = "/ok/adv.dtx", DrumLevel = 70, HasDrumChart = true };
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Test Song",
+                Charts = new List<SongChart> { missing, existing }
+            };
+            var node = new SongListNode
+            {
+                DatabaseSong = song,
+                ExistingCharts = new[] { existing }
+            };
+
+            Assert.Equal(existing, node.GetCurrentDifficultyChart(0));
+        }
+
+        #endregion
     }
 }

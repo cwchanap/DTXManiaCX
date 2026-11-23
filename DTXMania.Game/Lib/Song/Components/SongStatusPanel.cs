@@ -1693,8 +1693,11 @@ namespace DTXMania.Game.Lib.Song.Components
                 return null;
             }
             
-            // Get all charts for this song
-            var allCharts = currentSong.DatabaseSong.Charts?.ToList();
+            // Prefer the chart set the node's slots were built from: the warm
+            // rebuild drops charts whose files no longer exist, which the
+            // entity's navigation collection still carries.
+            var allCharts = currentSong.ExistingCharts?.ToList()
+                ?? currentSong.DatabaseSong.Charts?.ToList();
             
             if (allCharts == null || allCharts.Count == 0)
             {

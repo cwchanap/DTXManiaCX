@@ -1867,7 +1867,8 @@ namespace DTXMania.Test.Song
                 _manager.Scanner,
                 "FindMovedFileAsync",
                 new SongChart { FilePath = Path.DirectorySeparatorChar.ToString() },
-                new[] { _testRoot });
+                new[] { _testRoot },
+                new HashSet<string>(SongPathIdentity.CanonicalComparer));
 
             Assert.Null(result);
         }
@@ -1885,7 +1886,8 @@ namespace DTXMania.Test.Song
                 _manager.Scanner,
                 "FindMovedFileAsync",
                 new SongChart { FilePath = Path.Combine(_testRoot, "missing.dtx") },
-                new[] { _testRoot });
+                new[] { _testRoot },
+                new HashSet<string>(SongPathIdentity.CanonicalComparer));
 
             Assert.Null(result);
         }
@@ -2431,7 +2433,8 @@ namespace DTXMania.Test.Song
                 _manager.Scanner,
                 "FindMovedFileAsync",
                 new SongChart { FilePath = Path.Combine(_testRoot, "song.dtx") },
-                new[] { Path.Combine(_testRoot, "NonExistentRoot") });
+                new[] { Path.Combine(_testRoot, "NonExistentRoot") },
+                new HashSet<string>(SongPathIdentity.CanonicalComparer));
 
             Assert.Null(result);
         }

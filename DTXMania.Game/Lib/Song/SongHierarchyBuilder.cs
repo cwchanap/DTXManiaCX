@@ -581,6 +581,11 @@ namespace DTXMania.Game.Lib.Song
                     hydratePersistedScores: false);
 
                 songNode.DatabaseSongId = song.Id;
+                // The chart set the slots are built from, minus rows whose files
+                // no longer exist: GetCurrentDifficultyChart selects from this,
+                // not DatabaseSong.Charts, so a missing chart can never be picked
+                // for gameplay while its slot shows an existing sibling.
+                songNode.ExistingCharts = charts;
 
                 // The factory seeded slots from only the primary chart. Rebuild the
                 // complete metadata layout from scratch, even for a single chart, so the
