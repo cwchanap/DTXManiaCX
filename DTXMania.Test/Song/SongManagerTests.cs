@@ -2186,6 +2186,35 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task IsVerifiedMoveCandidate_WhenDiskNameDiffersOnlyByCase_ShouldReturnTrue()
+        {
+            // SET.def stores its written spelling while enumeration returns
+            // the disk spelling: on a case-insensitive filesystem a case-only
+            // difference still names the same file, so the moved chart must
+            // repair instead of losing its row (and scores) to the rescan.
+            if (SongPathIdentity.IsCaseSensitive)
+            {
+                return;
+            }
+
+            var candidatePath = Path.Combine(_testRoot, "Candidate", "SONG.DTX");
+            Directory.CreateDirectory(Path.GetDirectoryName(candidatePath)!);
+            await File.WriteAllTextAsync(candidatePath, "same-size");
+
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(
+                _manager.Scanner,
+                "IsVerifiedMoveCandidate",
+                new SongChart
+                {
+                    FilePath = Path.Combine(_testRoot, "Original", "song.dtx"),
+                    FileSize = "same-size".Length
+                },
+                candidatePath);
+
+            Assert.True(result);
+        }
+
+        [Fact]
         public void IsVerifiedMoveCandidate_WithInvalidCandidatePath_ShouldReturnFalse()
         {
             var candidatePath = $"{_testRoot}{Path.DirectorySeparatorChar}bad\0{Path.DirectorySeparatorChar}match.dtx";

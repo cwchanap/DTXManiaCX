@@ -8,6 +8,7 @@ namespace DTXMania.Test.Song
     /// <summary>
     /// Tests for the SongChartHelper extension methods
     /// </summary>
+    [Trait("Category", "Unit")]
     public class SongChartHelperTests
     {
         #region Null/Empty Handling

@@ -2499,6 +2499,34 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenCatalogHoldsOnlyRejectedTabs_ShouldStayWarm()
+    {
+        // A scan that rejects every tab leaves an empty catalog plus the
+        // per-root rejected counts: the emptiness is a stable scan result, so
+        // an unchanged restart must reuse it instead of re-enumerating on
+        // every launch just to rediscover the same rejections.
+        var songsRoot = Path.Combine(_testRoot, "TabOnlySongs");
+        var tabPath = Path.Combine(songsRoot, "Guitar", "guitar.musicxml");
+        Directory.CreateDirectory(Path.GetDirectoryName(tabPath)!);
+        await File.WriteAllTextAsync(tabPath, MusicXmlTab(withDrums: false));
+        var oldTime = DateTime.UtcNow.AddMinutes(-10);
+        File.SetLastWriteTimeUtc(tabPath, oldTime);
+        File.SetCreationTimeUtc(tabPath, oldTime);
+        foreach (var directory in new[] { songsRoot, Path.GetDirectoryName(tabPath)! })
+        {
+            Directory.SetLastWriteTimeUtc(directory, oldTime);
+            Directory.SetCreationTimeUtc(directory, oldTime);
+        }
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { songsRoot }, null, CancellationToken.None);
+        Assert.False(await new SongCatalogStore(ManagerDatabaseService!).HasAnySongsAsync());
+
+        Assert.False(await _manager.NeedsEnumerationAsync(new[] { songsRoot }));
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenRecordedNameContainsWildcard_ShouldNotRepairToDifferentName()
     {
         // '?' in the persisted filename is a wildcard in the enumeration
@@ -2558,6 +2586,48 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal(2, paths.Count);
         Assert.Contains(SongPathIdentity.Normalize(movedPath), paths);
         Assert.Contains(SongPathIdentity.Normalize(copyB), paths);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenTwoMissingRowsClaimTheSameFile_ShouldRepairNeither()
+    {
+        // Identical copies under two directories that both disappear, with one
+        // file reappearing: either row could own it and the fingerprint cannot
+        // tell which. Repairing in row order would let the first save win while
+        // the second dies on the unique-path index and loses its scores to the
+        // rescan — a contested file stays missing for the rescan to resolve.
+        var rootA = Path.Combine(_testRoot, "ContestA");
+        var rootB = Path.Combine(_testRoot, "ContestB");
+        WriteChart("ContestA/Pack1/dup.dtx", "Dup", 50);
+        WriteChart("ContestB/Pack2/dup.dtx", "Dup", 50);
+        var copyA = Path.Combine(rootA, "Pack1", "dup.dtx");
+        var copyB = Path.Combine(rootB, "Pack2", "dup.dtx");
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var survivor = Path.Combine(rootA, "NewDir", "dup.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(survivor)!);
+        File.Delete(copyA);
+        File.Move(copyB, survivor);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using (var context = ManagerDatabaseService!.CreateContext())
+        {
+            var paths = await context.SongCharts.Select(c => c.FilePath).ToListAsync();
+            Assert.Equal(2, paths.Count);
+            Assert.DoesNotContain(SongPathIdentity.Normalize(survivor), paths);
+        }
+
+        // The rescan the freshness check triggered imports the survivor fresh
+        // and removes both stale rows; neither missing row was grafted onto it.
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        await using var after = ManagerDatabaseService!.CreateContext();
+        var remaining = await after.SongCharts.Select(c => c.FilePath).ToListAsync();
+        Assert.Equal(new[] { SongPathIdentity.Normalize(survivor) }, remaining);
     }
 
     [Fact]

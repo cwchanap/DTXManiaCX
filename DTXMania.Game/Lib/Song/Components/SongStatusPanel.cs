@@ -1771,10 +1771,12 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             var chartLevels = new List<ChartLevelInfo>();
 
-            if (_currentSong?.DatabaseSong?.Charts == null)
+            // Same filtered set as GetCurrentDifficultyChart: the grid must not
+            // list charts the warm rebuild dropped with their missing files.
+            var allCharts = _currentSong?.ExistingCharts?.ToList()
+                ?? _currentSong?.DatabaseSong?.Charts?.ToList();
+            if (allCharts == null)
                 return chartLevels;
-
-            var allCharts = _currentSong.DatabaseSong.Charts.ToList();
 
             foreach (var chart in allCharts)
             {
