@@ -64,6 +64,11 @@ namespace DTXMania.Test.Song
         private SongDatabase ManagerDatabaseService => _songManager.Database;
 
 
+        // ResolveDifficultyLabel normalizes the chart path before lookup, so the
+        // fixture keys must carry the same normalization; on Windows a literal
+        // "/songs/..." path resolves to "C:\songs\..." and never matches.
+        private static string LabelKey(string path) => SongPathIdentity.Normalize(path);
+
         private string CreateTempDirectory()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -95,9 +100,9 @@ namespace DTXMania.Test.Song
             var chart = new SongChart { FilePath = "/songs/song/adv.dtx", DifficultyLabel = "" };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["/songs/song/bas.dtx"] = "BASIC",
-                ["/songs/song/adv.dtx"] = "ADVANCED",
-                ["/songs/song/ext.dtx"] = "EXTREME"
+                [LabelKey("/songs/song/bas.dtx")] = "BASIC",
+                [LabelKey("/songs/song/adv.dtx")] = "ADVANCED",
+                [LabelKey("/songs/song/ext.dtx")] = "EXTREME"
             };
 
             // Legacy databases stored an empty label; recover the authentic name by resolved chart path.
@@ -111,7 +116,7 @@ namespace DTXMania.Test.Song
             var chart = new SongChart { FilePath = "/songs/song/MAS.DTX", DifficultyLabel = "   " };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["/songs/song/mas.dtx"] = "MASTER"
+                [LabelKey("/songs/song/mas.dtx")] = "MASTER"
             };
 
             Assert.Equal("MASTER", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 3));
@@ -124,7 +129,7 @@ namespace DTXMania.Test.Song
             var chart = new SongChart { FilePath = "/songs/song/unknown.dtx", DifficultyLabel = "" };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["/songs/song/bas.dtx"] = "BASIC"
+                [LabelKey("/songs/song/bas.dtx")] = "BASIC"
             };
 
             // scoreIndex 2 -> "Level 3" (one-based for display).
@@ -162,8 +167,8 @@ namespace DTXMania.Test.Song
             var chart = new SongChart { FilePath = "/songs/song/charts/bas.dtx", DifficultyLabel = "" };
             var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["/songs/song/charts/bas.dtx"] = "BASIC",
-                ["/songs/song/other/bas.dtx"] = "MASTER"
+                [LabelKey("/songs/song/charts/bas.dtx")] = "BASIC",
+                [LabelKey("/songs/song/other/bas.dtx")] = "MASTER"
             };
 
             Assert.Equal("BASIC", SongHierarchyBuilder.ResolveDifficultyLabel(chart, setDefLabels, 0));
