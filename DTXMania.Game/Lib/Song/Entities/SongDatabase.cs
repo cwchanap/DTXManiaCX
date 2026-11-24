@@ -277,8 +277,13 @@ namespace DTXMania.Game.Lib.Song.Entities
                 await context.Database.CloseConnectionAsync();
             }
 
-            // Clear all pooled SQLite connections so the file is no longer locked
-            SqliteConnection.ClearAllPools();
+            // Clear this database's pooled connections so the file is no
+            // longer locked. Scoped ClearPool calls rather than
+            // ClearAllPools(): the latter closes idle pooled connections
+            // belonging to every other database in the process — under a
+            // parallel test run that can drop a shared or in-memory database
+            // out from under an unrelated test.
+            ClearPooledConnections();
 
             // Delete the database file completely
             if (File.Exists(_databasePath))
@@ -291,6 +296,36 @@ namespace DTXMania.Game.Lib.Song.Entities
             lock (_initializationLock)
             {
                 _isInitialized = false;
+            }
+        }
+
+        /// <summary>
+        /// Releases idle pooled connections that can hold this database file
+        /// open: the resolved options connection string (covers both
+        /// constructors, including a caller-supplied connection) plus the two
+        /// file-path spellings other contexts sharing the file may have used.
+        /// </summary>
+        private void ClearPooledConnections()
+        {
+            var connectionStrings = new HashSet<string>(StringComparer.Ordinal);
+            using (var probe = new SongDbContext(_options))
+            {
+                if (probe.Database.GetDbConnection() is SqliteConnection pooled &&
+                    !string.IsNullOrEmpty(pooled.ConnectionString))
+                {
+                    connectionStrings.Add(pooled.ConnectionString);
+                }
+            }
+            if (!string.IsNullOrEmpty(_databasePath))
+            {
+                connectionStrings.Add($"Data Source={_databasePath}");
+                connectionStrings.Add($"Data Source={_databasePath};Cache=Shared;");
+            }
+
+            foreach (var connectionString in connectionStrings)
+            {
+                using var key = new SqliteConnection(connectionString);
+                SqliteConnection.ClearPool(key);
             }
         }
 

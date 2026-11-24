@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -9,7 +10,7 @@ namespace DTXMania.Test.Config
 {
     /// <summary>
     /// Real-SQLite tests for the v1 configuration store. Each test owns a
-    /// unique temp directory; <see cref="SqliteConnection.ClearAllPools"/>
+    /// unique temp directory; <see cref="SqliteTestPools.ClearForFile"/>
     /// runs before cleanup so pooled native handles do not keep files open
     /// (required for recursive directory deletion on Windows CI).
     /// </summary>
@@ -29,7 +30,7 @@ namespace DTXMania.Test.Config
 
         public void Dispose()
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(DbPath);
             if (Directory.Exists(_root))
             {
                 Directory.Delete(_root, recursive: true);

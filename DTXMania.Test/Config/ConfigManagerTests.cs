@@ -41,7 +41,7 @@ public class ConfigManagerTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        SqliteTestPools.ClearForFile(Path.Combine(_sandbox, "config.db"));
         Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
         if (Directory.Exists(_sandbox))
             Directory.Delete(_sandbox, recursive: true);

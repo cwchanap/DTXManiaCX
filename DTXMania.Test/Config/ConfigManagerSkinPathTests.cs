@@ -36,7 +36,7 @@ namespace DTXMania.Test.Config
         {
             try
             {
-                SqliteConnection.ClearAllPools();
+                SqliteTestPools.ClearForFile(DbPath);
             }
             finally
             {

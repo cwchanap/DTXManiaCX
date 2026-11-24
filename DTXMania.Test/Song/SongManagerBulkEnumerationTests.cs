@@ -3846,7 +3846,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        SqliteTestPools.ClearForFile(_databasePath);
         if (Directory.Exists(_testRoot))
         {
             try

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Xunit;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -27,7 +28,7 @@ namespace DTXMania.Test.Song
         public void Dispose()
         {
             _service.Dispose();
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(_dbPath);
             if (File.Exists(_dbPath))
             {
                 try { File.Delete(_dbPath); } catch { /* ignore */ }

@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Utilities;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 
 namespace DTXMania.Test.Config;
@@ -447,7 +448,7 @@ public sealed class SongRootConfigTests
         finally
         {
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(Path.Combine(root, "config.db"));
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }

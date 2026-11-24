@@ -1222,7 +1222,7 @@ namespace DTXMania.Test.Stage
             {
                 // Best-effort cleanup of the one database this test materializes;
                 // the remaining factory databases stay uninitialized (no file).
-                SqliteConnection.ClearAllPools();
+                SqliteTestPools.ClearForFile(dbPath);
                 try { File.Delete(dbPath); } catch { /* ignore */ }
             }
         }

@@ -1316,7 +1316,7 @@ public class ConfigStageLogicTests
             // Release pooled config.db handles before deleting the temp
             // directory (Windows keeps the file locked otherwise). LoadConfig
             // and ReadMetronomeFromStore above both opened pooled connections.
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(configDbPath);
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
         }
     }

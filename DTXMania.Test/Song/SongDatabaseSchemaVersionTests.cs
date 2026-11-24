@@ -36,7 +36,8 @@ namespace DTXMania.Test.Song
 
         public void Dispose()
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(_dbPath);
+            SqliteTestPools.ClearForFile(Path.Combine(_tempRoot, "config.db"));
             try
             {
                 if (Directory.Exists(_tempRoot))
@@ -317,7 +318,7 @@ namespace DTXMania.Test.Song
                         });
                 }
             }
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(_dbPath);
 
             // Corrupt database pages beyond page 1 header (header is at offset 0-100)
             await using (var fileStream = new FileStream(_dbPath, FileMode.Open, FileAccess.ReadWrite))
@@ -487,7 +488,7 @@ namespace DTXMania.Test.Song
 
         private static async Task<long> ReadUserVersionAsync(string databasePath)
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(databasePath);
             await using var connection = new SqliteConnection(
                 new SqliteConnectionStringBuilder
                 {
@@ -507,7 +508,7 @@ namespace DTXMania.Test.Song
 
         private static async Task<long> ScalarAsync(string databasePath, string sql)
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(databasePath);
             await using var connection = new SqliteConnection(
                 new SqliteConnectionStringBuilder
                 {
@@ -522,7 +523,7 @@ namespace DTXMania.Test.Song
 
         private async Task ExecuteSqlAsync(string sql)
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(_dbPath);
             await using var connection = new SqliteConnection(
                 new SqliteConnectionStringBuilder
                 {

@@ -452,14 +452,15 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             string songDirectory = null;
 
-            // Try to get song directory from DatabaseSong
-            if (songNode.DatabaseSong?.Charts?.Count > 0)
+            // Try to get song directory from the node's charts. Prefer the
+            // filtered chart set the slots were built from: the unfiltered
+            // DatabaseSong.Charts can carry a row whose folder was deleted.
+            var directoryChart = songNode.ExistingCharts?.FirstOrDefault()
+                ?? songNode.DatabaseSong?.Charts?.FirstOrDefault();
+            var chartPath = directoryChart?.FilePath;
+            if (!string.IsNullOrEmpty(chartPath))
             {
-                var chartPath = songNode.DatabaseSong.Charts.FirstOrDefault()?.FilePath;
-                if (!string.IsNullOrEmpty(chartPath))
-                {
-                    songDirectory = System.IO.Path.GetDirectoryName(chartPath);
-                }
+                songDirectory = System.IO.Path.GetDirectoryName(chartPath);
             }
 
             // If we couldn't get directory from chart, try the DirectoryPath property

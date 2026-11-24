@@ -65,6 +65,16 @@ namespace DTXMania.Game.Lib.Song
             EInstrumentPart instrument,
             PerformanceSummary summary)
         {
+            // The game-owned database exists from launch but Startup may have
+            // failed to initialize it; forwarding would surface CreateContext's
+            // InvalidOperationException on the Result screen instead of the
+            // player-facing unavailable message (the pre-extraction contract).
+            if (!_database.IsInitialized)
+            {
+                return ScoreSaveResult.Failed(
+                    "The song database is unavailable, so the result could not be saved.");
+            }
+
             var result = await _scoreStore
                 .UpdateScoreAsync(chartId, instrument, summary)
                 .ConfigureAwait(false);

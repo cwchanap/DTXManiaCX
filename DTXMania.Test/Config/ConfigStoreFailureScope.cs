@@ -1,4 +1,5 @@
 using System.IO;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 
 namespace DTXMania.Test.Config
@@ -24,7 +25,7 @@ namespace DTXMania.Test.Config
             // pooled native handle keeps the file locked, so the recursive
             // directory delete below would throw IOException. Clear the pool
             // first so the inode is released before we tear down the directory.
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(Path.Combine(_root, "config.db"));
             Directory.Delete(root, recursive: true);
             File.WriteAllText(root, "blocker");
             _blocked = true;
@@ -35,7 +36,7 @@ namespace DTXMania.Test.Config
         {
             if (!_blocked)
                 return;
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(Path.Combine(_root, "config.db"));
             File.Delete(_root);
             Directory.CreateDirectory(_root);
             _blocked = false;

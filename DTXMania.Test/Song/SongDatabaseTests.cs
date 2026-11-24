@@ -287,7 +287,7 @@ namespace DTXMania.Test.Song
 
             Assert.True(await _databaseService.CanConnectAsync());
 
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            TestData.SqliteTestPools.ClearForFile(_testDbPath);
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
                 $"Data Source={_testDbPath};Pooling=False");
             await connection.OpenAsync();

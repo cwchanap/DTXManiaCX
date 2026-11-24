@@ -1883,9 +1883,7 @@ namespace DTXMania.Test.Song
         {
             await _manager.InitializeAsync();
 
-            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
-                _manager.Scanner,
-                "FindMovedFile",
+            var result = InvokeFindMovedFile(
                 new SongChart { FilePath = Path.DirectorySeparatorChar.ToString() },
                 Array.Empty<ChartInventoryEntry>(),
                 new HashSet<string>(SongPathIdentity.CanonicalComparer));
@@ -1902,9 +1900,7 @@ namespace DTXMania.Test.Song
         {
             await _manager.InitializeAsync();
 
-            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
-                _manager.Scanner,
-                "FindMovedFile",
+            var result = InvokeFindMovedFile(
                 new SongChart { FilePath = Path.Combine(_testRoot, "missing.dtx") },
                 Array.Empty<ChartInventoryEntry>(),
                 new HashSet<string>(SongPathIdentity.CanonicalComparer));
@@ -2060,12 +2056,7 @@ namespace DTXMania.Test.Song
                 if (canList)
                     return;
 
-                var result = ReflectionHelpers.InvokePrivateMethod<string?>(
-                    _manager.Scanner,
-                    "FindMovedFile",
-                    missingChart,
-                    inventory,
-                    ownedPaths);
+                var result = InvokeFindMovedFile(missingChart, inventory, ownedPaths);
 
                 Assert.Null(result);
             }
@@ -2167,12 +2158,7 @@ namespace DTXMania.Test.Song
             if (candidateInfo.Length <= 0)
                 return;
 
-            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
-                _manager.Scanner,
-                "FindMovedFile",
-                missingChart,
-                inventory,
-                ownedPaths);
+            var result = InvokeFindMovedFile(missingChart, inventory, ownedPaths);
 
             if (!isCaseSensitive)
             {
@@ -2789,9 +2775,7 @@ namespace DTXMania.Test.Song
 
             // HPA-801 Decision B: the scanner consults only the inventory
             // passed to it. An empty inventory simply finds nothing.
-            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
-                _manager.Scanner,
-                "FindMovedFile",
+            var result = InvokeFindMovedFile(
                 new SongChart { FilePath = Path.Combine(_testRoot, "song.dtx") },
                 Array.Empty<ChartInventoryEntry>(),
                 new HashSet<string>(SongPathIdentity.CanonicalComparer));
@@ -3049,6 +3033,25 @@ namespace DTXMania.Test.Song
                             [normalizedRoot] = watermark
                         }
                 })!;
+        }
+
+        private string? InvokeFindMovedFile(
+            SongChart chart,
+            IReadOnlyList<ChartInventoryEntry> inventory,
+            ISet<string> ownedPaths)
+        {
+            var ownedPathsByFoldedDirectory =
+                ReflectionHelpers.InvokePrivateMethod<Dictionary<string, List<string>>>(
+                    _manager.Scanner,
+                    "BuildOwnedPathsByFoldedDirectory",
+                    ownedPaths)!;
+            return ReflectionHelpers.InvokePrivateMethod<string?>(
+                _manager.Scanner,
+                "FindMovedFile",
+                chart,
+                inventory,
+                ownedPaths,
+                ownedPathsByFoldedDirectory);
         }
 
         private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
