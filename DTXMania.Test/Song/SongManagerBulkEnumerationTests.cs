@@ -2829,11 +2829,13 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         }
         finally
         {
-            // A failed assertion must still release the worker: leaving it
-            // blocked on the gate turns a test failure into a hang.
+            // A failed assertion must still release the worker and drain the
+            // refresh: a blocked gate turns a test failure into a hang, and
+            // an abandoned refresh keeps using the database teardown
+            // deletes.
             releasePrepare.Set();
+            await refresh;
         }
-        await refresh;
 
         var after = _manager.GetLibrarySnapshot();
         Assert.Equal(1, publishEvents);
@@ -3035,6 +3037,188 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             // so the set.def dir contributes no chart and both rows are
             // rescan-deleted.
             Assert.Empty(surviving);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenSetDefSpellsMovedChartTwoWays_ShouldRepairOnce()
+    {
+        // The set.def inventory carries every authored spelling:
+        // 'basic.dtx' and 'BASIC.DTX' name one moved file wherever the
+        // volume folds case. Counting the spellings as separate matches
+        // vetoes the repair they both verify, and the rescan then deletes
+        // the row's scores.
+        var rootA = Path.Combine(_testRoot, "SpelledA");
+        var rootB = Path.Combine(_testRoot, "SpelledB");
+        var original = WriteChart("SpelledA/Pack/basic.dtx", "Mover", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        int chartId;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var chart = await seed.SongCharts.SingleAsync();
+            chartId = chart.Id;
+            var score = await seed.SongScores.SingleAsync(s => s.ChartId == chartId);
+            score.PlayCount = 7;
+            await seed.SaveChangesAsync();
+        }
+
+        var setDir = Path.Combine(rootB, "SetBacked");
+        Directory.CreateDirectory(setDir);
+        File.Move(original, Path.Combine(setDir, "basic.dtx"));
+        await File.WriteAllTextAsync(
+            Path.Combine(setDir, "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE basic.dtx\n" +
+            "#L2LABEL ADVANCED\n#L2FILE BASIC.DTX\n");
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using (var check = ManagerDatabaseService!.CreateContext())
+        {
+            var row = await check.SongCharts.SingleAsync(c => c.Id == chartId);
+            Assert.Equal(
+                SongPathIdentity.Normalize(Path.Combine(setDir, "basic.dtx")),
+                row.FilePath);
+        }
+
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        await using var after = ManagerDatabaseService!.CreateContext();
+        var surviving = await after.SongCharts
+            .Include(c => c.Scores)
+            .SingleAsync(c => c.Id == chartId);
+        Assert.Equal(7, surviving.Scores.Sum(s => s.PlayCount));
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenMoveTargetFolderDeniesListing_ShouldRepairByKnownPath()
+    {
+        // set.def names the moved chart exactly and the volume permits
+        // opening it; only the folder listing is denied. The ownership
+        // check has no owned file to confuse the candidate with, so it must
+        // not list — an abandoned search leaves the row missing and the
+        // rescan deletes its scores.
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var rootA = Path.Combine(_testRoot, "ListedA");
+        var rootB = Path.Combine(_testRoot, "ListedB");
+        var original = WriteChart("ListedA/Pack/basic.dtx", "Mover", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        int chartId;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var chart = await seed.SongCharts.SingleAsync();
+            chartId = chart.Id;
+            var score = await seed.SongScores.SingleAsync(s => s.ChartId == chartId);
+            score.PlayCount = 7;
+            await seed.SaveChangesAsync();
+        }
+
+        var packDir = Path.Combine(rootB, "SetBacked");
+        var chartsDir = Path.Combine(packDir, "charts");
+        Directory.CreateDirectory(chartsDir);
+        File.Move(original, Path.Combine(chartsDir, "basic.dtx"));
+        await File.WriteAllTextAsync(
+            Path.Combine(packDir, "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE charts/basic.dtx\n");
+
+        try
+        {
+            File.SetUnixFileMode(
+                chartsDir,
+                UnixFileMode.UserExecute |
+                UnixFileMode.GroupExecute |
+                UnixFileMode.OtherExecute);
+            var canList = true;
+            try
+            {
+                Directory.EnumerateFiles(chartsDir).ToList();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                canList = false;
+            }
+            catch (IOException)
+            {
+                canList = false;
+            }
+
+            // Permission-restricted fixtures cannot exercise the branch when
+            // the process has elevated privileges (a root CI runner).
+            if (canList)
+                return;
+
+            Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+            await using var check = ManagerDatabaseService!.CreateContext();
+            var row = await check.SongCharts.SingleAsync(c => c.Id == chartId);
+            Assert.Equal(
+                SongPathIdentity.Normalize(
+                    Path.Combine(chartsDir, "basic.dtx")),
+                row.FilePath);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                chartsDir,
+                UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenMovedChartDiffersOnlyInUnicodeForm_ShouldRepairWhereVolumeFoldsIt()
+    {
+        // The recorded path carries the NFC spelling while the moved file
+        // is stored NFD. Volumes that fold normalization resolve both to
+        // one entry, so the candidate must reach the verifier; volumes that
+        // keep the forms distinct (NTFS, most Linux filesystems) hold a
+        // genuinely renamed file the row cannot claim.
+        var rootA = Path.Combine(_testRoot, "FormA");
+        var rootB = Path.Combine(_testRoot, "FormB");
+        var nfcName = "café.dtx";
+        var nfdName = nfcName.Normalize(NormalizationForm.FormD);
+        var original = WriteChart($"FormA/Pack/{nfcName}", "Mover", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var movedDir = Path.Combine(rootB, "Moved");
+        Directory.CreateDirectory(movedDir);
+        var nfdPath = Path.Combine(movedDir, nfdName);
+        File.Move(original, nfdPath);
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        var row = await check.SongCharts.SingleAsync();
+        if (File.Exists(Path.Combine(movedDir, nfcName)))
+        {
+            // The volume folds normalization: the recorded NFC spelling
+            // resolves to the NFD entry the rescan imports.
+            Assert.Equal(SongPathIdentity.Normalize(nfdPath), row.FilePath);
+        }
+        else
+        {
+            // The volume keeps the forms distinct: the recorded file is
+            // genuinely absent, so the row keeps its path for the rescan.
+            Assert.Equal(original, row.FilePath);
         }
     }
 
