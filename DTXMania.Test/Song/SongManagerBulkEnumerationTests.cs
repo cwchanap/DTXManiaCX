@@ -2652,7 +2652,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var copyA = Path.Combine(rootA, "Pack1", "dup.dtx");
         var copyB = Path.Combine(rootB, "Pack2", "dup.dtx");
         File.SetLastWriteTimeUtc(copyA, new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc));
-        File.SetLastWriteTimeUtc(copyB, new DateTime(2026, 11, 17, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(copyB, new DateTime(2026, 11, 23, 0, 0, 0, DateTimeKind.Utc));
 
         await _manager.InitializeAsync();
         await _manager.EnumerateAndImportSongsAsync(
@@ -2724,7 +2724,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         File.Delete(copyA);
         WriteChart("SameNameB/Pack2/dup.dtx", "Dup", 51);
         var replacement = Path.Combine(rootB, "Pack2", "dup.dtx");
-        File.SetLastWriteTimeUtc(replacement, new DateTime(2026, 11, 17, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(replacement, new DateTime(2026, 11, 23, 0, 0, 0, DateTimeKind.Utc));
 
         Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
 
@@ -2790,14 +2790,27 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // so a scan publishing while the hierarchy builds leaves the prepared
         // snapshot stale: its commit must be skipped rather than clobber the
         // newer publication.
-        using var prepareReached = new ManualResetEventSlim(false);
-        using var releasePrepare = new ManualResetEventSlim(false);
+        var preparedSource = new TaskCompletionSource<SongDatabaseHierarchy?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePrepare = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         SongLibrary inner = null!;
         inner = CreateManager(prepareHierarchyFromDatabaseOnceAsync: async paths =>
         {
-            prepareReached.Set();
-            await Task.Run(() => releasePrepare.Wait());
-            return await inner.Hierarchy.PrepareHierarchyFromDatabaseOnceAsync(paths);
+            SongDatabaseHierarchy? prepared;
+            try
+            {
+                prepared = await inner.Hierarchy.PrepareHierarchyFromDatabaseOnceAsync(paths);
+                preparedSource.TrySetResult(prepared);
+            }
+            catch (Exception ex)
+            {
+                preparedSource.TrySetException(ex);
+                throw;
+            }
+
+            await releasePrepare.Task;
+            return prepared;
         });
         _manager = inner;
         await SeedPublishedLibraryAsync();
@@ -2808,9 +2821,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var refresh = _manager.RefreshSongListFromDatabaseAsync();
         try
         {
-            Assert.True(
-                prepareReached.Wait(TimeSpan.FromSeconds(5)),
-                "refresh did not reach hierarchy prepare within the gate timeout");
+            var prepared = await preparedSource.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(prepared);
             // An intervening publication bumps the version between the refresh's
             // capture and its commit.
             _manager.PublishEnumeration(new SongEnumerationBatch
@@ -2833,7 +2845,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             // refresh: a blocked gate turns a test failure into a hang, and
             // an abandoned refresh keeps using the database teardown
             // deletes.
-            releasePrepare.Set();
+            releasePrepare.TrySetResult(true);
             await refresh;
         }
 
@@ -3593,6 +3605,147 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var row = await check.SongCharts.SingleAsync();
         Assert.False(row.FilePath.EndsWith(".stale", StringComparison.Ordinal));
         Assert.NotEqual(SongPathIdentity.Normalize(staged), row.FilePath);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenAmbiguousRowMatchesTwoDestinationsAndSecondRowMatchesOne_ShouldLeaveBothUnrepaired()
+    {
+        var root = Path.Combine(_testRoot, "CrossRowContention");
+        var destX = WriteChart("CrossRowContention/DestX/dup.dtx", "Dup", 50);
+        var destY = WriteChart("CrossRowContention/DestY/dup.dtx", "Dup", 50);
+        var tX = new DateTime(2026, 11, 16, 12, 0, 0, DateTimeKind.Utc);
+        var tY = tX.AddHours(-2);
+        File.SetLastWriteTimeUtc(destX, tX);
+        File.SetLastWriteTimeUtc(destY, tY);
+
+        var fileSize = new FileInfo(destX).Length;
+        var maxZoneOffset = TimeZoneInfo.GetSystemTimeZones()
+            .Select(zone => zone.GetUtcOffset(tX))
+            .Max();
+
+        await _manager.InitializeAsync();
+        var missingPathA = SongPathIdentity.Normalize(
+            Path.Combine(root, "OldA", "dup.dtx"));
+        var missingPathB = SongPathIdentity.Normalize(
+            Path.Combine(root, "OldB", "dup.dtx"));
+
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var songA = new SongEntity { Title = "DupA", Artist = "A", Genre = "G" };
+            songA.Charts.Add(new SongChart
+            {
+                FilePath = missingPathA,
+                FileSize = fileSize,
+                LastModified = tX,
+                HasDrumChart = true,
+                DrumLevel = 50,
+                DifficultyLevel = 50
+            });
+            var songB = new SongEntity { Title = "DupB", Artist = "B", Genre = "G" };
+            songB.Charts.Add(new SongChart
+            {
+                FilePath = missingPathB,
+                FileSize = fileSize,
+                LastModified = tX + maxZoneOffset,
+                HasDrumChart = true,
+                DrumLevel = 50,
+                DifficultyLevel = 50
+            });
+            seed.Songs.AddRange(songA, songB);
+            await seed.SaveChangesAsync();
+            await new SongCatalogStore(ManagerDatabaseService!)
+                .SetEnumerationWatermarkAtomicallyAsync(
+                    DateTime.UtcNow.AddMinutes(5), new[] { root });
+        }
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { root }));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        var paths = await check.SongCharts
+            .Select(c => c.FilePath)
+            .OrderBy(p => p)
+            .ToListAsync();
+        Assert.Equal(new[] { missingPathA, missingPathB }, paths);
+    }
+
+    [Fact]
+    public async Task UpdateChartFilePathAsync_WhenExpectedClaimKeyDisagreesOrAnotherRowNamesAlias_ShouldLeaveRowUntouched()
+    {
+        var root = Path.Combine(_testRoot, "RepairClaimRecheck");
+        var activeFile = WriteChart("RepairClaimRecheck/Live/song.dtx", "Live", 40);
+        var movedFile = WriteChart("RepairClaimRecheck/Moved/song.dtx", "Moved", 50);
+        var movedInfo = new FileInfo(movedFile);
+
+        await _manager.InitializeAsync();
+        var missingPath = SongPathIdentity.Normalize(
+            Path.Combine(root, "Missing", "song.dtx"));
+        var activeAliasPath = SongPathIdentity.IsCaseSensitive
+            ? SongPathIdentity.Normalize(activeFile)
+            : SongPathIdentity.Normalize(
+                Path.Combine(Path.GetDirectoryName(activeFile)!, "SONG.DTX"));
+
+        SongChart snapshot;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var activeSong = new SongEntity { Title = "Live", Artist = "A", Genre = "G" };
+            activeSong.Charts.Add(new SongChart
+            {
+                FilePath = activeAliasPath,
+                FileSize = new FileInfo(activeFile).Length,
+                LastModified = new FileInfo(activeFile).LastWriteTime,
+                HasDrumChart = true,
+                DrumLevel = 40,
+                DifficultyLevel = 40
+            });
+            var missingSong = new SongEntity { Title = "Moved", Artist = "B", Genre = "G" };
+            var missingChart = new SongChart
+            {
+                FilePath = missingPath,
+                FileSize = movedInfo.Length,
+                LastModified = movedInfo.LastWriteTime,
+                HasDrumChart = true,
+                DrumLevel = 50,
+                DifficultyLevel = 50
+            };
+            missingSong.Charts.Add(missingChart);
+            seed.Songs.AddRange(activeSong, missingSong);
+            await seed.SaveChangesAsync();
+            snapshot = await seed.SongCharts.AsNoTracking()
+                .SingleAsync(c => c.Id == missingChart.Id);
+        }
+
+        // Staged identity mismatch (e.g. a retargeted link between staging and save)
+        Assert.False(await _manager.Scanner.UpdateChartFilePathAsync(
+            snapshot,
+            movedFile,
+            expectedClaimKey: movedFile + ".retargeted"));
+
+        // Destination already named by another row via a different path spelling
+        if (!SongPathIdentity.IsCaseSensitive)
+        {
+            var activeMovedSnapshot = new SongChart
+            {
+                Id = snapshot.Id,
+                FilePath = snapshot.FilePath,
+                FileSize = new FileInfo(activeFile).Length,
+                LastModified = new FileInfo(activeFile).LastWriteTime
+            };
+            await using (var updateSeed = ManagerDatabaseService!.CreateContext())
+            {
+                var row = await updateSeed.SongCharts.FindAsync(snapshot.Id);
+                row!.FileSize = activeMovedSnapshot.FileSize;
+                row.LastModified = activeMovedSnapshot.LastModified;
+                await updateSeed.SaveChangesAsync();
+            }
+
+            Assert.False(await _manager.Scanner.UpdateChartFilePathAsync(
+                activeMovedSnapshot,
+                activeFile));
+        }
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        var persisted = await check.SongCharts.SingleAsync(c => c.Id == snapshot.Id);
+        Assert.Equal(missingPath, persisted.FilePath);
     }
 
     [Fact]

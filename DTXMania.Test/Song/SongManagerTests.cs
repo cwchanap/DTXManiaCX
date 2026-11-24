@@ -2540,19 +2540,15 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task UpdateChartFilePathAsync_WithoutDatabaseService_ShouldCompleteSuccessfully()
         {
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
-                _manager.Scanner,
-                "UpdateChartFilePathAsync",
+            var result = await _manager.Scanner.UpdateChartFilePathAsync(
                 new SongChart
                 {
                     Id = 1,
                     FilePath = Path.Combine(_testRoot, "original.dtx")
                 },
-                Path.Combine(_testRoot, "updated.dtx"))!;
+                Path.Combine(_testRoot, "updated.dtx"));
 
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
+            Assert.False(result);
         }
 
         [Fact]
@@ -2560,19 +2556,15 @@ namespace DTXMania.Test.Song
         {
             var brokenLibrary = new SongLibrary(CreateBrokenDatabaseService());
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
-                brokenLibrary.Scanner,
-                "UpdateChartFilePathAsync",
+            var result = await brokenLibrary.Scanner.UpdateChartFilePathAsync(
                 new SongChart
                 {
                     Id = 1,
                     FilePath = Path.Combine(_testRoot, "original.dtx")
                 },
-                Path.Combine(_testRoot, "updated.dtx"))!;
+                Path.Combine(_testRoot, "updated.dtx"));
 
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
+            Assert.False(result);
         }
 
         [Fact]

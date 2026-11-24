@@ -1116,6 +1116,113 @@ namespace DTXMania.Test.Stage
             Assert.True(recentSong.IsBookmarked); // newer toggle's flag preserved
         }
 
+        [Fact]
+        public async Task ToggleBookmarkForSelectedSong_WhenGameLibraryClearedDuringQueuedWrites_ShouldStillPersistAndRevertCapturedLibrary()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"bm_shutdown_{Guid.NewGuid():N}.db");
+            var manager = new SongLibrary(new SongDatabase(dbPath));
+            await manager.InitializeAsync(purgeDatabaseFirst: true);
+            var db = manager.Database;
+            var seed = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Song",
+                Artist = "A",
+                IsBookmarked = false
+            };
+            var chart = new SongChart
+            {
+                FilePath = $"/c/{Guid.NewGuid():N}.dtx",
+                HasDrumChart = true,
+                DrumLevel = 30
+            };
+            await db.SeedSongAsync(seed, chart);
+            var songId = (await new SongCatalogStore(db).GetSongsAsync())
+                .Single(s => s.Title == "Song").Id;
+
+            try
+            {
+                var game = CreateGame();
+                SetPrivateField(game, "_songLibrary", manager);
+                var stage = new SongSelectionStage(game);
+                var nodeEntity = new DTXMania.Game.Lib.Song.Entities.Song
+                {
+                    Id = songId,
+                    Title = "Song",
+                    IsBookmarked = false
+                };
+                var node = new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    DatabaseSong = nodeEntity
+                };
+                var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+                stage.InstallTestBackgroundScope();
+                var roots = GetPrivateField<List<SongListNode>>(manager, "_rootSongs");
+                roots.Clear();
+                roots.Add(node);
+
+                var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
+                    stage, "_pendingBookmarkWrites");
+                var releaseFirst = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                pending[songId] = releaseFirst.Task;
+
+                // Queue three rapid toggles while write #0 is still blocked: ON -> OFF -> ON.
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+                Assert.True(nodeEntity.IsBookmarked);
+
+                // Simulate shutdown clearing _game.SongLibrary and disposing the library
+                // before the queued writes run.
+                SetPrivateField(game, "_songLibrary", null);
+                manager.Dispose();
+
+                releaseFirst.SetResult(true);
+                await pending[songId].WaitAsync(TimeSpan.FromSeconds(5));
+
+                var verifyDb = new SongDatabase(dbPath);
+                await verifyDb.InitializeDatabaseAsync();
+                var persisted = (await new SongCatalogStore(verifyDb).GetSongsAsync())
+                    .Single(s => s.Id == songId);
+                Assert.True(persisted.IsBookmarked);
+
+                // Also verify fault rollback uses the captured library after _game.SongLibrary
+                // is cleared: purge the DB so the next toggle faults, deactivate the stage,
+                // and verify the captured library's shared entity reverts without throwing.
+                SetPrivateField(game, "_songLibrary", manager);
+                var stage2 = new SongSelectionStage(game);
+                AttachCoreUi(stage2, display);
+                SetPrivateField(stage2, "_activeTab", SongSelectionTab.AllSongs);
+                stage2.InstallTestBackgroundScope();
+                await db.PurgeDatabaseAsync();
+
+                InvokePrivateMethod(stage2, "ToggleBookmarkForSelectedSong"); // optimistic OFF
+                Assert.False(nodeEntity.IsBookmarked);
+                SetPrivateField(stage2, "_currentPhase", StagePhase.Normal);
+                stage2.Deactivate();
+                SetPrivateField(game, "_songLibrary", null);
+
+                var pending2 = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
+                    stage2, "_pendingBookmarkWrites");
+                try { await pending2[songId]; } catch { /* expected persist fault */ }
+
+                Assert.True(
+                    SpinWait.SpinUntil(() => nodeEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
+                    "captured library entity did not revert after shutdown cleared _game.SongLibrary");
+            }
+            finally
+            {
+                manager.Dispose();
+                SqliteTestPools.ClearForFile(dbPath);
+                if (File.Exists(dbPath))
+                    try { File.Delete(dbPath); } catch { }
+            }
+        }
+
         // Counts warning-level log calls on the stage logger. The bookmark fault
         // continuation posts the rollback first and logs the "Bookmark save failed"
         // warning immediately after on the same thread, so observing the warning proves
