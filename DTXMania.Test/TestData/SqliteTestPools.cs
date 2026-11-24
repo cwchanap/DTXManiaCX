@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Data.Sqlite;
 
 namespace DTXMania.Test.TestData
@@ -16,18 +17,39 @@ namespace DTXMania.Test.TestData
         /// Clears every pool group the codebase can form for one database
         /// file: the bare path spelling (config stores and test helpers), the
         /// read-only spelling (SqliteConfigStore.Load), and the shared-cache
-        /// spelling (SongDatabase).
+        /// spelling (SongDatabase). Candidates go through
+        /// <see cref="SqliteConnectionStringBuilder"/> so the key matches the
+        /// normalized connection string pools group by — raw interpolation
+        /// misses files under paths containing ';' or '"'.
         /// </summary>
         public static void ClearForFile(string databasePath)
         {
-            ClearPool($"Data Source={databasePath}");
-            ClearPool($"Data Source={databasePath};Mode=ReadOnly");
-            ClearPool($"Data Source={databasePath};Cache=Shared;");
+            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath });
+            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadOnly });
+            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath, Cache = SqliteCacheMode.Shared });
         }
 
-        private static void ClearPool(string connectionString)
+        /// <summary>
+        /// Clears pool groups for every <c>*.db</c> file under a directory
+        /// (recursive). Use for test sandboxes that can create databases at
+        /// arbitrary names or in subdirectories.
+        /// </summary>
+        public static void ClearForDirectory(string directoryPath)
         {
-            using var connection = new SqliteConnection(connectionString);
+            if (!Directory.Exists(directoryPath))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(directoryPath, "*.db", SearchOption.AllDirectories))
+            {
+                ClearForFile(file);
+            }
+        }
+
+        private static void ClearPool(SqliteConnectionStringBuilder builder)
+        {
+            using var connection = new SqliteConnection(builder.ToString());
             SqliteConnection.ClearPool(connection);
         }
     }

@@ -448,7 +448,9 @@ public sealed class SongRootConfigTests
         finally
         {
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-            SqliteTestPools.ClearForFile(Path.Combine(root, "config.db"));
+            // Tests may use database file names other than config.db
+            // (e.g. indexed.db, legacy.db) — clear every .db under root.
+            SqliteTestPools.ClearForDirectory(root);
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
