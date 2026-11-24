@@ -3363,9 +3363,11 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         var nfdFile = Path.Combine(setDir, nfdLower);
         File.Copy(original, nfdFile);
         File.SetLastWriteTimeUtc(nfdFile, stamp);
+        var isCaseSensitive = !File.Exists(
+            Path.Combine(setDir, nfdLower.ToUpperInvariant()));
 
-        // Only volumes where case-folded uppercase is a distinct entry from the
-        // lowercase NFD file can host both siblings simultaneously.
+        // Only volumes where NFC uppercase is a distinct entry from the NFD
+        // lowercase file can host both siblings simultaneously.
         var upperFile = Path.Combine(setDir, nfcUpper);
         if (File.Exists(upperFile))
             return;
@@ -3375,8 +3377,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         File.Delete(original);
 
         // set.def references only CAFÉ.DTX, leaving the NFD lowercase sibling
-        // unindexed. On case-sensitive APFS, café.dtx opens café.dtx (NFD)
-        // rather than CAFÉ.DTX, so repair must not redirect to CAFÉ.DTX.
+        // unindexed. On case-sensitive APFS (or Linux), café.dtx never opens
+        // CAFÉ.DTX; on NTFS (case-insensitive, normalization-sensitive), it does.
         await File.WriteAllTextAsync(
             Path.Combine(setDir, "set.def"),
             $"#TITLE Mixed Set\n#L1LABEL BASIC\n#L1FILE {nfcUpper}\n");
@@ -3385,16 +3387,13 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
         await using var check = ManagerDatabaseService!.CreateContext();
         var row = await check.SongCharts.SingleAsync();
-        if (File.Exists(Path.Combine(setDir, nfcLower)))
+        if (isCaseSensitive)
         {
-            // Case-sensitive, normalization-insensitive (e.g. case-sensitive
-            // APFS): recorded NFC lowercase opens the unreferenced NFD
-            // lowercase sibling, not CAFÉ.DTX.
             Assert.Equal(SongPathIdentity.Normalize(original), row.FilePath);
         }
         else
         {
-            Assert.Equal(SongPathIdentity.Normalize(original), row.FilePath);
+            Assert.Equal(SongPathIdentity.Normalize(upperFile), row.FilePath);
         }
     }
 
