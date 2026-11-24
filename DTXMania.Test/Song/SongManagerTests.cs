@@ -2098,15 +2098,9 @@ namespace DTXMania.Test.Song
                 BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(method);
 
-            bool isCaseSensitive;
             try
             {
                 File.CreateSymbolicLink(ownedAliasPath, targetFile);
-                isCaseSensitive = !File.Exists(candidatePath);
-                if (isCaseSensitive)
-                {
-                    File.CreateSymbolicLink(candidatePath, targetFile);
-                }
             }
             catch (Exception ex) when (
                 OperatingSystem.IsWindows() &&
@@ -2119,6 +2113,12 @@ namespace DTXMania.Test.Song
                 Assert.True((bool)method!.Invoke(null, fallbackArgs)!);
                 Assert.False((bool)fallbackArgs[3]!);
                 return;
+            }
+
+            var isCaseSensitive = !File.Exists(candidatePath);
+            if (isCaseSensitive)
+            {
+                File.CreateSymbolicLink(candidatePath, targetFile);
             }
 
             var candidateInfo = new FileInfo(candidatePath);
