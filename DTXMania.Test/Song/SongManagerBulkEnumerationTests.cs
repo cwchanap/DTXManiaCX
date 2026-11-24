@@ -3223,6 +3223,264 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenOwnedChartUsesUnicodeAlias_ShouldNotRedirectMissingRow()
+    {
+        var rootA = Path.Combine(_testRoot, "UnicodeOwnA");
+        var rootB = Path.Combine(_testRoot, "UnicodeOwnB");
+        var nfcName = "café.dtx";
+        var nfdName = nfcName.Normalize(NormalizationForm.FormD);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+
+        var copyA = WriteChart($"UnicodeOwnA/Pack/{nfcName}", "Dupe", 50);
+        var heldDir = Path.Combine(rootB, "Held");
+        Directory.CreateDirectory(heldDir);
+        var copyBOnDisk = Path.Combine(heldDir, nfdName);
+        File.Copy(copyA, copyBOnDisk);
+        File.SetLastWriteTimeUtc(copyA, stamp);
+        File.SetLastWriteTimeUtc(copyBOnDisk, stamp);
+
+        // Only run on normalization-insensitive volumes where the NFC set.def
+        // entry resolves to the NFD file on disk.
+        if (!File.Exists(Path.Combine(heldDir, nfcName)))
+            return;
+
+        await File.WriteAllTextAsync(
+            Path.Combine(heldDir, "set.def"),
+            $"#TITLE Held Set\n#L1LABEL BASIC\n#L1FILE {nfcName}\n");
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var ownedNfcPath = SongPathIdentity.Normalize(Path.Combine(heldDir, nfcName));
+        int ownerId;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var owner = await seed.SongCharts.SingleAsync(c => c.FilePath == ownedNfcPath);
+            ownerId = owner.Id;
+            var score = await seed.SongScores.SingleAsync(s => s.ChartId == ownerId);
+            score.PlayCount = 7;
+            await seed.SaveChangesAsync();
+        }
+
+        File.Delete(copyA);
+        await File.WriteAllTextAsync(
+            Path.Combine(heldDir, "set.def"),
+            $"#TITLE Held Set\n#L1LABEL BASIC\n#L1FILE {nfcName}\n" +
+            $"#L2LABEL ADVANCED\n#L2FILE {nfdName}\n");
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using (var check = ManagerDatabaseService!.CreateContext())
+        {
+            var rows = await check.SongCharts.Select(c => c.FilePath).ToListAsync();
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(copyA, rows);
+            Assert.Contains(ownedNfcPath, rows);
+        }
+
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        await using var after = ManagerDatabaseService!.CreateContext();
+        var surviving = await after.SongCharts
+            .Include(c => c.Scores)
+            .ToListAsync();
+        var kept = Assert.Single(surviving, c => c.Id == ownerId);
+        Assert.Equal(7, kept.Scores.Sum(s => s.PlayCount));
+        var added = Assert.Single(surviving, c => c.Id != ownerId);
+        Assert.Equal(0, added.Scores.Sum(s => s.PlayCount));
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenSetDefSpellsMovedDirectoryTwoWays_ShouldRepairOnce()
+    {
+        var rootA = Path.Combine(_testRoot, "DirAliasA");
+        var rootB = Path.Combine(_testRoot, "DirAliasB");
+        var original = WriteChart("DirAliasA/Pack/basic.dtx", "Mover", 50);
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        int chartId;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var chart = await seed.SongCharts.SingleAsync();
+            chartId = chart.Id;
+            var score = await seed.SongScores.SingleAsync(s => s.ChartId == chartId);
+            score.PlayCount = 7;
+            await seed.SaveChangesAsync();
+        }
+
+        var setDir = Path.Combine(rootB, "SetBacked");
+        var chartsDir = Path.Combine(setDir, "Charts");
+        Directory.CreateDirectory(chartsDir);
+        var moved = Path.Combine(chartsDir, "basic.dtx");
+        File.Move(original, moved);
+        await File.WriteAllTextAsync(
+            Path.Combine(setDir, "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE charts/basic.dtx\n" +
+            "#L2LABEL ADVANCED\n#L2FILE Charts/basic.dtx\n");
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using (var check = ManagerDatabaseService!.CreateContext())
+        {
+            var row = await check.SongCharts.SingleAsync(c => c.Id == chartId);
+            Assert.Equal(SongPathIdentity.Normalize(moved), row.FilePath);
+        }
+
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        await using var after = ManagerDatabaseService!.CreateContext();
+        var surviving = await after.SongCharts
+            .Include(c => c.Scores)
+            .SingleAsync(c => c.Id == chartId);
+        Assert.Equal(7, surviving.Scores.Sum(s => s.PlayCount));
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenCaseSensitiveMixedSiblingExists_ShouldNotRedirectToCaseFold()
+    {
+        var rootA = Path.Combine(_testRoot, "MixedA");
+        var rootB = Path.Combine(_testRoot, "MixedB");
+        var nfcLower = "café.dtx";
+        var nfdLower = nfcLower.Normalize(NormalizationForm.FormD);
+        var nfcUpper = "CAFÉ.DTX";
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+
+        var original = WriteChart($"MixedA/Pack/{nfcLower}", "Mover", 50);
+        File.SetLastWriteTimeUtc(original, stamp);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var setDir = Path.Combine(rootB, "SetBacked");
+        Directory.CreateDirectory(setDir);
+        var nfdFile = Path.Combine(setDir, nfdLower);
+        File.Copy(original, nfdFile);
+        File.SetLastWriteTimeUtc(nfdFile, stamp);
+
+        // Only volumes where case-folded uppercase is a distinct entry from the
+        // lowercase NFD file can host both siblings simultaneously.
+        var upperFile = Path.Combine(setDir, nfcUpper);
+        if (File.Exists(upperFile))
+            return;
+
+        File.Copy(original, upperFile);
+        File.SetLastWriteTimeUtc(upperFile, stamp);
+        File.Delete(original);
+
+        // set.def references only CAFÉ.DTX, leaving the NFD lowercase sibling
+        // unindexed. On case-sensitive APFS, café.dtx opens café.dtx (NFD)
+        // rather than CAFÉ.DTX, so repair must not redirect to CAFÉ.DTX.
+        await File.WriteAllTextAsync(
+            Path.Combine(setDir, "set.def"),
+            $"#TITLE Mixed Set\n#L1LABEL BASIC\n#L1FILE {nfcUpper}\n");
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        var row = await check.SongCharts.SingleAsync();
+        if (File.Exists(Path.Combine(setDir, nfcLower)))
+        {
+            // Case-sensitive, normalization-insensitive (e.g. case-sensitive
+            // APFS): recorded NFC lowercase opens the unreferenced NFD
+            // lowercase sibling, not CAFÉ.DTX.
+            Assert.Equal(SongPathIdentity.Normalize(original), row.FilePath);
+        }
+        else
+        {
+            Assert.Equal(SongPathIdentity.Normalize(original), row.FilePath);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenUnreadableFolderHasAliasingOwner_ShouldNotHideCompetingTarget()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var rootA = Path.Combine(_testRoot, "UnlistOwnA");
+        var rootB = Path.Combine(_testRoot, "UnlistOwnB");
+        var rootC = Path.Combine(_testRoot, "UnlistOwnC");
+        var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+
+        var missing = WriteChart("UnlistOwnA/Pack/basic.dtx", "Mover", 50);
+        File.SetLastWriteTimeUtc(missing, stamp);
+
+        var setDir = Path.Combine(rootB, "SetBacked");
+        var chartsDir = Path.Combine(setDir, "charts");
+        Directory.CreateDirectory(chartsDir);
+        var ownedUpper = Path.Combine(chartsDir, "BASIC.dtx");
+        File.Copy(missing, ownedUpper);
+        File.SetLastWriteTimeUtc(ownedUpper, stamp);
+        await File.WriteAllTextAsync(
+            Path.Combine(setDir, "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE charts/BASIC.dtx\n");
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var otherCopy = WriteChart("UnlistOwnC/Other/basic.dtx", "Mover", 50);
+        File.SetLastWriteTimeUtc(otherCopy, stamp);
+
+        var isCaseSensitive = !File.Exists(Path.Combine(chartsDir, "basic.dtx"));
+        if (!isCaseSensitive)
+            return;
+
+        var movedInCharts = Path.Combine(chartsDir, "basic.dtx");
+        File.Move(missing, movedInCharts);
+        await File.WriteAllTextAsync(
+            Path.Combine(setDir, "set.def"),
+            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE charts/BASIC.dtx\n" +
+            "#L2LABEL ADVANCED\n#L2FILE charts/basic.dtx\n");
+
+        try
+        {
+            File.SetUnixFileMode(
+                chartsDir,
+                UnixFileMode.UserExecute |
+                UnixFileMode.GroupExecute |
+                UnixFileMode.OtherExecute);
+            var canList = true;
+            try
+            {
+                Directory.EnumerateFiles(chartsDir).ToList();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                canList = false;
+            }
+            catch (IOException)
+            {
+                canList = false;
+            }
+
+            if (canList)
+                return;
+
+            Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB, rootC }));
+
+            await using var check = ManagerDatabaseService!.CreateContext();
+            var missingRow = await check.SongCharts.SingleAsync(c => c.FilePath == missing);
+            Assert.Equal(SongPathIdentity.Normalize(missing), missingRow.FilePath);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                chartsDir,
+                UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenStoredMtimeReadsUnderAnotherZone_ShouldStillRepair()
     {
         // The persisted fingerprint is a local-time reading without an

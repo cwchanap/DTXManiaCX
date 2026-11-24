@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,7 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Import;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Win32.SafeHandles;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
@@ -781,18 +783,15 @@ namespace DTXMania.Game.Lib.Song
                     SongPathIdentity.CanonicalComparer);
                 foreach (var (_, newPath) in repairs)
                 {
-                    if (SongPathIdentity.TryNormalize(newPath, out var normalizedClaim))
-                    {
-                        claimsByPath[normalizedClaim] =
-                            claimsByPath.GetValueOrDefault(normalizedClaim) + 1;
-                    }
+                    var claimKey = ResolvedPathIdentity(newPath);
+                    claimsByPath[claimKey] =
+                        claimsByPath.GetValueOrDefault(claimKey) + 1;
                 }
 
                 foreach (var (chart, newPath) in repairs)
                 {
-                    var contested =
-                        SongPathIdentity.TryNormalize(newPath, out var normalizedClaim) &&
-                        claimsByPath[normalizedClaim] > 1;
+                    var claimKey = ResolvedPathIdentity(newPath);
+                    var contested = claimsByPath[claimKey] > 1;
 
                     // Found the file in a new location - update database. Only a
                     // repair that persists counts: a failed save stays missing
@@ -846,23 +845,17 @@ namespace DTXMania.Game.Lib.Song
                 if (string.IsNullOrEmpty(fileName))
                     return null;
 
-                string? normalizedFileName = null;
-                try
-                {
-                    normalizedFileName = fileName.Normalize();
-                }
-                catch (ArgumentException)
-                {
-                }
+                var normalizedFileName = TryNormalizeUnicode(fileName);
 
                 // A set.def's authored spelling can alias an owned chart's
-                // file where the volume folds spellings. Grouping owned
-                // basenames by directory lets the ownership check skip the
-                // folder listing entirely when no owned name can alias the
-                // candidate — the listing may be denied outright.
-                var ownedNamesByDirectory =
+                // file where the volume folds case or Unicode form, across
+                // both the filename and parent directory. Grouping full owned
+                // paths by Unicode-normalized, case-folded directory lets the
+                // ownership check skip folder/file resolution entirely when no
+                // owned path in that folder bucket can alias the candidate.
+                var ownedPathsByFoldedDirectory =
                     new Dictionary<string, List<string>>(
-                        SongPathIdentity.LegacyAliasComparer);
+                        StringComparer.OrdinalIgnoreCase);
                 foreach (var ownedPath in ownedPaths)
                 {
                     var ownedDirectory = Path.GetDirectoryName(ownedPath);
@@ -872,16 +865,18 @@ namespace DTXMania.Game.Lib.Song
                     {
                         continue;
                     }
-                    if (!ownedNamesByDirectory.TryGetValue(
-                            ownedDirectory, out var ownedNames))
+                    var directoryKey = GetDirectoryAliasBucketKey(ownedDirectory);
+                    if (!ownedPathsByFoldedDirectory.TryGetValue(
+                            directoryKey, out var dirOwnedPaths))
                     {
-                        ownedNames = new List<string>();
-                        ownedNamesByDirectory[ownedDirectory] = ownedNames;
+                        dirOwnedPaths = new List<string>();
+                        ownedPathsByFoldedDirectory[directoryKey] = dirOwnedPaths;
                     }
-                    ownedNames.Add(ownedName);
+                    dirOwnedPaths.Add(ownedPath);
                 }
 
                 var verified = new List<string>();
+                var hasUnresolvedCompetingCandidate = false;
 
                 foreach (var entry in inventoryCharts)
                 {
@@ -904,10 +899,23 @@ namespace DTXMania.Game.Lib.Song
 
                     // A path owned by another chart row is that row's file:
                     // it can neither be the repair target nor break the
-                    // unique-match tie-break.
-                    if (OwnedByAnotherChart(
-                            entry.Path, ownedPaths, ownedNamesByDirectory))
+                    // unique-match tie-break. When ownership cannot be settled
+                    // (e.g., an un-listable folder beside a potentially
+                    // aliasing owned chart), the candidate cannot become the
+                    // repair target, yet if it still matches the missing
+                    // chart's fingerprint it must veto any repair elsewhere.
+                    var ownership = GetCandidateOwnership(
+                        entry.Path, ownedPaths, ownedPathsByFoldedDirectory);
+                    if (ownership == CandidateOwnership.Owned)
                     {
+                        continue;
+                    }
+                    if (ownership == CandidateOwnership.Unresolved)
+                    {
+                        if (IsPotentiallyMatchingUnresolvedCandidate(missingChart, entry.Path))
+                        {
+                            hasUnresolvedCompetingCandidate = true;
+                        }
                         continue;
                     }
 
@@ -917,6 +925,11 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
+                if (hasUnresolvedCompetingCandidate)
+                {
+                    return null;
+                }
+
                 if (verified.Count == 1)
                 {
                     return verified[0];
@@ -924,13 +937,13 @@ namespace DTXMania.Game.Lib.Song
 
                 // Where the volume folds spellings, several authored
                 // inventory paths can verify against one filesystem entry —
-                // a set.def listing 'basic.dtx' and 'BASIC.DTX' emits both.
-                // Counting authored paths would veto a repair they all agree
-                // on, so candidates collapse by their resolved directory
-                // entry; genuinely distinct files keep distinct identities
-                // and still veto, since identical copies have no provable
-                // owner. The persisted path prefers the spelling matching
-                // the on-disk entry exactly.
+                // a set.def listing 'charts/basic.dtx' and 'Charts/BASIC.DTX'
+                // emits both. Counting authored paths would veto a repair they
+                // all agree on, so candidates collapse by their resolved
+                // on-disk path identity; genuinely distinct files keep
+                // distinct identities and still veto, since identical copies
+                // have no provable owner. The persisted path prefers the
+                // spelling matching the on-disk entry exactly.
                 var bestByIdentity = new Dictionary<string, string>(
                     StringComparer.Ordinal);
                 foreach (var path in verified)
@@ -962,24 +975,29 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        private enum CandidateOwnership
+        {
+            Unowned,
+            Owned,
+            Unresolved
+        }
+
         /// <summary>
-        /// Whether <paramref name="candidatePath"/> resolves to a file already
-        /// owned by a chart row. A set.def's authored spelling can alias an
-        /// owned file where the volume folds case — 'dupe.dtx' resolving to
-        /// the recorded 'DUPE.dtx' — and the ordinal set misses it, letting a
-        /// missing row claim another chart's file. Resolving the entry's
-        /// on-disk name catches the alias without folding the stored paths,
-        /// so spellings that differ only by case stay distinct on volumes
-        /// that treat them so.
+        /// Determines whether <paramref name="candidatePath"/> resolves to a
+        /// file already owned by a chart row. Compares the resolved on-disk
+        /// path identity of both the candidate and any potentially aliasing
+        /// owned paths — catching filename and directory aliases in both case
+        /// and Unicode normalization without folding distinct paths on
+        /// case-sensitive or normalization-sensitive volumes.
         /// </summary>
-        private static bool OwnedByAnotherChart(
+        private static CandidateOwnership GetCandidateOwnership(
             string candidatePath,
             ISet<string> ownedPaths,
-            IReadOnlyDictionary<string, List<string>> ownedNamesByDirectory)
+            IReadOnlyDictionary<string, List<string>> ownedPathsByFoldedDirectory)
         {
             if (ownedPaths.Contains(candidatePath))
             {
-                return true;
+                return CandidateOwnership.Owned;
             }
 
             var directory = Path.GetDirectoryName(candidatePath);
@@ -988,98 +1006,143 @@ namespace DTXMania.Game.Lib.Song
                 string.IsNullOrEmpty(spelling) ||
                 !Directory.Exists(directory))
             {
-                return false;
+                return CandidateOwnership.Unowned;
             }
 
-            // The candidate can only alias an owned file whose own name
-            // folds to the same spelling. When no owned name can, the
-            // listing that resolves the alias cannot change the answer, so
-            // it is skipped: a set.def-referenced chart is readable inside
-            // folders that deny enumeration, and an unreached throw here
-            // would abandon the whole move search and lose the row's
-            // scores to the rescan.
-            if (!ownedNamesByDirectory.TryGetValue(
-                    directory, out var ownedNames))
+            // The candidate can only alias an owned file whose directory and
+            // filename fold to the same spelling. When no owned path can,
+            // resolution is skipped: a set.def-referenced chart is readable
+            // inside folders that deny enumeration, and an unreached failure
+            // here would abandon the whole move search.
+            var directoryKey = GetDirectoryAliasBucketKey(directory);
+            if (!ownedPathsByFoldedDirectory.TryGetValue(
+                    directoryKey, out var dirOwnedPaths))
             {
-                return false;
+                return CandidateOwnership.Unowned;
             }
 
-            string? normalizedSpelling = null;
-            try
+            var normalizedSpelling = TryNormalizeUnicode(spelling);
+            var potentiallyAliasingOwners = dirOwnedPaths
+                .Where(ownerPath =>
+                {
+                    var ownerName = Path.GetFileName(ownerPath);
+                    return !string.IsNullOrEmpty(ownerName) &&
+                        (string.Equals(
+                            ownerName, spelling, StringComparison.OrdinalIgnoreCase) ||
+                         FoldedNameEquals(ownerName, normalizedSpelling));
+                })
+                .ToList();
+            if (potentiallyAliasingOwners.Count == 0)
             {
-                normalizedSpelling = spelling.Normalize();
-            }
-            catch (ArgumentException)
-            {
-            }
-
-            if (!ownedNames.Any(name =>
-                    string.Equals(
-                        name, spelling, StringComparison.OrdinalIgnoreCase) ||
-                    FoldedNameEquals(name, normalizedSpelling)))
-            {
-                return false;
-            }
-
-            string? resolvedName;
-            try
-            {
-                resolvedName = ResolveDirectoryEntryName(
-                    directory,
-                    spelling,
-                    Directory
-                        .EnumerateFiles(directory)
-                        .Select(Path.GetFileName)
-                        .ToList());
-            }
-            catch (Exception)
-            {
-                // An owned chart shares a folder that denies listing, so
-                // whether the candidate aliases that chart cannot be
-                // settled: leave it claimed rather than let a missing row
-                // take another chart's file.
-                return true;
+                return CandidateOwnership.Unowned;
             }
 
-            return resolvedName != null &&
-                !string.Equals(resolvedName, spelling, StringComparison.Ordinal) &&
-                ownedPaths.Contains(Path.Combine(directory, resolvedName));
+            var candidateRealPath = TryGetCanonicalOnDiskPath(candidatePath);
+            var hasUnresolvedOwner = false;
+
+            foreach (var ownerPath in potentiallyAliasingOwners)
+            {
+                if (!File.Exists(ownerPath))
+                {
+                    continue;
+                }
+
+                if (candidateRealPath != null)
+                {
+                    var ownerRealPath = TryGetCanonicalOnDiskPath(ownerPath);
+                    if (ownerRealPath != null)
+                    {
+                        if (string.Equals(
+                                candidateRealPath,
+                                ownerRealPath,
+                                StringComparison.Ordinal))
+                        {
+                            return CandidateOwnership.Owned;
+                        }
+                        continue;
+                    }
+                }
+
+                // Fallback when OS canonical path resolution is unavailable:
+                // resolve every path component via directory enumeration. If
+                // listing fails or either path cannot be resolved cleanly,
+                // keep the ownership unresolved rather than risking a false
+                // steal or silently dropping a competing target.
+                var resolvedCandidate = TryResolvePathByDirectoryListing(candidatePath);
+                var resolvedOwner = resolvedCandidate == null
+                    ? null
+                    : TryResolvePathByDirectoryListing(ownerPath);
+                if (resolvedCandidate == null || resolvedOwner == null)
+                {
+                    hasUnresolvedOwner = true;
+                    continue;
+                }
+
+                if (string.Equals(
+                        resolvedCandidate,
+                        resolvedOwner,
+                        StringComparison.Ordinal))
+                {
+                    return CandidateOwnership.Owned;
+                }
+            }
+
+            return hasUnresolvedOwner
+                ? CandidateOwnership.Unresolved
+                : CandidateOwnership.Unowned;
         }
 
-        /// <summary>
-        /// The on-disk identity an inventory path names: its directory plus
-        /// the resolved entry spelling, so authored aliases of one file
-        /// collapse to a single identity while distinct files stay
-        /// distinct. A path whose entry cannot be resolved keeps its own
-        /// spelling, which can only collide with itself.
-        /// </summary>
-        private static string ResolvedPathIdentity(string path)
+        private bool IsPotentiallyMatchingUnresolvedCandidate(
+            SongChart chart,
+            string candidatePath)
         {
             try
             {
-                var directory = Path.GetDirectoryName(path);
-                var spelling = Path.GetFileName(path);
-                if (string.IsNullOrEmpty(directory) ||
-                    string.IsNullOrEmpty(spelling))
+                var recordedName = Path.GetFileName(chart.FilePath);
+                var candidateInfo = new FileInfo(candidatePath);
+                if (string.IsNullOrEmpty(recordedName) ||
+                    string.IsNullOrEmpty(candidateInfo.Name) ||
+                    chart.FileSize <= 0 ||
+                    candidateInfo.Length != chart.FileSize ||
+                    !IsFingerprintTimestamp(candidateInfo, chart.LastModified))
                 {
-                    return path;
+                    return false;
                 }
 
-                var resolved = ResolveDirectoryEntryName(
-                    directory,
-                    spelling,
-                    Directory
-                        .EnumerateFiles(directory)
-                        .Select(Path.GetFileName)
-                        .ToList());
-                return resolved == null
-                    ? path
-                    : Path.Combine(directory, resolved);
+                if (string.Equals(
+                        recordedName,
+                        candidateInfo.Name,
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                var directory = candidateInfo.Directory?.FullName;
+                return !string.IsNullOrEmpty(directory) &&
+                    File.Exists(Path.Combine(directory, recordedName));
             }
             catch (Exception)
             {
-                return path;
+                return true;
             }
+        }
+
+        /// <summary>
+        /// The on-disk identity an inventory path names: its full canonical
+        /// on-disk path (resolving both directory segments and filename), so
+        /// authored aliases of one file collapse to a single identity while
+        /// distinct files stay distinct. A path whose entry cannot be resolved
+        /// keeps its own spelling, which can only collide with itself.
+        /// </summary>
+        private static string ResolvedPathIdentity(string path)
+        {
+            var realPath = TryGetCanonicalOnDiskPath(path);
+            if (realPath != null)
+            {
+                return realPath;
+            }
+
+            return TryResolvePathByDirectoryListing(path) ?? path;
         }
 
         /// <summary>
@@ -1095,11 +1158,10 @@ namespace DTXMania.Game.Lib.Song
         /// unverifiable and left for the rescan.
         /// The candidate's name must also equal the recorded name literally —
         /// without it a differently named same-size file could inherit the
-        /// missing chart's scores. A case-only difference names the same file
-        /// only where the filesystem folds case — proven per file by
-        /// <see cref="FileNameMatchesRecordedFile"/>, not assumed from the OS:
-        /// a case-sensitive volume can host 'song.dtx' and 'SONG.DTX' as
-        /// distinct files.
+        /// missing chart's scores. A case-only or Unicode-form difference names
+        /// the same file only where the filesystem resolves both spellings to
+        /// the same entry — proven per file by
+        /// <see cref="FileNameMatchesRecordedFile"/>, not assumed from the OS.
         /// </summary>
         private bool IsVerifiedMoveCandidate(SongChart chart, string candidatePath)
         {
@@ -1122,12 +1184,10 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// The candidate's filename must equal the recorded one, or be a
         /// spelling that resolves to the same directory entry. On a
-        /// case-sensitive volume 'SONG.DTX' is a different file than the
-        /// recorded 'song.dtx': the recorded spelling either resolves to a
-        /// distinct sibling or does not resolve, so the candidate is rejected.
-        /// Only a volume that folds the spellings resolves both to one entry —
-        /// and there the directory entry carrying the recorded spelling is
-        /// the candidate itself, not a separate file.
+        /// case-sensitive volume (including case-sensitive, normalization-
+        /// insensitive APFS) 'CAFÉ.DTX' is a different file than 'café.dtx'
+        /// even when 'café.dtx' (NFD) also exists in the same folder: OS
+        /// path resolution proves which entry the recorded spelling opens.
         /// </summary>
         private bool FileNameMatchesRecordedFile(
             string? recordedName,
@@ -1152,6 +1212,20 @@ namespace DTXMania.Game.Lib.Song
                 return false;
             }
 
+            var recordedPath = Path.Combine(directory, recordedName);
+            if (!File.Exists(recordedPath))
+            {
+                return false;
+            }
+
+            var candidateRealPath = TryGetCanonicalOnDiskPath(candidateInfo.FullName);
+            var recordedRealPath = TryGetCanonicalOnDiskPath(recordedPath);
+            if (candidateRealPath != null && recordedRealPath != null)
+            {
+                return string.Equals(
+                    candidateRealPath, recordedRealPath, StringComparison.Ordinal);
+            }
+
             var entryNames = Directory
                 .EnumerateFiles(directory)
                 .Select(Path.GetFileName)
@@ -1169,31 +1243,39 @@ namespace DTXMania.Game.Lib.Song
         /// Returns the on-disk entry name <paramref name="spelling"/> resolves
         /// to inside <paramref name="directory"/>, or null when it resolves to
         /// nothing or cannot be tied to a single entry. An exact directory
-        /// entry wins on any volume. A folded match counts only when the
-        /// filesystem itself resolves the spelling — the
-        /// <see cref="File.Exists(string)"/> gate — which proves the volume
-        /// folds case: a case-sensitive volume never resolves 'dupe.dtx' to a
-        /// sibling 'DUPE.dtx'. Case-folded entries are preferred over
-        /// normalization-only lookalikes: a name differing only in Unicode
-        /// form is the same file on volumes that normalize for comparison
-        /// (APFS stores NFD while authored paths like set.def tend to carry
-        /// NFC), but a different file on volumes that do not (NTFS), where
-        /// counting it as a second alias would veto the single entry the OS
-        /// actually resolves.
+        /// entry wins on any volume. When both a case-folded match and a
+        /// case-exact Unicode-normalization match exist and disagree, this
+        /// fallback declines rather than guessing between NTFS case-folding
+        /// and case-sensitive APFS Unicode-normalization.
         /// </summary>
         private static string? ResolveDirectoryEntryName(
             string directory,
             string spelling,
             IReadOnlyList<string?> directoryEntryNames)
         {
-            if (!File.Exists(Path.Combine(directory, spelling)))
+            return ResolveEntryName(
+                Path.Combine(directory, spelling),
+                spelling,
+                directoryEntryNames,
+                File.Exists);
+        }
+
+        private static string? ResolveEntryName(
+            string fullEntryPath,
+            string spelling,
+            IReadOnlyList<string?> entryNames,
+            Func<string, bool> exists)
+        {
+            if (!exists(fullEntryPath))
             {
                 return null;
             }
 
+            var normalizedSpelling = TryNormalizeUnicode(spelling);
             string? folded = null;
             var foldedCount = 0;
-            foreach (var entryName in directoryEntryNames)
+            var normExactCaseCount = 0;
+            foreach (var entryName in entryNames)
             {
                 if (string.Equals(entryName, spelling, StringComparison.Ordinal))
                 {
@@ -1208,24 +1290,34 @@ namespace DTXMania.Game.Lib.Song
                     folded = entryName;
                     foldedCount++;
                 }
+                if (entryName != null &&
+                    normalizedSpelling != null &&
+                    string.Equals(
+                        TryNormalizeUnicode(entryName),
+                        normalizedSpelling,
+                        StringComparison.Ordinal))
+                {
+                    normExactCaseCount++;
+                }
             }
+
+            // If both a case-folded match and a case-exact Unicode
+            // normalization match exist (and disagree), directory listing
+            // alone cannot prove which one the OS opens (e.g. NTFS vs
+            // case-sensitive APFS).
+            if (foldedCount != 0 && normExactCaseCount != 0)
+            {
+                return null;
+            }
+
             if (foldedCount != 0)
             {
                 return foldedCount == 1 ? folded : null;
             }
 
-            string? normalizedSpelling = null;
-            try
-            {
-                normalizedSpelling = spelling.Normalize();
-            }
-            catch (ArgumentException)
-            {
-            }
-
             string? normalizedFolded = null;
             var normalizedCount = 0;
-            foreach (var entryName in directoryEntryNames)
+            foreach (var entryName in entryNames)
             {
                 if (entryName != null &&
                     FoldedNameEquals(entryName, normalizedSpelling))
@@ -1236,6 +1328,185 @@ namespace DTXMania.Game.Lib.Song
             }
 
             return normalizedCount == 1 ? normalizedFolded : null;
+        }
+
+        private static string? TryResolvePathByDirectoryListing(string path)
+        {
+            try
+            {
+                if (!SongPathIdentity.TryNormalize(path, out var normalized))
+                {
+                    return null;
+                }
+
+                var root = Path.GetPathRoot(normalized);
+                if (string.IsNullOrEmpty(root))
+                {
+                    return null;
+                }
+
+                var remainder = normalized[root.Length..]
+                    .Split(
+                        new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                        StringSplitOptions.RemoveEmptyEntries);
+                if (remainder.Length == 0)
+                {
+                    return normalized;
+                }
+
+                var current = root;
+                for (var i = 0; i < remainder.Length; i++)
+                {
+                    var isFile = i == remainder.Length - 1;
+                    var segment = remainder[i];
+                    var entries = (isFile
+                            ? Directory.EnumerateFiles(current)
+                            : Directory.EnumerateDirectories(current))
+                        .Select(Path.GetFileName)
+                        .ToList();
+                    var resolved = ResolveEntryName(
+                        Path.Combine(current, segment),
+                        segment,
+                        entries,
+                        isFile ? File.Exists : Directory.Exists);
+                    if (resolved == null)
+                    {
+                        return null;
+                    }
+                    current = Path.Combine(current, resolved);
+                }
+
+                return current;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string? TryGetCanonicalOnDiskPath(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    return null;
+                }
+
+                // Preserve file-level symlinks as distinct from their targets
+                // so a symlinked chart does not collapse into an unrelated
+                // owned chart's path.
+                if (new FileInfo(path).LinkTarget != null)
+                {
+                    return null;
+                }
+
+                if (OperatingSystem.IsWindows())
+                {
+                    return TryGetWindowsFinalPath(path);
+                }
+
+                if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
+                {
+                    return TryGetPosixRealPath(path);
+                }
+
+                return null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string? TryGetPosixRealPath(string path)
+        {
+            var buffer = new byte[4096];
+            if (PosixRealPath(path, buffer) == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            var length = Array.IndexOf(buffer, (byte)0);
+            if (length <= 0)
+            {
+                return null;
+            }
+
+            var resolved = Encoding.UTF8.GetString(buffer, 0, length);
+            return SongPathIdentity.TryNormalize(resolved, out var normalized)
+                ? normalized
+                : resolved;
+        }
+
+        private static string? TryGetWindowsFinalPath(string path)
+        {
+            using var handle = File.OpenHandle(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var buffer = new char[512];
+            var length = GetFinalPathNameByHandleW(
+                handle, buffer, (uint)buffer.Length, 0);
+            if (length >= buffer.Length)
+            {
+                buffer = new char[length + 1];
+                length = GetFinalPathNameByHandleW(
+                    handle, buffer, (uint)buffer.Length, 0);
+            }
+
+            if (length == 0 || length >= buffer.Length)
+            {
+                return null;
+            }
+
+            var resolved = new string(buffer, 0, (int)length);
+            if (resolved.StartsWith(@"\\?\UNC\", StringComparison.Ordinal))
+            {
+                resolved = @"\\" + resolved[8..];
+            }
+            else if (resolved.StartsWith(@"\\?\", StringComparison.Ordinal))
+            {
+                resolved = resolved[4..];
+            }
+
+            return SongPathIdentity.TryNormalize(resolved, out var normalized)
+                ? normalized
+                : resolved;
+        }
+
+        [DllImport("libc", EntryPoint = "realpath", SetLastError = true)]
+        private static extern IntPtr PosixRealPath(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+            byte[] resolvedPath);
+
+        [DllImport(
+            "kernel32.dll",
+            EntryPoint = "GetFinalPathNameByHandleW",
+            CharSet = CharSet.Unicode,
+            SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandleW(
+            SafeFileHandle hFile,
+            [Out] char[] lpszFilePath,
+            uint cchFilePath,
+            uint dwFlags);
+
+        private static string GetDirectoryAliasBucketKey(string directory)
+        {
+            return TryNormalizeUnicode(directory) ?? directory;
+        }
+
+        private static string? TryNormalizeUnicode(string value)
+        {
+            try
+            {
+                return value.Normalize();
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
 
         private static bool FoldedNameEquals(string entryName, string? normalizedSpelling)

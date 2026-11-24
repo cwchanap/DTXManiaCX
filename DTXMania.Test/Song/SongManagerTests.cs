@@ -1954,6 +1954,124 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void ResolveDirectoryEntryName_WhenCaseFoldAndCaseExactNormalizationDisagree_ShouldReturnNull()
+        {
+            var directory = Directory.CreateDirectory(
+                Path.Combine(_testRoot, "DisagreeingLookalikes")).FullName;
+            var caseFolded = "CAFÉ.DTX";
+            var normCaseExact = "café.dtx".Normalize(NormalizationForm.FormD);
+            var spelling = "café.dtx";
+            File.WriteAllText(Path.Combine(directory, caseFolded), "x");
+
+            var method = typeof(SongLibraryScanner).GetMethod(
+                "ResolveDirectoryEntryName",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var resolved = (string?)method!.Invoke(null, new object[]
+            {
+                directory,
+                spelling,
+                new List<string?> { caseFolded, normCaseExact }
+            });
+
+            Assert.Null(resolved);
+        }
+
+        [Fact]
+        public async Task FindMovedFile_WhenOwnershipIsUnresolvedBesideMatchingCandidate_ShouldVetoRepairElsewhere()
+        {
+            if (OperatingSystem.IsWindows())
+                return;
+
+            await _manager.InitializeAsync();
+            var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
+
+            var targetDir = Directory.CreateDirectory(Path.Combine(_testRoot, "UnresolvedTarget")).FullName;
+            var targetFile = Path.Combine(targetDir, "basic.dtx");
+            await CreateDtxFileAsync(targetFile, "Mover", "Artist", "Rock", 50);
+            File.SetLastWriteTimeUtc(targetFile, stamp);
+
+            var chartsDir = Directory.CreateDirectory(Path.Combine(_testRoot, "UnresolvedCharts")).FullName;
+            var candidateInUnlistable = Path.Combine(chartsDir, "basic.dtx");
+            File.CreateSymbolicLink(candidateInUnlistable, targetFile);
+            var candidateInfo = new FileInfo(candidateInUnlistable);
+            // Match the symlink's FileInfo length & timestamp on both the
+            // missing chart and the competing copy so both pass the
+            // fingerprint check, isolating the unresolved-ownership veto.
+            var competingLength = (int)Math.Max(1, candidateInfo.Length);
+            var competingStamp = candidateInfo.LastWriteTimeUtc;
+
+            var otherDir = Directory.CreateDirectory(Path.Combine(_testRoot, "UnresolvedOther")).FullName;
+            var otherCopy = Path.Combine(otherDir, "basic.dtx");
+            await File.WriteAllTextAsync(otherCopy, new string('x', competingLength));
+            File.SetLastWriteTimeUtc(otherCopy, competingStamp);
+
+            var ownedPaths = new HashSet<string>(SongPathIdentity.CanonicalComparer)
+            {
+                SongPathIdentity.Normalize(Path.Combine(chartsDir, "BASIC.dtx"))
+            };
+            var inventory = new[]
+            {
+                new ChartInventoryEntry(
+                    SongPathIdentity.Normalize(candidateInUnlistable),
+                    competingStamp,
+                    competingStamp),
+                new ChartInventoryEntry(
+                    SongPathIdentity.Normalize(otherCopy),
+                    competingStamp,
+                    competingStamp)
+            };
+            var missingChart = new SongChart
+            {
+                FilePath = SongPathIdentity.Normalize(Path.Combine(_testRoot, "Missing", "basic.dtx")),
+                FileSize = candidateInfo.Length,
+                LastModified = candidateInfo.LastWriteTime
+            };
+
+            try
+            {
+                File.SetUnixFileMode(
+                    chartsDir,
+                    UnixFileMode.UserExecute |
+                    UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherExecute);
+                var canList = true;
+                try
+                {
+                    Directory.EnumerateFiles(chartsDir).ToList();
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    canList = false;
+                }
+                catch (IOException)
+                {
+                    canList = false;
+                }
+
+                if (canList)
+                    return;
+
+                var result = ReflectionHelpers.InvokePrivateMethod<string?>(
+                    _manager.Scanner,
+                    "FindMovedFile",
+                    missingChart,
+                    inventory,
+                    ownedPaths);
+
+                Assert.Null(result);
+            }
+            finally
+            {
+                File.SetUnixFileMode(
+                    chartsDir,
+                    UnixFileMode.UserRead |
+                    UnixFileMode.UserWrite |
+                    UnixFileMode.UserExecute);
+            }
+        }
+
+        [Fact]
         public async Task DetectFilesystemChangesAsync_WithoutEnumerationTimestamp_ShouldReturnTrue()
         {
             await _manager.InitializeAsync();
