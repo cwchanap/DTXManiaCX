@@ -179,10 +179,28 @@ jobs:
         fi
         # sfxgen validate decodes every OGG via ffmpeg; install a full
         # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
-        # sound and false-positive the gate. brew/choco exit 0 when the
-        # package is already installed, so this is a no-op on cached runners.
-        if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; fi
-        if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
+        # sound and false-positive the gate. Skip the install when ffprobe is
+        # already on PATH and retry on transient feed errors — choco exits 0
+        # after a community-feed 503 having installed nothing.
+        if ! command -v ffprobe >/dev/null 2>&1; then
+          for attempt in 1 2 3; do
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              brew install ffmpeg || true
+            else
+              choco install ffmpeg -y --no-progress || true
+            fi
+            if command -v ffprobe >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+        fi
+        if ! command -v ffprobe >/dev/null 2>&1; then
+          echo "::error::ffprobe (ffmpeg) is required to validate System/Sounds but is not on PATH after install attempts."
+          exit 1
+        fi
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate
 
@@ -353,8 +371,23 @@ jobs:
         fi
         # sfxgen validate decodes every OGG via ffmpeg; install a full
         # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
-        # sound and false-positive the gate. brew exits 0 when already installed.
-        brew install ffmpeg
+        # sound and false-positive the gate. Skip the install when ffprobe is
+        # already on PATH and retry on transient feed errors.
+        if ! command -v ffprobe >/dev/null 2>&1; then
+          for attempt in 1 2 3; do
+            brew install ffmpeg || true
+            if command -v ffprobe >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+        fi
+        if ! command -v ffprobe >/dev/null 2>&1; then
+          echo "::error::ffprobe (ffmpeg) is required to validate System/Sounds but is not on PATH after install attempts."
+          exit 1
+        fi
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate
 
