@@ -8,19 +8,25 @@ Platform: macOS 26.6.2, Apple Silicon, .NET 10.0.100.
 | Mode | Baseline | Implementation |
 | --- | --- | --- |
 | Lanes | [Screenshot](baseline-lanes.png) | [Screenshot](implementation-lanes.png) |
-| Tab | [Screenshot](baseline-tab.png) | [Screenshot](implementation-tab.png) |
+| Tab | [Screenshot](https://github.com/cwchanap/DTXManiaCX/blob/5e8b47e311badceafc8942b804a255f0527f9463/docs/evidence/hpa-800/baseline-tab.png) | [Screenshot](https://github.com/cwchanap/DTXManiaCX/blob/5e8b47e311badceafc8942b804a255f0527f9463/docs/evidence/hpa-800/implementation-tab.png) |
+
+The Tab pair links to the historical capture commit. Raw test logs and the
+field-filtered MCP transcript are no longer kept in the current tree; the
+verified counts and limitations are recorded below.
 
 The 1280x720 captures show matching HUD, staff/lane, overlay and BGA
 composition. Note positions and hit-flash intensity differ with capture time.
 Baseline and implementation Result screenshots were byte-identical.
 
-- [Unit output](unit-test-output.log): 9,575 passed, 58 skipped, 0 failed.
-- [Native E2E output](e2e-test-output.log): 12 passed, 0 skipped, including
+- **Unit output**: 9,575 passed, 58 skipped, 0 failed.
+- **Native E2E output**: 12 passed, 0 skipped, including
   Performance Back to SongSelect, normal Result, simulated MIDI and Tab.
-- [MCP observations](mcp-observations.jsonl): selected, field-filtered records
+- **MCP observations**: selected, field-filtered records
   from the real MCP transcript, including Lanes/Tab screenshots, Result and
   Performance-to-SongSelect Back. The suite drove the game through JSON-RPC;
   MCP observed and captured it. The shell ran the test commands.
+  The Result state reported `stageCompleted` `true` and `completionReason`
+  `SongComplete`. The following SongSelect state reported `stagePhase` `Normal`.
 
 The native game used the null audio driver and reported silent GameTime clock
 fallback in gameplay. These results do not establish audible playback or audio
