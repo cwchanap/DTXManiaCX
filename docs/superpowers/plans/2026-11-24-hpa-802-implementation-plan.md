@@ -1,0 +1,56 @@
+# HPA-802 — Implementation plan (one PR, <=3 engineer days)
+
+**Design:** [responsibility split](../../proposals/2026-11-24-hpa-802-design.md)  
+**Linear:** https://linear.app/cwchanap/issue/HPA-802  
+**Branch:** `plan/hpa-802-song-selection-responsibilities`; implement on this same draft PR.  
+**Baseline:** `ec07f14472fc92217ce560fc7f30c5779074a2c1` (2026-11-24). Recheck main before implementation.  
+**Status:** plan only; no code or acceptance executed.
+
+## Agent contract
+
+Mechanical extraction, not a rewrite. Preserve existing behavior including recorder-facing APIs and BGM ownership, update-thread publication semantics and bookmark persistence/rollback. Follow Design A–C. Use existing concrete services and activation-scoped work. Keep tests green at each step. No new assets, new infrastructure, DB/config changes or unrelated cleanup. Single PR, budget 3 days; if scope threatens the budget, report the actual blocker rather than dropping live invariants or inventing a second PR.
+
+## 0. Baseline / audit (0.25 day)
+
+- [ ] Read AGENTS.md/CLAUDE.md and current stage, BaseStage, StageBackgroundWorkScope, SongLibrary, SongLibrarySnapshot, SongQueryService, BookmarkStateReconciler and recorder/API call sites. Verify current .NET 10 projects and the actual production references before any deletion.
+- [ ] Run the existing unified unit suite, inspect latest main CI Windows E2E and HPA-797 tour artifacts; identify any pre-existing failures separately. Start a clean isolated test fixture (nested BOX, two playable charts with distinct titles and preview audio, one or more difficulty choices). Seed scores/bookmarks through normal gameplay or test fixture data (not host library). Capture baseline MCP screenshots for the states listed in step 4 using same skin, resolution and fixture for comparison.
+- [ ] Inventory affected reflection-based tests by behavior, not private member. Preserve tests for stale publication, failure, prepared preview, reference counts, bookmark generations and teardown. Confirm the existing recorder smoke can exercise exact-chart preparation.
+
+## 1. Preview controller (0.65 day)
+
+Production: `DTXMania.Game/Lib/Stage/SongSelection/SongSelectionPreviewController.cs` (new), `SongSelectionStage.cs` (rewire).
+
+- [ ] Add constructor-based preview tests with fake resource manager/sound and explicit elapsed deltas. Move preview/BGM ownership and ordinary delay/fade logic; migrate preview timer, error and managed resource tests from LogicTests and PreviewAndBgmTests. No changes to layout constants or audio behavior.
+- [ ] Move prepared-selection record and playback state to controller. Keep stage's exact chart resolution, validation and selection/difficulty projection. Stage orchestration calls controller for stopped load, explicit start, cancel and telemetry. Preserve rejected-request behavior, ordinary-preview restoration on failure, and successful/debounce-blocked transitions. Keep existing public SetBackgroundMusic and internal recorder-facing stage methods as genuine live entry points.
+- [ ] Bind resources with stage lifecycle (including construction before resource loading); release preview and BGM once on deactivation/replacement. Keep navigation sound handling and graphics cleanup in stage. Check actual BGM handoff caller contract, avoid adding references or changing stop/dispose ordering.
+- [ ] Migrate prepared-preview lifecycle tests directly to owner where possible; retain stage-level prepared selection, eligibility, transition and telemetry tests. Cover stopped preparation past delay, start idempotency, failure on unexpected stop, elapsed time, repeated cleanup, missing sound/load and BGM fades. Run focused preview + prepared chart + relevant stage/recorder tests.
+
+## 2. Tabs and bookmark persistence (0.85 day)
+
+Production: `DTXMania.Game/Lib/Stage/SongSelection/SongSelectionTabs.cs` (new), stage (rewire).
+
+- [ ] Introduce stage-lifetime tabs owner using real library/query functions by default; inject controllable loaders/writers via constructor for tests, with lazy library resolution. Transfer active tab, flat caches, distinct empty/error flags, refresh request/consumption protocol and loads. Stage owns visible rows and input/overlay policy. Temporarily pass existing stage filter/accessor to new owner; final wiring uses intake in step 3. Keep All filter/navigation state in stage; retain warm loads, current Recent completion-order semantics and Bookmark latest-request semantics.
+- [ ] Move bookmark writes, optimistic mutations, per-song serialized tasks and rollback together. Do not reset write/generation/gate state on activation reset. Capture origin scope and library at operation time; preserve retired-scope shared revert and newest-generation guard. Wait for writes before Bookmarks reload, but never block update thread or cancel persistence at deactivation. Final stage disposal retains bounded drain before library disposal.
+- [ ] Replace affected reflection test setups (TabTests, BookmarkTests, BookmarkToggleTests, affected LogicTests) with typed constructor fixtures and deterministic TCS tasks, actual scope drain/retire and public/internal behavior. Cover worker vs update thread, success vs error/empty, stale same-activation bookmark success/fault, retirement/re-entry, refresh requested during projection, rapid toggles, failed write supersession, zero ID, duplicate entities, failed unbookmark restoration, disposed stage and durable final DB value. Keep stage input/navigation tests at stage boundary.
+- [ ] Run targeted suites and full unit suite. Do not delete concurrency regression tests because private members moved.
+
+## 3. Library intake and final wiring (0.70 day)
+
+Production: `DTXMania.Game/Lib/Stage/SongSelection/SongSelectionLibraryIntake.cs` (new), stage (rewire). Update architecture section in AGENTS.md/CLAUDE.md as appropriate to the existing shared guidance.
+
+- [ ] Extract activation-bound subscription, initial snapshot fetch/readiness, applied snapshot/index/version, root/published identity filter and empty classification. Retain lazy library access and existing scope Latest/Post; never introduce separate queue. Preserve version acknowledgment after complete reconciliation and max signal/fetched version logic. Mark readiness on failure without discarding valid snapshot.
+- [ ] Rewire stage reconciliation in the existing order: capture stable path/selection and tab refresh generation → intake installs new coherent snapshot/index → restore navigation and filter → project active tab and restore/clear selected node, preview roots/status, breadcrumb → complete refresh consumption → commit applied version. Ensure the initial-entry reset/subscribe sequence does not expose stale tabs or callbacks. Wire tabs to the intake's snapshot/filter accessor, preview to stage-owned selection; no controller-to-controller cycle. Retire scope first on deactivate, detach subscription, then release UI/audio; final disposal waits for tab writes.
+- [ ] Migrate SongSelectionPublicationTests, SongSelectionEmptyStateTests, affected LogicTests, identity/filter tests to intake constructor-based tests plus focused stage integration. Use actual scoped reporter and controlled callback/snapshot seams; no private queue reflection. Include out-of-order signals, queued initializer vs newer publication, retained nested selection, removed roots/charts, cached flat rows reappearing, re-entrant refresh and readiness error. Keep no-snapshot vs empty-roots semantics. Remove obsolete helpers/fields only if production and migrated tests no longer need them; no test-only forwarding layer.
+- [ ] Confirm only stage owns browse navigation/UI/selection; only intake owns applied snapshot/version; only tabs owns cache/persistence; only preview owns sound and prepared state. Run full unit suite; review diff to avoid gratuitous style/format rewrites.
+
+## 4. Automated and MCP end-to-end acceptance (0.55 day)
+
+- [ ] Run `dotnet test DTXMania.Test/DTXMania.Test.csproj` and build one corresponding game project on the chosen platform. Run `dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj` and `dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj`; use CI for existing Windows/macOS jobs and `gameplay-e2e-windows` (Category=E2E and E2E-Support). On a supported graphical runner execute existing `PreparedChartRecordingSmokeTests` and default skin first-run smoke; ensure they actually run rather than skip.
+- [ ] Add/extend a focused deterministic out-of-process regression in DTXMania.E2E for Song Select navigation and tabs/bookmarks through existing JSON-RPC (shared with MCP), reuse fixture/helpers. Start with known charts, toggle and verify correct visible row/star; navigate tabs/return/re-enter and assert persistence; complete a play and verify recent list. Use state polling and existing fixture isolation. Where state telemetry doesn't expose a tab/star, inspect real screenshot via MCP for those states; do not add production telemetry solely for the test.
+- [ ] **MCP acceptance (one graphical platform sufficient):** build MCP/MCP.csproj, connect to sandbox game using existing env/launch config; normal game flow, `game_send_key` and `game_get_state` / `game_screenshot` (see MCP README). Verify nested BOX and breadcrumbs, All → Recent → Bookmarks → All via Tab, B bookmark/unbookmark, search/filter via Backspace on All (suppressed on flat tabs), difficulty/status and normal gameplay → Result → return, Recent and bookmark state after re-entry. Use observable state/settled captures to verify selection and results. Exercise prepared recorder flow through existing RPC E2E (explicit start after preparation, no auto-start, cancel and activate through SongTransition); verify telemetry, not just a successful call. Do not claim MCP has recorder-specific tools it does not expose.
+- [ ] **Screenshot visual parity (no ticket mockup):** compare baseline vs implementation from same isolated fixture, CX Neon System skin, resolution, selections and settled states. Capture All (root/nested and search), Recent (empty and populated when feasible), Bookmarks (star, populated/empty), difficulty panel, plus gameplay/result return. Compare rows, labels, stars, breadcrumb, fonts, preview image, panels, positions and clipping. Inspect existing HPA-797 CI tour screenshot of SongSelect and regression screenshots; no human signoff. Attach before/after MCP captures and concise parity result in PR evidence (or artifact links); automated tests are not a substitute for real visual evidence.
+- [ ] Acceptance: existing CI tests green with no zero-discovery result, deterministic tests prove ownership/concurrency invariants, MCP flow succeeds and screenshots show unchanged visual behavior. No additional native acceptance for shared code. Report failed/skipped tests, unavailable graphical MCP or screenshot parity explicitly; acceptance remains incomplete until required evidence is present.
+
+## Deliverables
+
+One implementation PR continuing this draft: three concrete owners, reduced stage, constructor-based affected tests, focused E2E regression, concise architecture docs and reproducible acceptance evidence. No art/SFX or additional feature work.
