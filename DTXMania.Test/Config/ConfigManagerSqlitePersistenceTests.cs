@@ -44,7 +44,7 @@ namespace DTXMania.Test.Config
 
         public void Dispose()
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(DbPath);
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
             try
             {
@@ -225,7 +225,7 @@ namespace DTXMania.Test.Config
             // fail — without silently dropping the correction.
             new SqliteConfigStore(DbPath).Save(
                 new Dictionary<string, string> { ["SongRoot.0"] = "bad\0root" });
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(DbPath);
             File.SetAttributes(DbPath, FileAttributes.ReadOnly);
 
             var manager = CreateManager();
@@ -242,7 +242,7 @@ namespace DTXMania.Test.Config
                 "The correction save must have failed and stayed pending.");
 
             // Repair write access and flush: the pending correction lands.
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(DbPath);
             File.SetAttributes(DbPath, FileAttributes.Normal);
             manager.FlushPendingSave();
 

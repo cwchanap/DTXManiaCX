@@ -213,6 +213,11 @@ namespace DTXMania.Game.Lib.Song
         // Initialization state tracking
         private bool _isInitialized = false;
 
+        // Set by Dispose under _lockObject. A scan or refresh still in flight
+        // may commit its publication afterwards; subscribers (stages) are
+        // already disposed by then, so the event must not fire.
+        private bool _disposed = false;
+
         // True once InitializeAsync has attempted to initialize (or purge) the
         // game-owned database. Mirrors the pre-rename semantics where the
         // database reference became non-null at the start of initialization:
@@ -647,6 +652,7 @@ namespace DTXMania.Game.Lib.Song
         {
             ArgumentNullException.ThrowIfNull(batch);
             SongLibrarySnapshot snapshot;
+            bool disposed;
             lock (_lockObject)
             {
                 _rootSongs.Clear();
@@ -663,8 +669,10 @@ namespace DTXMania.Game.Lib.Song
                 DiscoveredScoreCount = batch.Candidates.Count;
                 _publicationVersion++;
                 snapshot = CreateSnapshotLocked();
+                disposed = _disposed;
             }
 
+            if (disposed) return;
             SafeInvoke(
                 SongLibraryPublished,
                 this,
@@ -679,6 +687,7 @@ namespace DTXMania.Game.Lib.Song
         public void PublishEmptyLibrary()
         {
             SongLibrarySnapshot snapshot;
+            bool disposed;
             lock (_lockObject)
             {
                 _rootSongs.Clear();
@@ -687,8 +696,10 @@ namespace DTXMania.Game.Lib.Song
                 DiscoveredScoreCount = 0;
                 _publicationVersion++;
                 snapshot = CreateSnapshotLocked();
+                disposed = _disposed;
             }
 
+            if (disposed) return;
             SafeInvoke(
                 SongLibraryPublished,
                 this,
@@ -807,6 +818,7 @@ namespace DTXMania.Game.Lib.Song
             long? expectedPublicationVersion = null)
         {
             SongLibrarySnapshot snapshot;
+            bool disposed;
             lock (_lockObject)
             {
                 // A scan or empty-library publication committed while the
@@ -827,8 +839,10 @@ namespace DTXMania.Game.Lib.Song
                 DiscoveredScoreCount = activeChartCount;
                 _publicationVersion++;
                 snapshot = CreateSnapshotLocked();
+                disposed = _disposed;
             }
 
+            if (disposed) return;
             SafeInvoke(
                 SongLibraryPublished,
                 this,
@@ -885,6 +899,18 @@ namespace DTXMania.Game.Lib.Song
                             alreadyCurrent = true;
                             break;
                     }
+                }
+
+                // Publishing a score variant commits under the same version the
+                // refresh/rebuild commit gate checks: an in-flight
+                // BuildHierarchyFromDatabaseOnceAsync that read the database
+                // before the score save would otherwise pass its captured-
+                // version check and republish pre-save nodes over the score
+                // just written here. Aborting that stale rebuild is the same
+                // conservative trade the gate already makes for scan commits.
+                if (published)
+                {
+                    _publicationVersion++;
                 }
             }
             if (published) return ScoreRefreshOutcome.Published;
@@ -1263,6 +1289,7 @@ namespace DTXMania.Game.Lib.Song
             // enumeration's finally.
             lock (_lockObject)
             {
+                _disposed = true;
                 _enumCancellation?.Cancel();
             }
 

@@ -98,18 +98,26 @@ public class SongManagerUpdateScoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithSummaryWithoutDatabaseService_ShouldPropagate()
+    public async Task UpdateScoreAsync_WhenDatabaseUnavailable_ShouldReturnFailed()
     {
         // HPA-801: the database is never null, but this fixture never initializes
-        // it — the guard fails clearly instead of returning a soft Failed result.
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _manager.Scores.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary()));
+        // it — the save reports the pre-extraction unavailable result instead of
+        // leaking CreateContext's InvalidOperationException onto the Result screen.
+        var result = await _manager.Scores.UpdateScoreAsync(
+            1, EInstrumentPart.DRUMS, new PerformanceSummary());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ScoreSaveStatus.Failed, result.Status);
+        Assert.Equal(
+            "The song database is unavailable, so the result could not be saved.",
+            result.ErrorMessage);
     }
 
     [Fact]
     public async Task UpdateScoreAsync_WhenSummaryInvalid_ShouldThrowArgumentOutOfRange()
     {
         // Non-canonical play speed is rejected before any database access.
+        await _manager.InitializeAsync();
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => _manager.Scores.UpdateScoreAsync(
                 1,

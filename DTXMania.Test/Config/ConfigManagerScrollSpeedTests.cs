@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -32,7 +33,7 @@ namespace DTXMania.Test.Config
 
         public void Dispose()
         {
-            SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(DbPath);
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
             if (Directory.Exists(_root))
                 Directory.Delete(_root, recursive: true);

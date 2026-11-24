@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Test.Config;
@@ -24,7 +25,7 @@ public class SystemKeyBindingsPersistenceTests : IDisposable
 
     public void Dispose()
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        SqliteTestPools.ClearForFile(Path.Combine(_root, "config.db"));
         Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);

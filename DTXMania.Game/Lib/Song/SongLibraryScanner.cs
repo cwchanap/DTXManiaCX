@@ -748,6 +748,17 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
+                // Built once for the whole freshness pass: a set.def's authored
+                // spelling can alias an owned chart's file where the volume folds
+                // case or Unicode form, across both the filename and parent
+                // directory. Grouping full owned paths by Unicode-normalized,
+                // case-folded directory lets the ownership check skip folder/file
+                // resolution entirely when no owned path in that folder bucket can
+                // alias the candidate. Rebuilding per missing chart would re-run
+                // one normalization per owned path per missing chart.
+                var ownedPathsByFoldedDirectory =
+                    BuildOwnedPathsByFoldedDirectory(ownedPaths);
+
                 int missingFiles = 0;
                 int updatedFiles = 0;
                 int totalFiles = 0;
@@ -759,7 +770,8 @@ namespace DTXMania.Game.Lib.Song
                     if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                     {
                         // File is missing from recorded path - try to find it in new location
-                        string? newPath = FindMovedFile(chart, inventoryCharts, ownedPaths);
+                        string? newPath = FindMovedFile(
+                            chart, inventoryCharts, ownedPaths, ownedPathsByFoldedDirectory);
 
                         if (!string.IsNullOrEmpty(newPath))
                         {
@@ -837,7 +849,8 @@ namespace DTXMania.Game.Lib.Song
         private string? FindMovedFile(
             SongChart missingChart,
             IReadOnlyList<ChartInventoryEntry> inventoryCharts,
-            ISet<string> ownedPaths)
+            ISet<string> ownedPaths,
+            IReadOnlyDictionary<string, List<string>> ownedPathsByFoldedDirectory)
         {
             var originalPath = missingChart.FilePath;
             try
@@ -847,34 +860,6 @@ namespace DTXMania.Game.Lib.Song
                     return null;
 
                 var normalizedFileName = TryNormalizeUnicode(fileName);
-
-                // A set.def's authored spelling can alias an owned chart's
-                // file where the volume folds case or Unicode form, across
-                // both the filename and parent directory. Grouping full owned
-                // paths by Unicode-normalized, case-folded directory lets the
-                // ownership check skip folder/file resolution entirely when no
-                // owned path in that folder bucket can alias the candidate.
-                var ownedPathsByFoldedDirectory =
-                    new Dictionary<string, List<string>>(
-                        StringComparer.OrdinalIgnoreCase);
-                foreach (var ownedPath in ownedPaths)
-                {
-                    var ownedDirectory = Path.GetDirectoryName(ownedPath);
-                    var ownedName = Path.GetFileName(ownedPath);
-                    if (string.IsNullOrEmpty(ownedDirectory) ||
-                        string.IsNullOrEmpty(ownedName))
-                    {
-                        continue;
-                    }
-                    var directoryKey = GetDirectoryAliasBucketKey(ownedDirectory);
-                    if (!ownedPathsByFoldedDirectory.TryGetValue(
-                            directoryKey, out var dirOwnedPaths))
-                    {
-                        dirOwnedPaths = new List<string>();
-                        ownedPathsByFoldedDirectory[directoryKey] = dirOwnedPaths;
-                    }
-                    dirOwnedPaths.Add(ownedPath);
-                }
 
                 var verified = new List<string>();
                 var hasUnresolvedCompetingCandidate = false;
@@ -974,6 +959,41 @@ namespace DTXMania.Game.Lib.Song
                 _logger.LogWarning(ex, "Error finding moved file {OriginalPath}", originalPath);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Groups owned chart paths by their Unicode-normalized, case-folded
+        /// parent directory so <see cref="GetCandidateOwnership"/> can skip
+        /// folder/file resolution whenever no owned path in a candidate's
+        /// directory bucket can alias it. Built once per freshness pass and
+        /// shared by every missing chart's move search.
+        /// </summary>
+        private Dictionary<string, List<string>> BuildOwnedPathsByFoldedDirectory(
+            ISet<string> ownedPaths)
+        {
+            var ownedPathsByFoldedDirectory =
+                new Dictionary<string, List<string>>(
+                    StringComparer.OrdinalIgnoreCase);
+            foreach (var ownedPath in ownedPaths)
+            {
+                var ownedDirectory = Path.GetDirectoryName(ownedPath);
+                var ownedName = Path.GetFileName(ownedPath);
+                if (string.IsNullOrEmpty(ownedDirectory) ||
+                    string.IsNullOrEmpty(ownedName))
+                {
+                    continue;
+                }
+                var directoryKey = GetDirectoryAliasBucketKey(ownedDirectory);
+                if (!ownedPathsByFoldedDirectory.TryGetValue(
+                        directoryKey, out var dirOwnedPaths))
+                {
+                    dirOwnedPaths = new List<string>();
+                    ownedPathsByFoldedDirectory[directoryKey] = dirOwnedPaths;
+                }
+                dirOwnedPaths.Add(ownedPath);
+            }
+
+            return ownedPathsByFoldedDirectory;
         }
 
         private enum CandidateOwnership

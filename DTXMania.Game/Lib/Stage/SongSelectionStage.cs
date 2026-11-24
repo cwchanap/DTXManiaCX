@@ -1170,7 +1170,12 @@ namespace DTXMania.Game.Lib.Stage
             if (node.DatabaseChart != null && seen.Add(node.DatabaseChart))
                 yield return node.DatabaseChart;
 
-            foreach (var chart in node.DatabaseSong?.Charts ?? Enumerable.Empty<SongChart>())
+            // Prefer the filtered chart set the node's slots were built from:
+            // DatabaseSong.Charts still carries rows whose files were dropped
+            // as missing, so it could match a chart that cannot be played.
+            var nodeCharts = node.ExistingCharts
+                ?? (IEnumerable<SongChart>?)node.DatabaseSong?.Charts;
+            foreach (var chart in nodeCharts ?? Enumerable.Empty<SongChart>())
             {
                 if (chart != null && seen.Add(chart))
                     yield return chart;
@@ -1760,7 +1765,11 @@ namespace DTXMania.Game.Lib.Stage
             if (!string.IsNullOrWhiteSpace(node.DatabaseChart?.FilePath))
                 yield return node.DatabaseChart.FilePath;
 
-            var charts = node.DatabaseSong?.Charts?.ToArray();
+            // Same filtered set as EnumerateNodeCharts: paths belonging to
+            // dropped (missing-file) chart rows must not count toward node
+            // identity or active-root membership.
+            var charts = node.ExistingCharts
+                ?? (IEnumerable<SongChart>?)node.DatabaseSong?.Charts?.ToArray();
             if (charts != null)
             {
                 foreach (var chart in charts)

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song;
@@ -323,7 +324,7 @@ public sealed class SongRootPolicyTests
             // pooled SQLite handles first — LoadConfig() above opened (and
             // pooled) a connection to <root>/config.db, which on Windows keeps
             // the file locked and would make the recursive delete throw.
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(Path.Combine(root, "config.db"));
             Directory.Delete(root, recursive: true);
             File.WriteAllText(root, "blocker");
             try
@@ -558,7 +559,7 @@ public sealed class SongRootPolicyTests
         finally
         {
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previous);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            SqliteTestPools.ClearForFile(Path.Combine(root, "config.db"));
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
