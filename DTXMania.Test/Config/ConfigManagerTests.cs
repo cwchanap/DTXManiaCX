@@ -41,7 +41,9 @@ public class ConfigManagerTests : IDisposable
 
     public void Dispose()
     {
-        SqliteTestPools.ClearForFile(Path.Combine(_sandbox, "config.db"));
+        // Tests create config.db inside per-test subdirectories (NewTestDir),
+        // so clear every .db pool under the sandbox rather than one path.
+        SqliteTestPools.ClearForDirectory(_sandbox);
         Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
         if (Directory.Exists(_sandbox))
             Directory.Delete(_sandbox, recursive: true);

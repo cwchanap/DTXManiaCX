@@ -10,9 +10,10 @@ namespace DTXMania.Test.Config
 {
     /// <summary>
     /// Real-SQLite tests for the v1 configuration store. Each test owns a
-    /// unique temp directory; <see cref="SqliteTestPools.ClearForFile"/>
+    /// unique temp directory; <see cref="SqliteTestPools.ClearForDirectory"/>
     /// runs before cleanup so pooled native handles do not keep files open
-    /// (required for recursive directory deletion on Windows CI).
+    /// (required for recursive directory deletion on Windows CI). The
+    /// directory variant covers databases tests create under subdirectories.
     /// </summary>
     [Trait("Category", "Unit")]
     public sealed class SqliteConfigStoreTests : IDisposable
@@ -30,7 +31,7 @@ namespace DTXMania.Test.Config
 
         public void Dispose()
         {
-            SqliteTestPools.ClearForFile(DbPath);
+            SqliteTestPools.ClearForDirectory(_root);
             if (Directory.Exists(_root))
             {
                 Directory.Delete(_root, recursive: true);

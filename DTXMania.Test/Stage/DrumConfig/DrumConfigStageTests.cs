@@ -566,8 +566,9 @@ namespace DTXMania.Test.Stage.DrumConfig
             {
                 Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
                 // Release pooled config.db handles before deleting the temp directory (Windows
-                // keeps the file locked otherwise).
-                SqliteTestPools.ClearForFile(AppPaths.GetConfigDatabasePath());
+                // keeps the file locked otherwise). Clears by directory: after the env restore
+                // AppPaths.GetConfigDatabasePath() would point at the wrong root.
+                SqliteTestPools.ClearForDirectory(tempDir);
                 Directory.Delete(tempDir, recursive: true);
             }
         }
