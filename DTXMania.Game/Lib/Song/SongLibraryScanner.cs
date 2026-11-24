@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Import;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
@@ -763,22 +764,33 @@ namespace DTXMania.Game.Lib.Song
                 int updatedFiles = 0;
                 int totalFiles = 0;
                 var repairs = new List<(SongChart Chart, string NewPath, string ClaimKey)>();
+                var claimsByPath = new Dictionary<string, int>(
+                    SongPathIdentity.CanonicalComparer);
 
                 foreach (var chart in charts)
                 {
                     totalFiles++;
                     if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                     {
-                        // File is missing from recorded path - try to find it in new location
-                        string? newPath = FindMovedFile(
+                        // File is missing from recorded path - collect ALL verified
+                        // destination matches for this row so contention counting sees
+                        // every file the row could claim, even when the row itself
+                        // has multiple matches (or an unresolved competing candidate)
+                        // and cannot be repaired.
+                        var matchResult = FindMovedFileMatches(
                             chart, inventoryCharts, ownedPaths, ownedPathsByFoldedDirectory);
 
-                        if (!string.IsNullOrEmpty(newPath))
+                        foreach (var claimKey in matchResult.BestByIdentity.Keys)
                         {
-                            // Resolve each staged claim key once so an external
-                            // rename/delete during an earlier save cannot change
-                            // the key and abort later repairs.
-                            repairs.Add((chart, newPath, ResolvedPathIdentity(newPath)));
+                            claimsByPath[claimKey] =
+                                claimsByPath.GetValueOrDefault(claimKey) + 1;
+                        }
+
+                        if (!matchResult.HasUnresolvedCompetingCandidate &&
+                            matchResult.BestByIdentity.Count == 1)
+                        {
+                            var only = matchResult.BestByIdentity.First();
+                            repairs.Add((chart, only.Value.Path, only.Key));
                         }
                         else
                         {
@@ -789,19 +801,11 @@ namespace DTXMania.Game.Lib.Song
 
                 // Two missing rows can verify against the same file (identical
                 // copies of a chart under two deleted directories, one
-                // reappearing elsewhere). Persisting in row order would let the
-                // first save win while the second dies on the unique FilePath
-                // index — and the rescan would then delete the loser with its
-                // scores. A contested file has no provable owner, so every
-                // claim on it is left missing for the rescan to resolve.
-                var claimsByPath = new Dictionary<string, int>(
-                    SongPathIdentity.CanonicalComparer);
-                foreach (var (_, _, claimKey) in repairs)
-                {
-                    claimsByPath[claimKey] =
-                        claimsByPath.GetValueOrDefault(claimKey) + 1;
-                }
-
+                // reappearing elsewhere, or one row matching X and Y while
+                // another row matches only X). Persisting in row order would
+                // let a row steal a contested file and lose the other row's
+                // scores to the rescan. A contested file has no provable owner,
+                // so every claim on it is left missing for the rescan to resolve.
                 foreach (var (chart, newPath, claimKey) in repairs)
                 {
                     var contested = claimsByPath[claimKey] > 1;
@@ -809,7 +813,8 @@ namespace DTXMania.Game.Lib.Song
                     // Found the file in a new location - update database. Only a
                     // repair that persists counts: a failed save stays missing
                     // so the rescan still runs.
-                    if (!contested && await UpdateChartFilePathAsync(chart, newPath))
+                    if (!contested &&
+                        await UpdateChartFilePathAsync(chart, newPath, claimKey))
                     {
                         updatedFiles++;
                     }
@@ -830,6 +835,10 @@ namespace DTXMania.Game.Lib.Song
                 return false;
             }
         }
+
+        private readonly record struct MovedFileMatchResult(
+            Dictionary<string, (string Path, int Score)> BestByIdentity,
+            bool HasUnresolvedCompetingCandidate);
 
         /// <summary>
         /// Attempts to find a moved file inside the chart inventory the
@@ -852,12 +861,28 @@ namespace DTXMania.Game.Lib.Song
             ISet<string> ownedPaths,
             IReadOnlyDictionary<string, List<string>> ownedPathsByFoldedDirectory)
         {
+            var matchResult = FindMovedFileMatches(
+                missingChart, inventoryCharts, ownedPaths, ownedPathsByFoldedDirectory);
+            return !matchResult.HasUnresolvedCompetingCandidate &&
+                matchResult.BestByIdentity.Count == 1
+                ? matchResult.BestByIdentity.Values.First().Path
+                : null;
+        }
+
+        private MovedFileMatchResult FindMovedFileMatches(
+            SongChart missingChart,
+            IReadOnlyList<ChartInventoryEntry> inventoryCharts,
+            ISet<string> ownedPaths,
+            IReadOnlyDictionary<string, List<string>> ownedPathsByFoldedDirectory)
+        {
             var originalPath = missingChart.FilePath;
             try
             {
+                var empty = new Dictionary<string, (string Path, int Score)>(
+                    SongPathIdentity.CanonicalComparer);
                 var fileName = Path.GetFileName(originalPath);
                 if (string.IsNullOrEmpty(fileName))
-                    return null;
+                    return new MovedFileMatchResult(empty, false);
 
                 var normalizedFileName = TryNormalizeUnicode(fileName);
 
@@ -911,16 +936,6 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
-                if (hasUnresolvedCompetingCandidate)
-                {
-                    return null;
-                }
-
-                if (verified.Count == 1)
-                {
-                    return verified[0];
-                }
-
                 // Where the volume folds spellings, several authored
                 // inventory paths can verify against one filesystem entry —
                 // a set.def listing 'charts/basic.dtx' and 'Charts/BASIC.DTX'
@@ -933,7 +948,7 @@ namespace DTXMania.Game.Lib.Song
                 // (filename and parent directories), keeping the first match
                 // on ties.
                 var bestByIdentity = new Dictionary<string, (string Path, int Score)>(
-                    StringComparer.Ordinal);
+                    SongPathIdentity.CanonicalComparer);
                 foreach (var path in verified)
                 {
                     var identity = ResolvedPathIdentity(path);
@@ -945,19 +960,17 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
-                // Every verified entry matches the full persisted fingerprint
-                // (name, size and mtime): a single filesystem match is the
-                // move target, zero or several leave the row missing for the
-                // rescan — guessing would graft the missing chart's scores
-                // onto an unrelated file.
-                return bestByIdentity.Count == 1
-                    ? bestByIdentity.Values.First().Path
-                    : null;
+                return new MovedFileMatchResult(
+                    bestByIdentity,
+                    hasUnresolvedCompetingCandidate);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error finding moved file {OriginalPath}", originalPath);
-                return null;
+                return new MovedFileMatchResult(
+                    new Dictionary<string, (string Path, int Score)>(
+                        SongPathIdentity.CanonicalComparer),
+                    false);
             }
         }
 
@@ -1662,14 +1675,17 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Updates the file path for a chart in the database. The row is
         /// re-read and re-verified before saving: it must still point at the
-        /// (still missing) original path, and the staged destination must
-        /// still satisfy the fingerprint — a file restored or replaced while
-        /// the repair was staged must not inherit the row's scores. This
+        /// (still missing) original path, the staged destination must still
+        /// satisfy the fingerprint and resolve to <paramref name="expectedClaimKey"/>
+        /// when staged, and no other row may already name that file. This
         /// narrows, but cannot eliminate, the window between the existence
         /// check and the write; a contested or stale claim is left missing
         /// for the rescan to resolve.
         /// </summary>
-        internal async Task<bool> UpdateChartFilePathAsync(SongChart chart, string newPath)
+        internal async Task<bool> UpdateChartFilePathAsync(
+            SongChart chart,
+            string newPath,
+            string? expectedClaimKey = null)
         {
             try
             {
@@ -1686,6 +1702,25 @@ namespace DTXMania.Game.Lib.Song
                     return false;
                 }
 
+                var currentIdentity = ResolvedPathIdentity(newPath);
+                if (expectedClaimKey != null &&
+                    !SongPathIdentity.CanonicalComparer.Equals(
+                        currentIdentity,
+                        expectedClaimKey))
+                {
+                    return false;
+                }
+
+                var otherPaths = await context.SongCharts
+                    .AsNoTracking()
+                    .Where(other => other.Id != row.Id)
+                    .Select(other => other.FilePath)
+                    .ToListAsync();
+                if (AnyOtherRowNamesFile(newPath, currentIdentity, otherPaths))
+                {
+                    return false;
+                }
+
                 row.FilePath = newPath;
                 await context.SaveChangesAsync();
                 return true;
@@ -1695,6 +1730,81 @@ namespace DTXMania.Game.Lib.Song
                 _logger.LogWarning(ex, "Error updating chart file path for ID {ChartId}", chart.Id);
                 return false;
             }
+        }
+
+        private bool AnyOtherRowNamesFile(
+            string newPath,
+            string currentIdentity,
+            IReadOnlyList<string> otherPaths)
+        {
+            if (otherPaths.Count == 0)
+            {
+                return false;
+            }
+
+            var hasNormalizedNew = SongPathIdentity.TryNormalize(newPath, out var normalizedNew);
+            var otherOwnedPaths = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+            foreach (var otherPath in otherPaths)
+            {
+                if (string.Equals(otherPath, newPath, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (SongPathIdentity.TryNormalize(otherPath, out var normalizedOther))
+                {
+                    if (hasNormalizedNew &&
+                        SongPathIdentity.CanonicalComparer.Equals(
+                            normalizedOther,
+                            normalizedNew))
+                    {
+                        return true;
+                    }
+                    otherOwnedPaths.Add(normalizedOther);
+                }
+            }
+
+            var lookupPath = hasNormalizedNew ? normalizedNew : newPath;
+            var ownedByFoldedDirectory = BuildOwnedPathsByFoldedDirectory(otherOwnedPaths);
+            if (GetCandidateOwnership(
+                    lookupPath,
+                    otherOwnedPaths,
+                    ownedByFoldedDirectory) != CandidateOwnership.Unowned)
+            {
+                return true;
+            }
+
+            var candidateName = Path.GetFileName(newPath);
+            if (string.IsNullOrEmpty(candidateName))
+            {
+                return false;
+            }
+
+            var normalizedCandidateName = TryNormalizeUnicode(candidateName);
+            foreach (var otherPath in otherPaths)
+            {
+                var otherName = Path.GetFileName(otherPath);
+                if (string.IsNullOrEmpty(otherName))
+                {
+                    continue;
+                }
+
+                if (!SongPathIdentity.LegacyAliasComparer.Equals(candidateName, otherName) &&
+                    !FoldedNameEquals(otherName, normalizedCandidateName))
+                {
+                    continue;
+                }
+
+                if (File.Exists(otherPath) &&
+                    SongPathIdentity.CanonicalComparer.Equals(
+                        ResolvedPathIdentity(otherPath),
+                        currentIdentity))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

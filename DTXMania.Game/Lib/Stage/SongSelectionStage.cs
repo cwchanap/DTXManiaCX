@@ -504,6 +504,27 @@ namespace DTXMania.Game.Lib.Stage
             base.Deactivate();
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+
+            if (disposing)
+            {
+                var pending = _pendingBookmarkWrites.Values.ToArray();
+                if (pending.Length > 0)
+                {
+                    try
+                    {
+                        Task.WhenAll(pending).Wait(TimeSpan.FromSeconds(5));
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "Pending bookmark write failed during stage disposal");
+                    }
+                }
+            }
+        }
+
         #endregion
 
         #region Font Management
@@ -3560,6 +3581,7 @@ namespace DTXMania.Game.Lib.Stage
                 song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
                 return;
             }
+            var library = Library;
             // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
             // from a fault of an older, already-superseded toggle at rollback time. The bump
             // shares _bookmarkRevertGate with the worker-side fault continuation so a stale
@@ -3578,7 +3600,7 @@ namespace DTXMania.Game.Lib.Stage
                 song.IsBookmarked = newState;
                 BookmarkStateReconciler.Apply(
                     _appliedLibrarySnapshot?.RootSongs
-                        ?? Library.GetLibrarySnapshot().RootSongs,
+                        ?? library.GetLibrarySnapshot().RootSongs,
                     songId,
                     newState);
             }
@@ -3603,7 +3625,7 @@ namespace DTXMania.Game.Lib.Stage
             var originScope = BackgroundWork;
             var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
             var write = prior.ContinueWith(
-                _ => Library.Queries.SetBookmarkAsync(songId, newState),
+                _ => library.Queries.SetBookmarkAsync(songId, newState),
                 TaskScheduler.Default).Unwrap();
             _pendingBookmarkWrites[songId] = write;
 
@@ -3634,12 +3656,12 @@ namespace DTXMania.Game.Lib.Stage
                     if (originScope != null)
                     {
                         originScope.Post(
-                            () => ApplyBookmarkRevert(songId, !newState, toggleVersion),
-                            onDropped: () => RevertSharedBookmark(songId, !newState, toggleVersion));
+                            () => ApplyBookmarkRevertCore(library, songId, !newState, toggleVersion),
+                            onDropped: () => RevertSharedBookmark(library, songId, !newState, toggleVersion));
                     }
                     else
                     {
-                        RevertSharedBookmark(songId, !newState, toggleVersion);
+                        RevertSharedBookmark(library, songId, !newState, toggleVersion);
                     }
 
                     Logger.LogWarning(
@@ -3671,7 +3693,11 @@ namespace DTXMania.Game.Lib.Stage
         /// never slip between the check and the revert. Reconciling by song id also
         /// covers duplicate SET.def nodes.
         /// </summary>
-        private void RevertSharedBookmark(int songId, bool revertTo, int toggleVersion)
+        private void RevertSharedBookmark(
+            SongLibrary library,
+            int songId,
+            bool revertTo,
+            int toggleVersion)
         {
             lock (_bookmarkRevertGate)
             {
@@ -3679,12 +3705,15 @@ namespace DTXMania.Game.Lib.Stage
                     || current == toggleVersion)
                 {
                     BookmarkStateReconciler.Apply(
-                        Library.GetLibrarySnapshot().RootSongs,
+                        library.GetLibrarySnapshot().RootSongs,
                         songId,
                         revertTo);
                 }
             }
         }
+
+        private void ApplyBookmarkRevert(int songId, bool revertTo, int toggleVersion) =>
+            ApplyBookmarkRevertCore(Library, songId, revertTo, toggleVersion);
 
         /// <summary>
         /// Applies one posted bookmark rollback on the update thread. If the rollback's toggle
@@ -3694,7 +3723,11 @@ namespace DTXMania.Game.Lib.Stage
         /// superseded by a newer toggle — is skipped so a stale fault cannot override a
         /// later, possibly successful toggle.
         /// </summary>
-        private void ApplyBookmarkRevert(int songId, bool revertTo, int toggleVersion)
+        private void ApplyBookmarkRevertCore(
+            SongLibrary library,
+            int songId,
+            bool revertTo,
+            int toggleVersion)
         {
             if (_bookmarkToggleVersion.TryGetValue(songId, out var current)
                 && current != toggleVersion)
@@ -3705,12 +3738,12 @@ namespace DTXMania.Game.Lib.Stage
 
             BookmarkStateReconciler.Apply(
                 _appliedLibrarySnapshot?.RootSongs
-                    ?? Library.GetLibrarySnapshot().RootSongs,
+                    ?? library.GetLibrarySnapshot().RootSongs,
                 songId,
                 revertTo);
             // The manager's current snapshot may be a newer publication than the one
             // this activation applied; revert it too (idempotent when they match).
-            RevertSharedBookmark(songId, revertTo, toggleVersion);
+            RevertSharedBookmark(library, songId, revertTo, toggleVersion);
             BookmarkStateReconciler.Apply(_recentPlayNodes, songId, revertTo);
             BookmarkStateReconciler.Apply(_bookmarkNodes, songId, revertTo);
 

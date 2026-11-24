@@ -37,6 +37,8 @@ namespace DTXMania.Test.Config
             try
             {
                 SqliteTestPools.ClearForFile(DbPath);
+                SqliteTestPools.ClearForFile(Path.Combine(_tempDir, "appdataA", "config.db"));
+                SqliteTestPools.ClearForFile(Path.Combine(_tempDir, "appdataB", "config.db"));
             }
             finally
             {

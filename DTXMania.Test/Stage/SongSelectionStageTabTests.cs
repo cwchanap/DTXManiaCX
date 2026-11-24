@@ -669,12 +669,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public async Task BeginRecentPlaysLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
         {
-            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabase(dbPath));
-            await manager.InitializeAsync(purgeDatabaseFirst: true);
-            // Break the initialized database: every context creation now faults,
-            // so the load/write paths surface their failure states.
-            manager = CreateFaultingManager();
+            var manager = CreateFaultingManager();
 
             try
             {
@@ -694,20 +689,13 @@ namespace DTXMania.Test.Stage
             finally
             {
                 manager.Dispose();
-                if (File.Exists(dbPath))
-                    try { File.Delete(dbPath); } catch { }
             }
         }
 
         [Fact]
         public async Task BeginRecentPlaysLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
-            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_stale_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabase(dbPath));
-            await manager.InitializeAsync(purgeDatabaseFirst: true);
-            // Break the initialized database: every context creation now faults,
-            // so the load/write paths surface their failure states.
-            manager = CreateFaultingManager();
+            var manager = CreateFaultingManager();
 
             try
             {
@@ -730,8 +718,6 @@ namespace DTXMania.Test.Stage
             finally
             {
                 manager.Dispose();
-                if (File.Exists(dbPath))
-                    try { File.Delete(dbPath); } catch { }
             }
         }
 
@@ -913,12 +899,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public async Task BeginBookmarksLoad_WhenDbThrows_ShouldSetLoadFailedAndFlagsRefresh()
         {
-            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabase(dbPath));
-            await manager.InitializeAsync(purgeDatabaseFirst: true);
-            // Break the initialized database: every context creation now faults,
-            // so the load/write paths surface their failure states.
-            manager = CreateFaultingManager();
+            var manager = CreateFaultingManager();
 
             try
             {
@@ -938,20 +919,13 @@ namespace DTXMania.Test.Stage
             finally
             {
                 manager.Dispose();
-                if (File.Exists(dbPath))
-                    try { File.Delete(dbPath); } catch { }
             }
         }
 
         [Fact]
         public async Task BeginBookmarksLoad_WhenScopeRetiresBeforeFault_ShouldDropStaleFault()
         {
-            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_fault_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabase(dbPath));
-            await manager.InitializeAsync(purgeDatabaseFirst: true);
-            // Break the initialized database: every context creation now faults,
-            // so the load/write paths surface their failure states.
-            manager = CreateFaultingManager();
+            var manager = CreateFaultingManager();
 
             try
             {
@@ -974,8 +948,6 @@ namespace DTXMania.Test.Stage
             finally
             {
                 manager.Dispose();
-                if (File.Exists(dbPath))
-                    try { File.Delete(dbPath); } catch { }
             }
         }
 
@@ -1054,12 +1026,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public async Task BeginBookmarksLoad_WhenFaultedAndLoadVersionSuperseded_ShouldDiscardStaleFault()
         {
-            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_load_{Guid.NewGuid():N}.db");
-            var manager = new SongLibrary(new SongDatabase(dbPath));
-            await manager.InitializeAsync(purgeDatabaseFirst: true);
-            // Break the initialized database: every context creation now faults,
-            // so the load/write paths surface their failure states.
-            manager = CreateFaultingManager();
+            var manager = CreateFaultingManager();
 
             try
             {
@@ -1086,8 +1053,6 @@ namespace DTXMania.Test.Stage
             finally
             {
                 manager.Dispose();
-                if (File.Exists(dbPath))
-                    try { File.Delete(dbPath); } catch { }
             }
         }
 
@@ -1180,7 +1145,19 @@ namespace DTXMania.Test.Stage
             try
             {
                 await LibraryOf(stage).InitializeAsync(); // the toggle persists for real
-                var node = Score("Song", 42, "/c/song.dtx");
+                var seededSong = new DTXMania.Game.Lib.Song.Entities.Song
+                {
+                    Title = "Song",
+                    IsBookmarked = true
+                };
+                await using (var seedContext = LibraryOf(stage).Database.CreateContext())
+                {
+                    seedContext.Songs.Add(seededSong);
+                    await seedContext.SaveChangesAsync();
+                }
+
+                var songId = seededSong.Id;
+                var node = Score("Song", songId, "/c/song.dtx");
                 node.DatabaseSong!.IsBookmarked = true;
                 var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
                 AttachCoreUi(stage, display);
@@ -1206,7 +1183,7 @@ namespace DTXMania.Test.Stage
                     stage, "_pendingBookmarkWrites");
                 var releaseWrite = new TaskCompletionSource<bool>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                pending[42] = releaseWrite.Task;
+                pending[songId] = releaseWrite.Task;
 
                 InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
                 Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
@@ -1216,7 +1193,14 @@ namespace DTXMania.Test.Stage
 
                 Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
                 releaseWrite.SetResult(true);
-                await pending[42].WaitAsync(TimeSpan.FromSeconds(5));
+                await pending[songId].WaitAsync(TimeSpan.FromSeconds(5));
+
+                await using (var verifyContext = LibraryOf(stage).Database.CreateContext())
+                {
+                    var persisted = await verifyContext.Songs.FindAsync(songId);
+                    Assert.NotNull(persisted);
+                    Assert.False(persisted!.IsBookmarked);
+                }
             }
             finally
             {
