@@ -1139,6 +1139,10 @@ namespace DTXMania.Test.Stage
             var songId = (await new SongCatalogStore(db).GetSongsAsync())
                 .Single(s => s.Title == "Song").Id;
 
+            var releaseFirst = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFaultGate = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
             try
             {
                 var game = CreateGame();
@@ -1166,8 +1170,6 @@ namespace DTXMania.Test.Stage
 
                 var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
                     stage, "_pendingBookmarkWrites");
-                var releaseFirst = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
                 pending[songId] = releaseFirst.Task;
 
                 // Queue three rapid toggles while write #0 is still blocked: ON -> OFF -> ON.
@@ -1177,12 +1179,16 @@ namespace DTXMania.Test.Stage
                 Assert.True(nodeEntity.IsBookmarked);
 
                 // Simulate shutdown clearing _game.SongLibrary and disposing the library
-                // before the queued writes run.
+                // before the queued writes run; stage.Dispose() must still drain them.
                 SetPrivateField(game, "_songLibrary", null);
                 manager.Dispose();
 
+                var disposeTask = Task.Run(() => stage.Dispose());
+                await Task.Delay(50);
+                Assert.False(disposeTask.IsCompleted);
+
                 releaseFirst.SetResult(true);
-                await pending[songId].WaitAsync(TimeSpan.FromSeconds(5));
+                await disposeTask.WaitAsync(TimeSpan.FromSeconds(5));
 
                 var verifyDb = new SongDatabase(dbPath);
                 await verifyDb.InitializeDatabaseAsync();
@@ -1191,8 +1197,9 @@ namespace DTXMania.Test.Stage
                 Assert.True(persisted.IsBookmarked);
 
                 // Also verify fault rollback uses the captured library after _game.SongLibrary
-                // is cleared: purge the DB so the next toggle faults, deactivate the stage,
-                // and verify the captured library's shared entity reverts without throwing.
+                // is cleared: gate the OFF write until after stage deactivation and clearing
+                // _game.SongLibrary, then let it hit the purged DB and verify the captured
+                // library's shared entity reverts without throwing.
                 SetPrivateField(game, "_songLibrary", manager);
                 var stage2 = new SongSelectionStage(game);
                 AttachCoreUi(stage2, display);
@@ -1200,15 +1207,19 @@ namespace DTXMania.Test.Stage
                 stage2.InstallTestBackgroundScope();
                 await db.PurgeDatabaseAsync();
 
+                var pending2 = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
+                    stage2, "_pendingBookmarkWrites");
+                pending2[songId] = releaseFaultGate.Task;
+
                 InvokePrivateMethod(stage2, "ToggleBookmarkForSelectedSong"); // optimistic OFF
                 Assert.False(nodeEntity.IsBookmarked);
                 SetPrivateField(stage2, "_currentPhase", StagePhase.Normal);
                 stage2.Deactivate();
                 SetPrivateField(game, "_songLibrary", null);
+                Assert.False(nodeEntity.IsBookmarked);
 
-                var pending2 = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
-                    stage2, "_pendingBookmarkWrites");
-                try { await pending2[songId]; } catch { /* expected persist fault */ }
+                releaseFaultGate.SetResult(true);
+                try { await pending2[songId].WaitAsync(TimeSpan.FromSeconds(5)); } catch { /* expected persist fault */ }
 
                 Assert.True(
                     SpinWait.SpinUntil(() => nodeEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
@@ -1216,6 +1227,8 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
+                releaseFirst.TrySetResult(true);
+                releaseFaultGate.TrySetResult(true);
                 manager.Dispose();
                 SqliteTestPools.ClearForFile(dbPath);
                 if (File.Exists(dbPath))

@@ -1142,6 +1142,11 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var dbPath = LibraryOf(stage).Database.DatabasePath;
+            var releaseLoad = new TaskCompletionSource<List<SongListNode>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseWrite = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Task? pendingWrite = null;
             try
             {
                 await LibraryOf(stage).InitializeAsync(); // the toggle persists for real
@@ -1166,8 +1171,6 @@ namespace DTXMania.Test.Stage
                 SetPrivateField(stage, "_uiManager", null);
                 var loadStarted = new TaskCompletionSource<bool>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                var releaseLoad = new TaskCompletionSource<List<SongListNode>>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
                 SetPrivateField(stage, "_loadBookmarkedNodesAsync",
                     new Func<Task<List<SongListNode>>>(() =>
                     {
@@ -1181,11 +1184,10 @@ namespace DTXMania.Test.Stage
 
                 var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(
                     stage, "_pendingBookmarkWrites");
-                var releaseWrite = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
                 pending[songId] = releaseWrite.Task;
 
                 InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+                pendingWrite = pending[songId];
                 Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
 
                 releaseLoad.SetResult(new List<SongListNode> { node });
@@ -1193,7 +1195,7 @@ namespace DTXMania.Test.Stage
 
                 Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes"));
                 releaseWrite.SetResult(true);
-                await pending[songId].WaitAsync(TimeSpan.FromSeconds(5));
+                await pendingWrite.WaitAsync(TimeSpan.FromSeconds(5));
 
                 await using (var verifyContext = LibraryOf(stage).Database.CreateContext())
                 {
@@ -1204,6 +1206,20 @@ namespace DTXMania.Test.Stage
             }
             finally
             {
+                releaseLoad.TrySetResult(new List<SongListNode>());
+                releaseWrite.TrySetResult(true);
+                if (pendingWrite != null)
+                {
+                    try
+                    {
+                        await pendingWrite.WaitAsync(TimeSpan.FromSeconds(5));
+                    }
+                    catch
+                    {
+                        // Best-effort drain before clearing SQLite pools on cleanup.
+                    }
+                }
+
                 // Best-effort cleanup of the one database this test materializes;
                 // the remaining factory databases stay uninitialized (no file).
                 SqliteTestPools.ClearForFile(dbPath);

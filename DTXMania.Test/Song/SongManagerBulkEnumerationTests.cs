@@ -3610,62 +3610,191 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     [Fact]
     public async Task NeedsEnumerationAsync_WhenAmbiguousRowMatchesTwoDestinationsAndSecondRowMatchesOne_ShouldLeaveBothUnrepaired()
     {
-        var root = Path.Combine(_testRoot, "CrossRowContention");
-        var destX = WriteChart("CrossRowContention/DestX/dup.dtx", "Dup", 50);
-        var destY = WriteChart("CrossRowContention/DestY/dup.dtx", "Dup", 50);
         var tX = new DateTime(2026, 11, 16, 12, 0, 0, DateTimeKind.Utc);
         var tY = tX.AddHours(-2);
-        File.SetLastWriteTimeUtc(destX, tX);
-        File.SetLastWriteTimeUtc(destY, tY);
-
-        var fileSize = new FileInfo(destX).Length;
         var maxZoneOffset = TimeZoneInfo.GetSystemTimeZones()
             .Select(zone => zone.GetUtcOffset(tX))
             .Max();
 
         await _manager.InitializeAsync();
-        var missingPathA = SongPathIdentity.Normalize(
-            Path.Combine(root, "OldA", "dup.dtx"));
-        var missingPathB = SongPathIdentity.Normalize(
-            Path.Combine(root, "OldB", "dup.dtx"));
 
-        await using (var seed = ManagerDatabaseService!.CreateContext())
+        // Helper to seed a fresh single-root scenario with optional row A / row B.
+        async Task<(string MissingA, string MissingB, string DestX, string DestY)> SeedScenarioAsync(
+            string folderName,
+            bool createDestX,
+            bool createDestY,
+            bool seedRowA,
+            bool seedRowB)
         {
-            var songA = new SongEntity { Title = "DupA", Artist = "A", Genre = "G" };
-            songA.Charts.Add(new SongChart
+            var scenarioRoot = Path.Combine(_testRoot, folderName);
+            string destX = Path.Combine(scenarioRoot, "DestX", "dup.dtx");
+            string destY = Path.Combine(scenarioRoot, "DestY", "dup.dtx");
+            long fileSize = 0;
+
+            if (createDestX)
             {
-                FilePath = missingPathA,
-                FileSize = fileSize,
-                LastModified = tX,
-                HasDrumChart = true,
-                DrumLevel = 50,
-                DifficultyLevel = 50
-            });
-            var songB = new SongEntity { Title = "DupB", Artist = "B", Genre = "G" };
-            songB.Charts.Add(new SongChart
+                destX = WriteChart($"{folderName}/DestX/dup.dtx", "Dup", 50);
+                File.SetLastWriteTimeUtc(destX, tX);
+                fileSize = new FileInfo(destX).Length;
+            }
+            if (createDestY)
             {
-                FilePath = missingPathB,
-                FileSize = fileSize,
-                LastModified = tX + maxZoneOffset,
-                HasDrumChart = true,
-                DrumLevel = 50,
-                DifficultyLevel = 50
-            });
-            seed.Songs.AddRange(songA, songB);
+                destY = WriteChart($"{folderName}/DestY/dup.dtx", "Dup", 50);
+                File.SetLastWriteTimeUtc(destY, tY);
+                if (fileSize == 0)
+                    fileSize = new FileInfo(destY).Length;
+            }
+
+            var missingA = SongPathIdentity.Normalize(
+                Path.Combine(scenarioRoot, "OldA", "dup.dtx"));
+            var missingB = SongPathIdentity.Normalize(
+                Path.Combine(scenarioRoot, "OldB", "dup.dtx"));
+
+            await using var seed = ManagerDatabaseService!.CreateContext();
+            await seed.SongCharts.ExecuteDeleteAsync();
+            await seed.Songs.ExecuteDeleteAsync();
+
+            if (seedRowA)
+            {
+                var songA = new SongEntity { Title = "DupA", Artist = "A", Genre = "G" };
+                songA.Charts.Add(new SongChart
+                {
+                    FilePath = missingA,
+                    FileSize = fileSize,
+                    LastModified = tX,
+                    HasDrumChart = true,
+                    DrumLevel = 50,
+                    DifficultyLevel = 50
+                });
+                seed.Songs.Add(songA);
+            }
+            if (seedRowB)
+            {
+                var songB = new SongEntity { Title = "DupB", Artist = "B", Genre = "G" };
+                songB.Charts.Add(new SongChart
+                {
+                    FilePath = missingB,
+                    FileSize = fileSize,
+                    LastModified = tX + maxZoneOffset,
+                    HasDrumChart = true,
+                    DrumLevel = 50,
+                    DifficultyLevel = 50
+                });
+                seed.Songs.Add(songB);
+            }
+
             await seed.SaveChangesAsync();
             await new SongCatalogStore(ManagerDatabaseService!)
                 .SetEnumerationWatermarkAtomicallyAsync(
-                    DateTime.UtcNow.AddMinutes(5), new[] { root });
+                    DateTime.UtcNow.AddMinutes(5), new[] { scenarioRoot });
+
+            return (missingA, missingB, SongPathIdentity.Normalize(destX), SongPathIdentity.Normalize(destY));
         }
 
-        Assert.True(await _manager.NeedsEnumerationAsync(new[] { root }));
+        // Control 1: Row A alone matches DestX when only DestX is present.
+        var c1 = await SeedScenarioAsync(
+            "CrossRowControlAX", createDestX: true, createDestY: false, seedRowA: true, seedRowB: false);
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { Path.Combine(_testRoot, "CrossRowControlAX") }));
+        await using (var check1 = ManagerDatabaseService!.CreateContext())
+        {
+            Assert.Equal(c1.DestX, (await check1.SongCharts.SingleAsync()).FilePath);
+        }
+
+        // Control 2: Row A alone matches DestY when only DestY is present.
+        var c2 = await SeedScenarioAsync(
+            "CrossRowControlAY", createDestX: false, createDestY: true, seedRowA: true, seedRowB: false);
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { Path.Combine(_testRoot, "CrossRowControlAY") }));
+        await using (var check2 = ManagerDatabaseService!.CreateContext())
+        {
+            Assert.Equal(c2.DestY, (await check2.SongCharts.SingleAsync()).FilePath);
+        }
+
+        // Control 3: Row B alone repairs uniquely to DestX even with both DestX and DestY present.
+        var c3 = await SeedScenarioAsync(
+            "CrossRowControlB", createDestX: true, createDestY: true, seedRowA: false, seedRowB: true);
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { Path.Combine(_testRoot, "CrossRowControlB") }));
+        await using (var check3 = ManagerDatabaseService!.CreateContext())
+        {
+            Assert.Equal(c3.DestX, (await check3.SongCharts.SingleAsync()).FilePath);
+        }
+
+        // Combined: Row A matches both DestX and DestY, blocking Row B from claiming DestX.
+        var combined = await SeedScenarioAsync(
+            "CrossRowContention", createDestX: true, createDestY: true, seedRowA: true, seedRowB: true);
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { Path.Combine(_testRoot, "CrossRowContention") }));
 
         await using var check = ManagerDatabaseService!.CreateContext();
         var paths = await check.SongCharts
             .Select(c => c.FilePath)
             .OrderBy(p => p)
             .ToListAsync();
-        Assert.Equal(new[] { missingPathA, missingPathB }, paths);
+        Assert.Equal(new[] { combined.MissingA, combined.MissingB }, paths);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenBatchHasMultipleMovesAndRetainedRootOwner_ShouldRepairUnownedAndSkipOwned()
+    {
+        var activeRoot = Path.Combine(_testRoot, "BatchActive");
+        var retainedRoot = Path.Combine(_testRoot, "BatchRetained");
+        var move1Orig = WriteChart("BatchActive/Pack1/one.dtx", "One", 30);
+        var move2Orig = WriteChart("BatchActive/Pack2/two.dtx", "Two", 40);
+        var ownedCopy = WriteChart("BatchRetained/Owned/three.dtx", "Three", 50);
+
+        await _manager.InitializeAsync();
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { activeRoot, retainedRoot }, null, CancellationToken.None);
+
+        var move1New = Path.Combine(activeRoot, "Renamed1", "one.dtx");
+        var move2New = Path.Combine(activeRoot, "Renamed2", "two.dtx");
+        Directory.CreateDirectory(Path.GetDirectoryName(move1New)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(move2New)!);
+        File.Move(move1Orig, move1New);
+        File.Move(move2Orig, move2New);
+
+        // Seed a missing active-root chart whose fingerprint matches ownedCopy (which belongs
+        // to the retained, inactive root) and verify both batch repair of unowned moves and
+        // rejection of stealing the retained-root owner's path.
+        var move3Missing = SongPathIdentity.Normalize(
+            Path.Combine(activeRoot, "Missing", "three.dtx"));
+        var ownedInfo = new FileInfo(ownedCopy);
+        SongChart move3Row;
+        await using (var seed = ManagerDatabaseService!.CreateContext())
+        {
+            var s3 = new SongEntity { Title = "ThreeCopy", Artist = "A", Genre = "G" };
+            move3Row = new SongChart
+            {
+                FilePath = move3Missing,
+                FileSize = ownedInfo.Length,
+                LastModified = ownedInfo.LastWriteTime,
+                HasDrumChart = true,
+                DrumLevel = 50,
+                DifficultyLevel = 50
+            };
+            s3.Charts.Add(move3Row);
+            seed.Songs.Add(s3);
+            await seed.SaveChangesAsync();
+            await new SongCatalogStore(ManagerDatabaseService!)
+                .SetEnumerationWatermarkAtomicallyAsync(
+                    DateTime.UtcNow.AddMinutes(5), new[] { activeRoot });
+        }
+
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { activeRoot }));
+        Assert.False(await _manager.Scanner.UpdateChartFilePathAsync(move3Row, ownedCopy));
+
+        await using var check = ManagerDatabaseService!.CreateContext();
+        var paths = await check.SongCharts
+            .Select(c => c.FilePath)
+            .OrderBy(p => p)
+            .ToListAsync();
+        Assert.Equal(
+            new[]
+            {
+                move3Missing,
+                SongPathIdentity.Normalize(move1New),
+                SongPathIdentity.Normalize(move2New),
+                SongPathIdentity.Normalize(ownedCopy)
+            }.OrderBy(p => p).ToArray(),
+            paths);
     }
 
     [Fact]
