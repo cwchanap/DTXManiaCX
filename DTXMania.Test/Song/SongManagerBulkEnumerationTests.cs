@@ -3291,12 +3291,16 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal(0, added.Scores.Sum(s => s.PlayCount));
     }
 
-    [Fact]
-    public async Task NeedsEnumerationAsync_WhenSetDefSpellsMovedDirectoryTwoWays_ShouldRepairOnce()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NeedsEnumerationAsync_WhenSetDefSpellsMovedDirectoryTwoWays_ShouldRepairOnce(
+        bool exactSpellingFirst)
     {
-        var rootA = Path.Combine(_testRoot, "DirAliasA");
-        var rootB = Path.Combine(_testRoot, "DirAliasB");
-        var original = WriteChart("DirAliasA/Pack/basic.dtx", "Mover", 50);
+        var rootA = Path.Combine(_testRoot, $"DirAliasA_{exactSpellingFirst}");
+        var rootB = Path.Combine(_testRoot, $"DirAliasB_{exactSpellingFirst}");
+        var original = WriteChart(
+            $"DirAliasA_{exactSpellingFirst}/Pack/basic.dtx", "Mover", 50);
         var stamp = new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(original, stamp);
 
@@ -3319,10 +3323,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Directory.CreateDirectory(chartsDir);
         var moved = Path.Combine(chartsDir, "basic.dtx");
         File.Move(original, moved);
-        await File.WriteAllTextAsync(
-            Path.Combine(setDir, "set.def"),
-            "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE charts/basic.dtx\n" +
-            "#L2LABEL ADVANCED\n#L2FILE Charts/basic.dtx\n");
+        var setDef = exactSpellingFirst
+            ? "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE Charts/basic.dtx\n#L2LABEL ADVANCED\n#L2FILE charts/basic.dtx\n"
+            : "#TITLE Backed Set\n#L1LABEL BASIC\n#L1FILE charts/basic.dtx\n#L2LABEL ADVANCED\n#L2FILE Charts/basic.dtx\n";
+        await File.WriteAllTextAsync(Path.Combine(setDir, "set.def"), setDef);
 
         Assert.True(await _manager.NeedsEnumerationAsync(new[] { rootA, rootB }));
 
@@ -3339,6 +3343,11 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             .Include(c => c.Scores)
             .SingleAsync(c => c.Id == chartId);
         Assert.Equal(7, surviving.Scores.Sum(s => s.PlayCount));
+        var expectedLabel = exactSpellingFirst ||
+            !File.Exists(Path.Combine(setDir, "charts", "basic.dtx"))
+            ? "BASIC"
+            : "ADVANCED";
+        Assert.Equal(expectedLabel, surviving.DifficultyLabel);
     }
 
     [Fact]
