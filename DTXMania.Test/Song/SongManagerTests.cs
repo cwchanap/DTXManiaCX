@@ -2080,6 +2080,101 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task FindMovedFile_WhenSharedFolderSymlinkAliasesOrDiffersFromOwnedChart_ShouldSettleOwnership()
+        {
+            await _manager.InitializeAsync();
+            var targetDir = Directory.CreateDirectory(Path.Combine(_testRoot, "SharedTarget")).FullName;
+            var targetFile = Path.Combine(targetDir, "basic.dtx");
+            await CreateDtxFileAsync(targetFile, "Mover", "Artist", "Rock", 50);
+
+            var sharedDir = Directory.CreateDirectory(Path.Combine(_testRoot, "SharedFolder")).FullName;
+            var ownedAliasPath = Path.Combine(sharedDir, "BASIC.dtx");
+            var candidatePath = Path.Combine(sharedDir, "basic.dtx");
+            var distinctPath = Path.Combine(sharedDir, "different.dtx");
+            try
+            {
+                File.CreateSymbolicLink(ownedAliasPath, targetFile);
+                if (!File.Exists(candidatePath))
+                {
+                    File.CreateSymbolicLink(candidatePath, targetFile);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return;
+            }
+            await CreateDtxFileAsync(distinctPath, "Other", "Artist", "Rock", 50);
+
+            var candidateInfo = new FileInfo(candidatePath);
+            var competingLength = (int)Math.Max(1, candidateInfo.Length);
+            var competingStamp = candidateInfo.LastWriteTimeUtc;
+
+            var otherDir = Directory.CreateDirectory(Path.Combine(_testRoot, "SharedOther")).FullName;
+            var otherCopy = Path.Combine(otherDir, "basic.dtx");
+            await File.WriteAllTextAsync(otherCopy, new string('x', competingLength));
+            File.SetLastWriteTimeUtc(otherCopy, competingStamp);
+
+            var ownedPaths = new HashSet<string>(SongPathIdentity.CanonicalComparer)
+            {
+                SongPathIdentity.Normalize(ownedAliasPath)
+            };
+            var inventory = new[]
+            {
+                new ChartInventoryEntry(
+                    SongPathIdentity.Normalize(candidatePath),
+                    competingStamp,
+                    competingStamp),
+                new ChartInventoryEntry(
+                    SongPathIdentity.Normalize(otherCopy),
+                    competingStamp,
+                    competingStamp)
+            };
+            var missingChart = new SongChart
+            {
+                FilePath = SongPathIdentity.Normalize(Path.Combine(_testRoot, "SharedMissing", "basic.dtx")),
+                FileSize = candidateInfo.Length,
+                LastModified = candidateInfo.LastWriteTime
+            };
+
+            // Direct shared-folder resolution settles a distinct file as unowned
+            // without walking ancestor directories.
+            var method = typeof(SongLibraryScanner).GetMethod(
+                "TryResolveSharedDirectoryPair",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var distinctArgs = new object?[] { sharedDir, "basic.dtx", "different.dtx", false };
+            Assert.True((bool)method!.Invoke(null, distinctArgs)!);
+            Assert.False((bool)distinctArgs[3]!);
+
+            // Only exercise the symlinked FindMovedFile path when the link's
+            // FileInfo.Length > 0 (POSIX lstat reports target path length).
+            if (candidateInfo.Length <= 0)
+                return;
+
+            var result = ReflectionHelpers.InvokePrivateMethod<string?>(
+                _manager.Scanner,
+                "FindMovedFile",
+                missingChart,
+                inventory,
+                ownedPaths);
+
+            var aliasArgs = new object?[] { sharedDir, "basic.dtx", "BASIC.dtx", false };
+            Assert.True((bool)method.Invoke(null, aliasArgs)!);
+            if ((bool)aliasArgs[3]!)
+            {
+                // Case-insensitive volume: shared folder settles basic.dtx as owned
+                // by BASIC.dtx, allowing the move repair onto SharedOther/basic.dtx.
+                Assert.Equal(SongPathIdentity.Normalize(otherCopy), result);
+            }
+            else
+            {
+                // Case-sensitive volume: shared folder settles basic.dtx as unowned,
+                // so both matching targets tie and veto repair.
+                Assert.Null(result);
+            }
+        }
+
+        [Fact]
         public async Task DetectFilesystemChangesAsync_WithoutEnumerationTimestamp_ShouldReturnTrue()
         {
             await _manager.InitializeAsync();
