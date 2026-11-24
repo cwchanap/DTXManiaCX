@@ -15,18 +15,22 @@ namespace DTXMania.Test.TestData
     {
         /// <summary>
         /// Clears every pool group the codebase can form for one database
-        /// file: the bare path spelling (config stores and test helpers), the
-        /// read-only spelling (SqliteConfigStore.Load), and the shared-cache
-        /// spelling (SongDatabase). Candidates go through
-        /// <see cref="SqliteConnectionStringBuilder"/> so the key matches the
-        /// normalized connection string pools group by — raw interpolation
-        /// misses files under paths containing ';' or '"'.
+        /// file. Pool groups are keyed by the VERBATIM connection string
+        /// passed to <see cref="SqliteConnection"/> (no normalization), so
+        /// candidates must spell it exactly as the code under test does:
+        /// builder output for the config stores (which also quotes paths
+        /// containing ';' or '"'), and the raw-interpolated spellings used
+        /// by test helpers and SongDatabase's trailing-semicolon
+        /// 'Cache=Shared;' string.
         /// </summary>
         public static void ClearForFile(string databasePath)
         {
-            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath });
-            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadOnly });
-            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath, Cache = SqliteCacheMode.Shared });
+            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString());
+            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadOnly }.ToString());
+            ClearPool(new SqliteConnectionStringBuilder { DataSource = databasePath, Cache = SqliteCacheMode.Shared }.ToString());
+            ClearPool($"Data Source={databasePath}");
+            ClearPool($"Data Source={databasePath};Mode=ReadOnly");
+            ClearPool($"Data Source={databasePath};Cache=Shared;");
         }
 
         /// <summary>
@@ -47,10 +51,17 @@ namespace DTXMania.Test.TestData
             }
         }
 
-        private static void ClearPool(SqliteConnectionStringBuilder builder)
+        private static void ClearPool(string connectionString)
         {
-            using var connection = new SqliteConnection(builder.ToString());
-            SqliteConnection.ClearPool(connection);
+            try
+            {
+                using var connection = new SqliteConnection(connectionString);
+                SqliteConnection.ClearPool(connection);
+            }
+            catch (ArgumentException)
+            {
+                // A candidate spelling that cannot parse cannot key a pool group.
+            }
         }
     }
 }
