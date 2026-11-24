@@ -2091,19 +2091,35 @@ namespace DTXMania.Test.Song
             var ownedAliasPath = Path.Combine(sharedDir, "BASIC.dtx");
             var candidatePath = Path.Combine(sharedDir, "basic.dtx");
             var distinctPath = Path.Combine(sharedDir, "different.dtx");
+            await CreateDtxFileAsync(distinctPath, "Other", "Artist", "Rock", 50);
+
+            var method = typeof(SongLibraryScanner).GetMethod(
+                "TryResolveSharedDirectoryPair",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            bool isCaseSensitive;
             try
             {
                 File.CreateSymbolicLink(ownedAliasPath, targetFile);
-                if (!File.Exists(candidatePath))
+                isCaseSensitive = !File.Exists(candidatePath);
+                if (isCaseSensitive)
                 {
                     File.CreateSymbolicLink(candidatePath, targetFile);
                 }
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (
+                OperatingSystem.IsWindows() &&
+                ex is UnauthorizedAccessException or IOException)
             {
+                // Unprivileged Windows runners without symlink permission
+                // still verify distinct-entry resolution on regular files.
+                await CreateDtxFileAsync(ownedAliasPath, "Owner", "Artist", "Rock", 50);
+                var fallbackArgs = new object?[] { sharedDir, "BASIC.dtx", "different.dtx", false };
+                Assert.True((bool)method!.Invoke(null, fallbackArgs)!);
+                Assert.False((bool)fallbackArgs[3]!);
                 return;
             }
-            await CreateDtxFileAsync(distinctPath, "Other", "Artist", "Rock", 50);
 
             var candidateInfo = new FileInfo(candidatePath);
             var competingLength = (int)Math.Max(1, candidateInfo.Length);
@@ -2138,13 +2154,13 @@ namespace DTXMania.Test.Song
 
             // Direct shared-folder resolution settles a distinct file as unowned
             // without walking ancestor directories.
-            var method = typeof(SongLibraryScanner).GetMethod(
-                "TryResolveSharedDirectoryPair",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.NotNull(method);
             var distinctArgs = new object?[] { sharedDir, "basic.dtx", "different.dtx", false };
             Assert.True((bool)method!.Invoke(null, distinctArgs)!);
             Assert.False((bool)distinctArgs[3]!);
+
+            var aliasArgs = new object?[] { sharedDir, "basic.dtx", "BASIC.dtx", false };
+            Assert.True((bool)method.Invoke(null, aliasArgs)!);
+            Assert.Equal(!isCaseSensitive, (bool)aliasArgs[3]!);
 
             // Only exercise the symlinked FindMovedFile path when the link's
             // FileInfo.Length > 0 (POSIX lstat reports target path length).
@@ -2158,9 +2174,7 @@ namespace DTXMania.Test.Song
                 inventory,
                 ownedPaths);
 
-            var aliasArgs = new object?[] { sharedDir, "basic.dtx", "BASIC.dtx", false };
-            Assert.True((bool)method.Invoke(null, aliasArgs)!);
-            if ((bool)aliasArgs[3]!)
+            if (!isCaseSensitive)
             {
                 // Case-insensitive volume: shared folder settles basic.dtx as owned
                 // by BASIC.dtx, allowing the move repair onto SharedOther/basic.dtx.
