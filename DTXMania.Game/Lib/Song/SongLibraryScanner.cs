@@ -751,7 +751,7 @@ namespace DTXMania.Game.Lib.Song
                 int missingFiles = 0;
                 int updatedFiles = 0;
                 int totalFiles = 0;
-                var repairs = new List<(SongChart Chart, string NewPath)>();
+                var repairs = new List<(SongChart Chart, string NewPath, string ClaimKey)>();
 
                 foreach (var chart in charts)
                 {
@@ -763,7 +763,10 @@ namespace DTXMania.Game.Lib.Song
 
                         if (!string.IsNullOrEmpty(newPath))
                         {
-                            repairs.Add((chart, newPath));
+                            // Resolve each staged claim key once so an external
+                            // rename/delete during an earlier save cannot change
+                            // the key and abort later repairs.
+                            repairs.Add((chart, newPath, ResolvedPathIdentity(newPath)));
                         }
                         else
                         {
@@ -781,16 +784,14 @@ namespace DTXMania.Game.Lib.Song
                 // claim on it is left missing for the rescan to resolve.
                 var claimsByPath = new Dictionary<string, int>(
                     SongPathIdentity.CanonicalComparer);
-                foreach (var (_, newPath) in repairs)
+                foreach (var (_, _, claimKey) in repairs)
                 {
-                    var claimKey = ResolvedPathIdentity(newPath);
                     claimsByPath[claimKey] =
                         claimsByPath.GetValueOrDefault(claimKey) + 1;
                 }
 
-                foreach (var (chart, newPath) in repairs)
+                foreach (var (chart, newPath, claimKey) in repairs)
                 {
-                    var claimKey = ResolvedPathIdentity(newPath);
                     var contested = claimsByPath[claimKey] > 1;
 
                     // Found the file in a new location - update database. Only a
@@ -943,19 +944,19 @@ namespace DTXMania.Game.Lib.Song
                 // on-disk path identity; genuinely distinct files keep
                 // distinct identities and still veto, since identical copies
                 // have no provable owner. The persisted path prefers the
-                // spelling matching the on-disk entry exactly.
-                var bestByIdentity = new Dictionary<string, string>(
+                // spelling matching the most trailing on-disk path segments
+                // (filename and parent directories), keeping the first match
+                // on ties.
+                var bestByIdentity = new Dictionary<string, (string Path, int Score)>(
                     StringComparer.Ordinal);
                 foreach (var path in verified)
                 {
                     var identity = ResolvedPathIdentity(path);
-                    if (!bestByIdentity.ContainsKey(identity) ||
-                        string.Equals(
-                            Path.GetFileName(path),
-                            Path.GetFileName(identity),
-                            StringComparison.Ordinal))
+                    var matchScore = CountMatchingTrailingPathSegments(path, identity);
+                    if (!bestByIdentity.TryGetValue(identity, out var existing) ||
+                        matchScore > existing.Score)
                     {
-                        bestByIdentity[identity] = path;
+                        bestByIdentity[identity] = (path, matchScore);
                     }
                 }
 
@@ -965,7 +966,7 @@ namespace DTXMania.Game.Lib.Song
                 // rescan — guessing would graft the missing chart's scores
                 // onto an unrelated file.
                 return bestByIdentity.Count == 1
-                    ? bestByIdentity.Values.First()
+                    ? bestByIdentity.Values.First().Path
                     : null;
             }
             catch (Exception ex)
@@ -1064,10 +1065,26 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 // Fallback when OS canonical path resolution is unavailable:
-                // resolve every path component via directory enumeration. If
-                // listing fails or either path cannot be resolved cleanly,
-                // keep the ownership unresolved rather than risking a false
-                // steal or silently dropping a competing target.
+                // if both paths share the exact same parent directory, settle
+                // them against a single listing of that folder without walking
+                // restricted ancestors (e.g., SMB shares). Otherwise resolve
+                // every path component from root.
+                var ownerDirectory = Path.GetDirectoryName(ownerPath);
+                if (string.Equals(directory, ownerDirectory, StringComparison.Ordinal))
+                {
+                    var ownerName = Path.GetFileName(ownerPath);
+                    if (!string.IsNullOrEmpty(ownerName) &&
+                        TryResolveSharedDirectoryPair(
+                            directory, spelling, ownerName, out var sameEntry))
+                    {
+                        if (sameEntry)
+                        {
+                            return CandidateOwnership.Owned;
+                        }
+                        continue;
+                    }
+                }
+
                 var resolvedCandidate = TryResolvePathByDirectoryListing(candidatePath);
                 var resolvedOwner = resolvedCandidate == null
                     ? null
@@ -1090,6 +1107,69 @@ namespace DTXMania.Game.Lib.Song
             return hasUnresolvedOwner
                 ? CandidateOwnership.Unresolved
                 : CandidateOwnership.Unowned;
+        }
+
+        private static bool TryResolveSharedDirectoryPair(
+            string directory,
+            string candidateName,
+            string ownerName,
+            out bool sameEntry)
+        {
+            sameEntry = false;
+            try
+            {
+                var entryNames = Directory
+                    .EnumerateFiles(directory)
+                    .Select(Path.GetFileName)
+                    .ToList();
+                var resolvedCandidate = ResolveDirectoryEntryName(
+                    directory, candidateName, entryNames);
+                var resolvedOwner = ResolveDirectoryEntryName(
+                    directory, ownerName, entryNames);
+                if (resolvedCandidate == null || resolvedOwner == null)
+                {
+                    return false;
+                }
+
+                sameEntry = string.Equals(
+                    resolvedCandidate,
+                    resolvedOwner,
+                    StringComparison.Ordinal);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static int CountMatchingTrailingPathSegments(
+            string authoredPath,
+            string resolvedIdentity)
+        {
+            var separators = new[]
+            {
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar
+            };
+            var authoredSegments = authoredPath.Split(
+                separators, StringSplitOptions.RemoveEmptyEntries);
+            var identitySegments = resolvedIdentity.Split(
+                separators, StringSplitOptions.RemoveEmptyEntries);
+            var maxCount = Math.Min(authoredSegments.Length, identitySegments.Length);
+            var matches = 0;
+            for (var i = 1; i <= maxCount; i++)
+            {
+                if (!string.Equals(
+                        authoredSegments[^i],
+                        identitySegments[^i],
+                        StringComparison.Ordinal))
+                {
+                    break;
+                }
+                matches++;
+            }
+            return matches;
         }
 
         private bool IsPotentiallyMatchingUnresolvedCandidate(

@@ -1994,6 +1994,14 @@ namespace DTXMania.Test.Song
             var chartsDir = Directory.CreateDirectory(Path.Combine(_testRoot, "UnresolvedCharts")).FullName;
             var candidateInUnlistable = Path.Combine(chartsDir, "basic.dtx");
             File.CreateSymbolicLink(candidateInUnlistable, targetFile);
+            var ownedPathOnDisk = Path.Combine(chartsDir, "BASIC.dtx");
+            if (!File.Exists(ownedPathOnDisk))
+            {
+                // On case-sensitive volumes, create the distinct owner entry
+                // so the unresolved-ownership fallback runs instead of skipping
+                // a missing owner.
+                File.CreateSymbolicLink(ownedPathOnDisk, targetFile);
+            }
             var candidateInfo = new FileInfo(candidateInUnlistable);
             // Match the symlink's FileInfo length & timestamp on both the
             // missing chart and the competing copy so both pass the
