@@ -515,7 +515,12 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     try
                     {
-                        Task.WhenAll(pending).Wait(TimeSpan.FromSeconds(5));
+                        if (!Task.WhenAll(pending).Wait(TimeSpan.FromSeconds(5)))
+                        {
+                            Logger.LogWarning(
+                                "Timed out waiting for {PendingCount} pending bookmark write(s) during stage disposal",
+                                pending.Length);
+                        }
                     }
                     catch (Exception ex)
                     {

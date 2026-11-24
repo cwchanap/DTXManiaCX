@@ -806,23 +806,28 @@ namespace DTXMania.Game.Lib.Song
                 // let a row steal a contested file and lose the other row's
                 // scores to the rescan. A contested file has no provable owner,
                 // so every claim on it is left missing for the rescan to resolve.
-                foreach (var (chart, newPath, claimKey) in repairs)
+                var uncontestedRepairs =
+                    new List<(SongChart Chart, string NewPath, string ClaimKey)>(repairs.Count);
+                foreach (var repair in repairs)
                 {
-                    var contested = claimsByPath[claimKey] > 1;
-
-                    // Found the file in a new location - update database. Only a
-                    // repair that persists counts: a failed save stays missing
-                    // so the rescan still runs.
-                    if (!contested &&
-                        await UpdateChartFilePathAsync(chart, newPath, claimKey))
-                    {
-                        updatedFiles++;
-                    }
-                    else
+                    if (claimsByPath[repair.ClaimKey] > 1)
                     {
                         missingFiles++;
                     }
+                    else
+                    {
+                        uncontestedRepairs.Add(repair);
+                    }
                 }
+
+                // Found the file in a new location - update database in a single
+                // transactional batch so catalog ownership is loaded and indexed
+                // once per pass. Only repairs that persist count: failed saves
+                // stay missing so the rescan still runs.
+                var (repairedCount, failedRepairCount) =
+                    await RepairMovedChartsBatchAsync(uncontestedRepairs);
+                updatedFiles += repairedCount;
+                missingFiles += failedRepairCount;
 
 
                 // Return true if we had missing files OR updated file paths (both require re-enumeration)
@@ -1673,6 +1678,83 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
+        /// Repairs all uncontested moved-chart paths in a single database
+        /// transaction, loading and indexing catalog ownership once for the
+        /// whole batch while keeping competing concurrent writes visible via
+        /// the transaction snapshot.
+        /// </summary>
+        private async Task<(int UpdatedCount, int MissedCount)> RepairMovedChartsBatchAsync(
+            IReadOnlyList<(SongChart Chart, string NewPath, string ClaimKey)> repairs)
+        {
+            if (repairs.Count == 0)
+            {
+                return (0, 0);
+            }
+
+            try
+            {
+                using var context = _database.CreateContext();
+                await using var transaction = await context.Database.BeginTransactionAsync();
+
+                var allRows = await context.SongCharts
+                    .AsNoTracking()
+                    .Select(c => new { c.Id, c.FilePath })
+                    .ToListAsync();
+                var ownershipIndex = new CatalogOwnershipIndex(
+                    allRows.Select(r => (r.Id, r.FilePath)));
+
+                var targetRowsById = new Dictionary<int, SongChart>(repairs.Count);
+                const int chunkSize = 500;
+                var distinctIds = repairs.Select(r => r.Chart.Id).Distinct().ToArray();
+                for (int offset = 0; offset < distinctIds.Length; offset += chunkSize)
+                {
+                    var chunkIds = distinctIds.Skip(offset).Take(chunkSize).ToArray();
+                    var chunkRows = await context.SongCharts
+                        .Where(c => chunkIds.Contains(c.Id))
+                        .ToListAsync();
+                    foreach (var row in chunkRows)
+                    {
+                        targetRowsById[row.Id] = row;
+                    }
+                }
+
+                int stagedCount = 0;
+                int missedCount = 0;
+
+                foreach (var (chart, newPath, claimKey) in repairs)
+                {
+                    targetRowsById.TryGetValue(chart.Id, out var row);
+                    if (TryStageVerifiedMove(
+                            row,
+                            chart.FilePath,
+                            newPath,
+                            claimKey,
+                            ownershipIndex))
+                    {
+                        stagedCount++;
+                    }
+                    else
+                    {
+                        missedCount++;
+                    }
+                }
+
+                if (stagedCount > 0)
+                {
+                    await context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                }
+
+                return (stagedCount, missedCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error repairing moved chart file paths");
+                return (0, repairs.Count);
+            }
+        }
+
+        /// <summary>
         /// Updates the file path for a chart in the database. The row is
         /// re-read and re-verified before saving: it must still point at the
         /// (still missing) original path, the staged destination must still
@@ -1690,23 +1772,14 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 using var context = _database.CreateContext();
+                await using var transaction = await context.Database.BeginTransactionAsync();
                 var row = await context.SongCharts.FindAsync(chart.Id);
                 if (row == null ||
                     !string.Equals(
                         row.FilePath,
                         chart.FilePath,
                         StringComparison.Ordinal) ||
-                    File.Exists(row.FilePath) ||
-                    !IsVerifiedMoveCandidate(row, newPath))
-                {
-                    return false;
-                }
-
-                var currentIdentity = ResolvedPathIdentity(newPath);
-                if (expectedClaimKey != null &&
-                    !SongPathIdentity.CanonicalComparer.Equals(
-                        currentIdentity,
-                        expectedClaimKey))
+                    File.Exists(row.FilePath))
                 {
                     return false;
                 }
@@ -1716,13 +1789,23 @@ namespace DTXMania.Game.Lib.Song
                     .Where(other => other.Id != row.Id)
                     .Select(other => other.FilePath)
                     .ToListAsync();
-                if (AnyOtherRowNamesFile(newPath, currentIdentity, otherPaths))
+                var ownershipIndex = CatalogOwnershipIndex.FromUnkeyedPaths(otherPaths);
+
+                // Re-verify fingerprint and recompute candidate identity AFTER the
+                // owner query so a filesystem change during the query cannot leave
+                // currentIdentity stale relative to the ownership check.
+                if (!TryStageVerifiedMove(
+                        row,
+                        chart.FilePath,
+                        newPath,
+                        expectedClaimKey,
+                        ownershipIndex))
                 {
                     return false;
                 }
 
-                row.FilePath = newPath;
                 await context.SaveChangesAsync();
+                await transaction.CommitAsync();
                 return true;
             }
             catch (Exception ex)
@@ -1732,79 +1815,317 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
-        private bool AnyOtherRowNamesFile(
+        private bool TryStageVerifiedMove(
+            SongChart? row,
+            string expectedOriginalPath,
             string newPath,
-            string currentIdentity,
-            IReadOnlyList<string> otherPaths)
+            string? expectedClaimKey,
+            CatalogOwnershipIndex ownershipIndex)
         {
-            if (otherPaths.Count == 0)
+            if (row == null ||
+                !string.Equals(
+                    row.FilePath,
+                    expectedOriginalPath,
+                    StringComparison.Ordinal) ||
+                File.Exists(row.FilePath) ||
+                !IsVerifiedMoveCandidate(row, newPath))
             {
                 return false;
             }
 
-            var hasNormalizedNew = SongPathIdentity.TryNormalize(newPath, out var normalizedNew);
-            var otherOwnedPaths = new HashSet<string>(SongPathIdentity.CanonicalComparer);
-            foreach (var otherPath in otherPaths)
+            var currentIdentity = ResolvedPathIdentity(newPath);
+            if (expectedClaimKey != null &&
+                !SongPathIdentity.CanonicalComparer.Equals(
+                    currentIdentity,
+                    expectedClaimKey))
             {
-                if (string.Equals(otherPath, newPath, StringComparison.Ordinal))
+                return false;
+            }
+
+            var hadEntry = ownershipIndex.TryDetachRow(row.Id, out var detachedEntry);
+            try
+            {
+                if (ownershipIndex.AnyRowNamesFile(newPath, currentIdentity))
+                {
+                    if (hadEntry)
+                    {
+                        ownershipIndex.RestoreRow(row.Id, detachedEntry);
+                    }
+                    return false;
+                }
+
+                row.FilePath = newPath;
+                ownershipIndex.SetRowPath(row.Id, newPath);
+                return true;
+            }
+            catch
+            {
+                if (hadEntry)
+                {
+                    ownershipIndex.RestoreRow(row.Id, detachedEntry);
+                }
+                throw;
+            }
+        }
+
+        private sealed class CatalogOwnershipIndex
+        {
+            internal readonly record struct IndexedEntry(
+                string RawPath,
+                string? NormalizedPath,
+                string? DirectoryKey,
+                string? FoldedFileNameKey);
+
+            private readonly Dictionary<int, IndexedEntry> _entriesByRowId = new();
+            private readonly Dictionary<string, int> _rawPathCounts =
+                new(StringComparer.Ordinal);
+            private readonly Dictionary<string, int> _normalizedPathCounts =
+                new(SongPathIdentity.CanonicalComparer);
+            private readonly HashSet<string> _ownedNormalizedPaths =
+                new(SongPathIdentity.CanonicalComparer);
+            private readonly Dictionary<string, List<string>> _ownedByFoldedDirectory =
+                new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, List<string>> _rawPathsByFoldedFileName =
+                new(StringComparer.OrdinalIgnoreCase);
+
+            private CatalogOwnershipIndex()
+            {
+            }
+
+            public CatalogOwnershipIndex(IEnumerable<(int Id, string FilePath)> rows)
+            {
+                foreach (var (id, filePath) in rows)
+                {
+                    SetRowPath(id, filePath);
+                }
+            }
+
+            public static CatalogOwnershipIndex FromUnkeyedPaths(IEnumerable<string> paths)
+            {
+                var index = new CatalogOwnershipIndex();
+                foreach (var path in paths)
+                {
+                    index.AddEntry(CreateEntry(path));
+                }
+                return index;
+            }
+
+            public void SetRowPath(int rowId, string rawPath)
+            {
+                if (_entriesByRowId.TryGetValue(rowId, out var existing))
+                {
+                    RemoveEntry(existing);
+                }
+
+                var entry = CreateEntry(rawPath);
+                _entriesByRowId[rowId] = entry;
+                AddEntry(entry);
+            }
+
+            public bool TryDetachRow(int rowId, out IndexedEntry detached)
+            {
+                if (_entriesByRowId.Remove(rowId, out detached))
+                {
+                    RemoveEntry(detached);
+                    return true;
+                }
+
+                return false;
+            }
+
+            public void RestoreRow(int rowId, IndexedEntry entry)
+            {
+                _entriesByRowId[rowId] = entry;
+                AddEntry(entry);
+            }
+
+            public bool AnyRowNamesFile(string newPath, string currentIdentity)
+            {
+                if (_rawPathCounts.Count == 0)
+                {
+                    return false;
+                }
+
+                if (_rawPathCounts.ContainsKey(newPath))
                 {
                     return true;
                 }
 
-                if (SongPathIdentity.TryNormalize(otherPath, out var normalizedOther))
+                var hasNormalizedNew = SongPathIdentity.TryNormalize(newPath, out var normalizedNew);
+                if (hasNormalizedNew && _ownedNormalizedPaths.Contains(normalizedNew))
                 {
-                    if (hasNormalizedNew &&
+                    return true;
+                }
+
+                var lookupPath = hasNormalizedNew ? normalizedNew : newPath;
+                if (GetCandidateOwnership(
+                        lookupPath,
+                        _ownedNormalizedPaths,
+                        _ownedByFoldedDirectory) != CandidateOwnership.Unowned)
+                {
+                    return true;
+                }
+
+                var candidateName = Path.GetFileName(newPath);
+                if (string.IsNullOrEmpty(candidateName))
+                {
+                    return false;
+                }
+
+                var foldedKey = GetDirectoryAliasBucketKey(candidateName);
+                if (!_rawPathsByFoldedFileName.TryGetValue(foldedKey, out var candidateOwners))
+                {
+                    return false;
+                }
+
+                var normalizedCandidateName = TryNormalizeUnicode(candidateName);
+                foreach (var otherPath in candidateOwners)
+                {
+                    var otherName = Path.GetFileName(otherPath);
+                    if (string.IsNullOrEmpty(otherName))
+                    {
+                        continue;
+                    }
+
+                    if (!SongPathIdentity.LegacyAliasComparer.Equals(candidateName, otherName) &&
+                        !FoldedNameEquals(otherName, normalizedCandidateName))
+                    {
+                        continue;
+                    }
+
+                    if (File.Exists(otherPath) &&
                         SongPathIdentity.CanonicalComparer.Equals(
-                            normalizedOther,
-                            normalizedNew))
+                            ResolvedPathIdentity(otherPath),
+                            currentIdentity))
                     {
                         return true;
                     }
-                    otherOwnedPaths.Add(normalizedOther);
                 }
-            }
 
-            var lookupPath = hasNormalizedNew ? normalizedNew : newPath;
-            var ownedByFoldedDirectory = BuildOwnedPathsByFoldedDirectory(otherOwnedPaths);
-            if (GetCandidateOwnership(
-                    lookupPath,
-                    otherOwnedPaths,
-                    ownedByFoldedDirectory) != CandidateOwnership.Unowned)
-            {
-                return true;
-            }
-
-            var candidateName = Path.GetFileName(newPath);
-            if (string.IsNullOrEmpty(candidateName))
-            {
                 return false;
             }
 
-            var normalizedCandidateName = TryNormalizeUnicode(candidateName);
-            foreach (var otherPath in otherPaths)
+            private static IndexedEntry CreateEntry(string rawPath)
             {
-                var otherName = Path.GetFileName(otherPath);
-                if (string.IsNullOrEmpty(otherName))
+                string? normalizedPath = SongPathIdentity.TryNormalize(rawPath, out var normalized)
+                    ? normalized
+                    : null;
+
+                string? directoryKey = null;
+                if (normalizedPath != null)
                 {
-                    continue;
+                    var dir = Path.GetDirectoryName(normalizedPath);
+                    var name = Path.GetFileName(normalizedPath);
+                    if (!string.IsNullOrEmpty(dir) && !string.IsNullOrEmpty(name))
+                    {
+                        directoryKey = GetDirectoryAliasBucketKey(dir);
+                    }
                 }
 
-                if (!SongPathIdentity.LegacyAliasComparer.Equals(candidateName, otherName) &&
-                    !FoldedNameEquals(otherName, normalizedCandidateName))
+                var rawFileName = Path.GetFileName(rawPath);
+                var foldedFileNameKey = string.IsNullOrEmpty(rawFileName)
+                    ? null
+                    : GetDirectoryAliasBucketKey(rawFileName);
+
+                return new IndexedEntry(rawPath, normalizedPath, directoryKey, foldedFileNameKey);
+            }
+
+            private void AddEntry(IndexedEntry entry)
+            {
+                if (_rawPathCounts.TryGetValue(entry.RawPath, out var rawCount))
                 {
-                    continue;
+                    _rawPathCounts[entry.RawPath] = rawCount + 1;
+                }
+                else
+                {
+                    _rawPathCounts[entry.RawPath] = 1;
+                    if (entry.FoldedFileNameKey != null)
+                    {
+                        if (!_rawPathsByFoldedFileName.TryGetValue(
+                                entry.FoldedFileNameKey, out var nameList))
+                        {
+                            nameList = new List<string>();
+                            _rawPathsByFoldedFileName[entry.FoldedFileNameKey] = nameList;
+                        }
+                        nameList.Add(entry.RawPath);
+                    }
                 }
 
-                if (File.Exists(otherPath) &&
-                    SongPathIdentity.CanonicalComparer.Equals(
-                        ResolvedPathIdentity(otherPath),
-                        currentIdentity))
+                if (entry.NormalizedPath != null)
                 {
-                    return true;
+                    if (_normalizedPathCounts.TryGetValue(
+                            entry.NormalizedPath, out var normCount))
+                    {
+                        _normalizedPathCounts[entry.NormalizedPath] = normCount + 1;
+                    }
+                    else
+                    {
+                        _normalizedPathCounts[entry.NormalizedPath] = 1;
+                        _ownedNormalizedPaths.Add(entry.NormalizedPath);
+                        if (entry.DirectoryKey != null)
+                        {
+                            if (!_ownedByFoldedDirectory.TryGetValue(
+                                    entry.DirectoryKey, out var dirList))
+                            {
+                                dirList = new List<string>();
+                                _ownedByFoldedDirectory[entry.DirectoryKey] = dirList;
+                            }
+                            dirList.Add(entry.NormalizedPath);
+                        }
+                    }
                 }
             }
 
-            return false;
+            private void RemoveEntry(IndexedEntry entry)
+            {
+                if (_rawPathCounts.TryGetValue(entry.RawPath, out var rawCount))
+                {
+                    if (rawCount <= 1)
+                    {
+                        _rawPathCounts.Remove(entry.RawPath);
+                        if (entry.FoldedFileNameKey != null &&
+                            _rawPathsByFoldedFileName.TryGetValue(
+                                entry.FoldedFileNameKey, out var nameList))
+                        {
+                            nameList.RemoveAll(p =>
+                                string.Equals(p, entry.RawPath, StringComparison.Ordinal));
+                            if (nameList.Count == 0)
+                            {
+                                _rawPathsByFoldedFileName.Remove(entry.FoldedFileNameKey);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _rawPathCounts[entry.RawPath] = rawCount - 1;
+                    }
+                }
+
+                if (entry.NormalizedPath != null &&
+                    _normalizedPathCounts.TryGetValue(entry.NormalizedPath, out var normCount))
+                {
+                    if (normCount <= 1)
+                    {
+                        _normalizedPathCounts.Remove(entry.NormalizedPath);
+                        _ownedNormalizedPaths.Remove(entry.NormalizedPath);
+                        if (entry.DirectoryKey != null &&
+                            _ownedByFoldedDirectory.TryGetValue(
+                                entry.DirectoryKey, out var dirList))
+                        {
+                            dirList.RemoveAll(p =>
+                                SongPathIdentity.CanonicalComparer.Equals(p, entry.NormalizedPath));
+                            if (dirList.Count == 0)
+                            {
+                                _ownedByFoldedDirectory.Remove(entry.DirectoryKey);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _normalizedPathCounts[entry.NormalizedPath] = normCount - 1;
+                    }
+                }
+            }
         }
 
         /// <summary>
