@@ -1913,6 +1913,47 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void ResolveDirectoryEntryName_WhenNormalizationLookalikeAlsoMatches_ShouldResolveTheCaseFold()
+        {
+            // NTFS hosts sibling files that differ only in Unicode form; the
+            // recorded spelling resolves to exactly one of them, so the
+            // lookalike must not count as a second folded match and veto the
+            // repair. The sibling cannot be created on volumes that fold
+            // normalization for comparison, so its name is supplied in the
+            // entry list directly.
+            var directory = Directory.CreateDirectory(
+                Path.Combine(_testRoot, "Lookalikes")).FullName;
+            var precomposed = "CAFÉ.DTX";
+            var decomposed = precomposed.Normalize(NormalizationForm.FormD);
+            var spelling = "café.dtx";
+            File.WriteAllText(Path.Combine(directory, precomposed), "x");
+
+            var method = typeof(SongLibraryScanner).GetMethod(
+                "ResolveDirectoryEntryName",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var resolved = (string?)method!.Invoke(null, new object[]
+            {
+                directory,
+                spelling,
+                new List<string?> { precomposed, decomposed }
+            });
+
+            if (File.Exists(Path.Combine(directory, spelling)))
+            {
+                // The volume folds case: the spelling resolves to the
+                // single case-equal entry and the normalized lookalike is
+                // not counted as a second alias.
+                Assert.Equal(precomposed, resolved);
+            }
+            else
+            {
+                // A case-sensitive volume resolves nothing.
+                Assert.Null(resolved);
+            }
+        }
+
+        [Fact]
         public async Task DetectFilesystemChangesAsync_WithoutEnumerationTimestamp_ShouldReturnTrue()
         {
             await _manager.InitializeAsync();
