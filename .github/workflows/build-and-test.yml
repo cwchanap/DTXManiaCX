@@ -177,19 +177,20 @@ jobs:
           echo "::error::CX Neon pack missing from repo (System/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
           exit 1
         fi
-        # sfxgen validate decodes every OGG via ffmpeg; install a full
-        # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
-        # sound and false-positive the gate. Skip the install when ffprobe is
-        # already on PATH and retry on transient feed errors — choco exits 0
-        # after a community-feed 503 having installed nothing.
-        if ! command -v ffprobe >/dev/null 2>&1; then
+        # sfxgen validate decodes every OGG via ffmpeg and probes codec,
+        # duration and sample rate via ffprobe — both must be on PATH. Install
+        # a full OGG/Vorbis-capable build so _decode_ok doesn't fail-close
+        # every sound and false-positive the gate. Skip the install when both
+        # tools are already on PATH and retry on transient feed errors —
+        # choco exits 0 after a community-feed 503 having installed nothing.
+        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
           for attempt in 1 2 3; do
             if [ "$RUNNER_OS" = "macOS" ]; then
               brew install ffmpeg || true
             else
               choco install ffmpeg -y --no-progress || true
             fi
-            if command -v ffprobe >/dev/null 2>&1; then
+            if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
               break
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -197,8 +198,11 @@ jobs:
             fi
           done
         fi
-        if ! command -v ffprobe >/dev/null 2>&1; then
-          echo "::error::ffprobe (ffmpeg) is required to validate System/Sounds but is not on PATH after install attempts."
+        missing_tools=""
+        command -v ffmpeg >/dev/null 2>&1 || missing_tools="ffmpeg"
+        command -v ffprobe >/dev/null 2>&1 || missing_tools="${missing_tools:+$missing_tools }ffprobe"
+        if [ -n "$missing_tools" ]; then
+          echo "::error::$missing_tools required to validate System/Sounds but not on PATH after install attempts."
           exit 1
         fi
         python tools/skingen/skingen.py validate
@@ -369,14 +373,15 @@ jobs:
           echo "::error::CX Neon pack missing from repo (System/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
           exit 1
         fi
-        # sfxgen validate decodes every OGG via ffmpeg; install a full
-        # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
-        # sound and false-positive the gate. Skip the install when ffprobe is
-        # already on PATH and retry on transient feed errors.
-        if ! command -v ffprobe >/dev/null 2>&1; then
+        # sfxgen validate decodes every OGG via ffmpeg and probes codec,
+        # duration and sample rate via ffprobe — both must be on PATH. Install
+        # a full OGG/Vorbis-capable build so _decode_ok doesn't fail-close
+        # every sound and false-positive the gate. Skip the install when both
+        # tools are already on PATH and retry on transient feed errors.
+        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
           for attempt in 1 2 3; do
             brew install ffmpeg || true
-            if command -v ffprobe >/dev/null 2>&1; then
+            if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
               break
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -384,8 +389,11 @@ jobs:
             fi
           done
         fi
-        if ! command -v ffprobe >/dev/null 2>&1; then
-          echo "::error::ffprobe (ffmpeg) is required to validate System/Sounds but is not on PATH after install attempts."
+        missing_tools=""
+        command -v ffmpeg >/dev/null 2>&1 || missing_tools="ffmpeg"
+        command -v ffprobe >/dev/null 2>&1 || missing_tools="${missing_tools:+$missing_tools }ffprobe"
+        if [ -n "$missing_tools" ]; then
+          echo "::error::$missing_tools required to validate System/Sounds but not on PATH after install attempts."
           exit 1
         fi
         python tools/skingen/skingen.py validate
