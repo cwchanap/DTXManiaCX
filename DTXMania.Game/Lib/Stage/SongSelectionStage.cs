@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
@@ -21,6 +20,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Filtering;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Utilities;
@@ -158,8 +158,6 @@ namespace DTXMania.Game.Lib.Stage
         private string _currentBreadcrumb = "";
         private bool _isProjectingPreparedSelection;
         private PreparedChartSelection _preparedChartSelection;
-        private PreparedPreviewState _preparedPreviewState = PreparedPreviewState.None;
-        private double _preparedPreviewElapsedMs;
 
         // Status panel navigation state
         private bool _isInStatusPanel = false;
@@ -197,18 +195,16 @@ namespace DTXMania.Game.Lib.Stage
         // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
 
-        // Preview sound functionality
-        private ISound _previewSound;
-        private ISoundInstance _previewSoundInstance;
+        // Preview sound functionality (HPA-802): the controller owns the audio
+        // facts (managed sound/instance refs, delayed start, prepared playback
+        // state and elapsed time); the stage selects paths and owns the prepared
+        // selection record.
+        private readonly SongSelectionPreviewController _previewController;
         
         // Navigation sound functionality (same as TitleStage)
         private ISound _cursorMoveSound;
         private ISound _gameStartSound;
-        private double _previewPlayDelay = 0.0;
-        private bool _isPreviewDelayActive = false;
         
-        // Preview sound timing constants
-        private const double PREVIEW_PLAY_DELAY_SECONDS = SongSelectionUILayout.Audio.PreviewPlayDelaySeconds;
 
         internal enum SongLibraryEmptyState
         {
@@ -222,14 +218,6 @@ namespace DTXMania.Game.Lib.Stage
             SongChart Chart,
             int DifficultyIndex,
             string TelemetryIdentity);
-
-        private enum PreparedPreviewState
-        {
-            None,
-            Prepared,
-            Playing,
-            Failed
-        }
 
         private sealed record PreparedChartResolution(
             SongListNode Node,
@@ -257,11 +245,24 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        public SongSelectionStage(IStageGame game) : base(game)
+        public SongSelectionStage(IStageGame game) : this(game, createPreviewInstance: null)
+        {
+        }
+
+        // HPA-802 review: narrow test seam — forwards the instance-creation delegate
+        // to the preview controller so headless tests can drive the real
+        // successful-play path (MonoGame's SoundEffectInstance cannot be constructed
+        // in tests). Production uses the single-argument constructor.
+        internal SongSelectionStage(IStageGame game, Func<ISound?, ISoundInstance?>? createPreviewInstance) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
             // Lazy library resolution (HPA-801): resolved when a bookmarks load executes.
             _loadBookmarkedNodesAsync = () => Library.Queries.GetBookmarkedNodesAsync();
+            // HPA-802: the preview controller resolves the resource manager lazily,
+            // only when a preview loads — construction does no filesystem work.
+            _previewController = createPreviewInstance == null
+                ? new SongSelectionPreviewController(() => _resourceManager, Logger)
+                : new SongSelectionPreviewController(() => _resourceManager, Logger, createPreviewInstance);
             AssignInputManager(game.InputManager);
         }
 
@@ -1328,6 +1329,15 @@ namespace DTXMania.Game.Lib.Stage
 
         internal (bool Success, string Error) PrepareVideoChart(string chartPath)
         {
+            // Stable exits only: when the body throws, its exception must surface
+            // unmasked; every normal return is a stable boundary.
+            var result = PrepareVideoChartCore(chartPath);
+            AssertPreparedSelectionStatePairing();
+            return result;
+        }
+
+        private (bool Success, string Error) PrepareVideoChartCore(string chartPath)
+        {
             if (string.IsNullOrWhiteSpace(chartPath))
                 return PreparedFailure("A chart path is required.");
 
@@ -1345,8 +1355,7 @@ namespace DTXMania.Game.Lib.Stage
             // after all validation succeeds, so a rejected request preserves the current
             // prepared selection and loaded preview.
             ClearPreparedPreviewStateIfOwned();
-            if (_previewSound != null || _previewSoundInstance != null)
-                StopCurrentPreview();
+            _previewController.Stop();
 
             // Project through the normal Song Select hierarchy before publishing prepared
             // state. The projection itself suppresses the intermediate selection events so
@@ -1357,75 +1366,56 @@ namespace DTXMania.Game.Lib.Stage
                 return PreparedFailure("The requested chart could not be selected.");
             }
 
-            if (_resourceManager == null || !TryLoadPreviewSoundFile(previewPath))
+            // LoadStopped keeps the loaded preview silent: prepared playback remains
+            // stopped until StartPreparedPreview is called, and only a successful
+            // stopped load publishes the preparation below.
+            //
+            // The identity record is built BEFORE the controller is armed: if it
+            // throws, no Prepared state exists yet, so the pairing invariant still
+            // holds and cannot mask the original exception.
+            var preparedSelection = new PreparedChartSelection(
+                resolution.Node,
+                resolution.Chart,
+                resolution.DifficultyIndex,
+                BuildPreparedChartTelemetryIdentity(resolution.Chart));
+
+            if (!_previewController.LoadStopped(previewPath))
             {
                 ResumeOrdinaryPreviewAfterPrepareFailure(resolution.Node);
                 return PreparedFailure("The requested chart preview could not be loaded.");
             }
 
-            // TryLoadPreviewSoundFile intentionally arms the ordinary delayed preview path.
-            // Prepared playback must remain stopped until StartPreparedPreview is called.
-            _previewPlayDelay = 0.0;
-            _isPreviewDelayActive = false;
-
-            _preparedChartSelection = new PreparedChartSelection(
-                resolution.Node,
-                resolution.Chart,
-                resolution.DifficultyIndex,
-                BuildPreparedChartTelemetryIdentity(resolution.Chart));
-            _preparedPreviewState = PreparedPreviewState.Prepared;
-            _preparedPreviewElapsedMs = 0.0;
+            _preparedChartSelection = preparedSelection;
             return PreparedSuccess();
         }
 
         internal (bool Success, string Error) StartPreparedPreview()
         {
-            if (_preparedChartSelection == null || _previewSound == null)
-                return PreparedFailure("No prepared chart preview is available.");
+            var result = _preparedChartSelection != null && _previewController.HasLoadedSound
+                ? _previewController.StartPrepared()
+                : PreparedFailure("No prepared chart preview is available.");
 
-            if (_preparedPreviewState == PreparedPreviewState.Playing)
-            {
-                if (_previewSoundInstance?.State == SoundState.Playing)
-                    return PreparedSuccess();
-
-                _preparedPreviewState = PreparedPreviewState.Failed;
-                return PreparedFailure("The prepared preview stopped unexpectedly.");
-            }
-
-            if (_preparedPreviewState != PreparedPreviewState.Prepared)
-                return PreparedFailure("The prepared chart preview is not ready to play.");
-
-            try
-            {
-                if (_previewSoundInstance != null)
-                    DisposePreviewInstance();
-
-                _previewSoundInstance = CreatePreviewSoundInstance(_previewSound);
-                if (_previewSoundInstance == null)
-                    return MarkPreparedPreviewFailed("The prepared chart preview instance could not be created.");
-
-                _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
-                _previewSoundInstance.IsLooped = true;
-                _previewSoundInstance.Play();
-                _preparedPreviewElapsedMs = 0.0;
-                _preparedPreviewState = PreparedPreviewState.Playing;
-                return PreparedSuccess();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Prepared chart preview could not be started");
-                DisposePreviewInstance();
-                return MarkPreparedPreviewFailed("The prepared chart preview could not be started.");
-            }
+            AssertPreparedSelectionStatePairing();
+            return result;
         }
 
         internal (bool Success, string Error) CancelPreparedChart()
         {
             ClearPreparedPreviewStateIfOwned();
+
+            AssertPreparedSelectionStatePairing();
             return PreparedSuccess();
         }
 
         internal (bool Success, string Error) ActivatePreparedChart()
+        {
+            var result = ActivatePreparedChartCore();
+
+            AssertPreparedSelectionStatePairing();
+            return result;
+        }
+
+        private (bool Success, string Error) ActivatePreparedChartCore()
         {
             var prepared = _preparedChartSelection;
             if (prepared == null)
@@ -1453,18 +1443,32 @@ namespace DTXMania.Game.Lib.Stage
         private static (bool Success, string Error) PreparedFailure(string error) =>
             (false, error);
 
-        private (bool Success, string Error) MarkPreparedPreviewFailed(string error)
-        {
-            _preparedPreviewState = PreparedPreviewState.Failed;
-            return PreparedFailure(error);
-        }
-
         private void ClearPreparedPreviewState()
         {
-            StopCurrentPreview();
+            // One synchronous stage operation: the controller's playback reset and
+            // the stage record clear together, so a non-null record is never paired
+            // with a stale prepared state (HPA-802).
+            _previewController.Stop();
             _preparedChartSelection = null;
-            _preparedPreviewState = PreparedPreviewState.None;
-            _preparedPreviewElapsedMs = 0.0;
+            AssertPreparedSelectionStatePairing();
+        }
+
+        // HPA-802 review: two-way invariant between the stage-owned prepared record
+        // and the controller's playback state — a record exists exactly when the
+        // controller state is not None (an unexpected stop keeps the pair as
+        // record + Failed, explicit cleanup keeps null + None). Checked at stable
+        // stage operation boundaries so a mismatch fails fast instead of surfacing
+        // as stale playback or a lost identity.
+        private void AssertPreparedSelectionStatePairing()
+        {
+            bool hasRecord = _preparedChartSelection != null;
+            bool hasPlaybackState = _previewController.PreparedState != SongSelectionPreviewState.None;
+            if (hasRecord == hasPlaybackState)
+                return;
+
+            throw new InvalidOperationException(
+                $"Prepared chart identity and preview playback state are inconsistent: " +
+                $"record={(hasRecord ? "set" : "null")}, playback={_previewController.PreparedState}.");
         }
 
         private void ClearPreparedPreviewStateIfOwned()
@@ -1581,7 +1585,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             _selectedSong = null;
             _isInStatusPanel = false;
-            StopCurrentPreview();
+            // HPA-802: removal routes through the prepared cleanup path so the
+            // identity is cleared together with playback, even without a record
+            // (the ordinary preview must still stop).
+            ClearPreparedPreviewState();
             _previewImagePanel?.ClearSelectedSong();
             if (_statusPanel != null)
             {
@@ -1858,7 +1865,7 @@ namespace DTXMania.Game.Lib.Stage
             if (!_isProjectingPreparedSelection
                 && !clearedPreparedPreview
                 && (preparedSelection == null || leavingPreparedRow))
-                StopCurrentPreview();
+                _previewController.Stop();
 
             // Auto-manage status panel visibility and navigation mode based on selected item type
             if (e.SelectedSong != null && e.SelectedSong.Type == NodeType.Score)
@@ -1909,6 +1916,9 @@ namespace DTXMania.Game.Lib.Stage
                         playSpeedPercent);
                 }
                 
+                // Every exit of this handler is a stable boundary, including the
+                // scroll-incomplete early return.
+                AssertPreparedSelectionStatePairing();
                 return; // Skip other heavy updates during scrolling
             }
 
@@ -1926,6 +1936,8 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
+
+            AssertPreparedSelectionStatePairing();
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
@@ -1941,20 +1953,29 @@ namespace DTXMania.Game.Lib.Stage
             _currentDifficulty = e.NewDifficulty;
             int playSpeedPercent = SynchronizeActivePlaySpeed();
 
-            var preparedSelection = _preparedChartSelection;
-            var leavingPreparedDifficulty = preparedSelection != null
-                && (!ReferenceEquals(preparedSelection.Node, e.Song)
-                    || preparedSelection.DifficultyIndex != e.NewDifficulty);
-            if (!_isProjectingPreparedSelection && leavingPreparedDifficulty)
-            {
-                ClearPreparedPreviewState();
-                if (e.Song?.Type == NodeType.Score)
-                    LoadPreviewSound(e.Song);
-            }
+            ClearPreparedSelectionIfDifficultyLeftIt(e.Song, e.NewDifficulty);
 
             // Update status panel
             _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
             _playHistoryPanel?.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
+            AssertPreparedSelectionStatePairing();
+        }
+
+        // HPA-802 review: shared cleanup for every difficulty-change entry point —
+        // leaving the prepared difficulty clears the prepared identity and playback
+        // together and restores the ordinary delayed preview (never during projection).
+        private void ClearPreparedSelectionIfDifficultyLeftIt(SongListNode? song, int newDifficulty)
+        {
+            var preparedSelection = _preparedChartSelection;
+            var leavingPreparedDifficulty = preparedSelection != null
+                && (!ReferenceEquals(preparedSelection.Node, song)
+                    || preparedSelection.DifficultyIndex != newDifficulty);
+            if (_isProjectingPreparedSelection || !leavingPreparedDifficulty)
+                return;
+
+            ClearPreparedPreviewState();
+            if (song?.Type == NodeType.Score)
+                LoadPreviewSound(song);
         }
 
         private void HandleSongActivation(SongListNode node)
@@ -2283,7 +2304,7 @@ namespace DTXMania.Game.Lib.Stage
             _elapsedTime += deltaTime;
 
             // Update preview sound timers
-            UpdatePreviewSoundTimers(deltaTime);
+            _previewController.Update(deltaTime);
 
             // Initializer, publication, tab-load and bookmark-rollback completions are
             // applied by BaseStage.Update's scope drain before this method runs (HPA-799).
@@ -2308,6 +2329,8 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update UI (PreviewImagePanel will handle its own timing)
             _uiManager?.Update(deltaTime);
+
+            AssertPreparedSelectionStatePairing();
         }
 
         /// <summary>True while Search &amp; Filter or Quick Settings covers the stage.</summary>
@@ -2799,6 +2822,11 @@ namespace DTXMania.Game.Lib.Stage
                             // Update the display's difficulty
                             _songListDisplay.CurrentDifficulty = _currentDifficulty;
 
+                            // Backward cycling bypasses the display's DifficultyChanged
+                            // event, so route through the same prepared cleanup as
+                            // OnDifficultyChanged (HPA-802 review).
+                            ClearPreparedSelectionIfDifficultyLeftIt(_selectedSong, _currentDifficulty);
+
                             // Update status panel
                             int playSpeedPercent = SynchronizeActivePlaySpeed();
                             _statusPanel.UpdateSongInfo(
@@ -2816,6 +2844,8 @@ namespace DTXMania.Game.Lib.Stage
                     }
                 }
             }
+
+            AssertPreparedSelectionStatePairing();
         }
 
         /// <summary>
@@ -3100,68 +3130,6 @@ namespace DTXMania.Game.Lib.Stage
         #region Preview Sound Management
 
         /// <summary>
-        /// Update all preview sound timers and handle sound transitions
-        /// </summary>
-        private void UpdatePreviewSoundTimers(double deltaTime)
-        {
-            if (_preparedPreviewState == PreparedPreviewState.Playing)
-            {
-                if (_previewSoundInstance?.State == SoundState.Playing)
-                {
-                    _preparedPreviewElapsedMs += Math.Max(0.0, deltaTime) * 1000.0;
-                }
-                else
-                {
-                    // Explicitly-started prepared previews never restart themselves or fall
-                    // back to the ordinary delayed primary-chart preview after an unexpected
-                    // stop. Keep the prepared identity available for diagnostics/retry.
-                    _preparedPreviewState = PreparedPreviewState.Failed;
-                }
-            }
-
-            // Update preview play delay timer
-            if (_preparedChartSelection == null && _isPreviewDelayActive)
-            {
-                _previewPlayDelay += deltaTime;
-                
-                // Start preview after delay ends
-                if (_previewPlayDelay >= PREVIEW_PLAY_DELAY_SECONDS && _previewSound != null)
-                {
-                    _isPreviewDelayActive = false;
-                    
-                    try
-                    {
-                        // Check if preview sound instance is available and not already playing
-                        if (_previewSoundInstance == null || _previewSoundInstance.State != SoundState.Playing)
-                        {
-                            if (_previewSoundInstance != null)
-                            {
-                                _previewSoundInstance.Dispose();
-                                _previewSoundInstance = null;
-                            }
-
-                            _previewSoundInstance = CreatePreviewSoundInstance(_previewSound);
-                            if (_previewSoundInstance != null)
-                            {
-                                _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
-                                _previewSoundInstance.IsLooped = true; // Enable looping
-                                _previewSoundInstance.Play();
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(ex, "Song preview playback failed");
-                        DisposePreviewInstance();
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Load preview sound for the selected song
-        /// </summary>
-        /// <summary>
         /// Load preview sound for the selected song using direct ResourceManager loading
         /// MP3 files are now supported via FFMpegCore integration in ManagedSound
         /// </summary>
@@ -3183,105 +3151,14 @@ namespace DTXMania.Game.Lib.Stage
                 
                 if (File.Exists(absolutePreviewPath))
                 {
-                    TryLoadPreviewSoundFile(absolutePreviewPath);
+                    _previewController.LoadDelayed(absolutePreviewPath);
                 }
             }
             catch (Exception)
             {
-                // Clear the failed sound reference
-                _previewSound = null;
-                _isPreviewDelayActive = false;
+                // Clear the failed sound reference and any armed delay.
+                _previewController.Stop();
             }
-        }
-
-        private bool TryLoadPreviewSoundFile(string filePath)
-        {
-            // Release previous preview sound reference before loading a new one.
-            ReleaseManagedSound(ref _previewSound);
-
-            try
-            {
-                // TryLoadSound reports the failure LoadSound hides behind its
-                // silent fallback; a failed load releases the fallback it got.
-                if (_resourceManager.TryLoadSound(filePath, out _previewSound)
-                    && _previewSound != null)
-                {
-                    // Successfully loaded
-                    _previewPlayDelay = 0.0;
-                    _isPreviewDelayActive = true;
-                    return true;
-                }
-
-                ReleaseManagedSound(ref _previewSound);
-                return false;
-            }
-            catch (Exception)
-            {
-                ReleaseManagedSound(ref _previewSound);
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Stop current preview sound and restore BGM
-        /// </summary>
-        private void StopCurrentPreview()
-        {
-            // Stop preview sound instance
-            if (_previewSoundInstance != null)
-            {
-                try
-                {
-                    if (_previewSoundInstance.State == SoundState.Playing)
-                    {
-                        _previewSoundInstance.Stop();
-                    }
-                }
-                catch (Exception)
-                {
-                }
-                finally
-                {
-                    DisposePreviewInstance();
-                }
-            }
-
-            // Release managed preview sound reference.
-            ReleaseManagedSound(ref _previewSound);
-            
-            // Reset timers
-            _previewPlayDelay = 0.0;
-            _isPreviewDelayActive = false;
-        }
-
-        private void DisposePreviewInstance()
-        {
-            if (_previewSoundInstance == null)
-                return;
-
-            try
-            {
-                _previewSoundInstance.Dispose();
-            }
-            catch (Exception)
-            {
-            }
-            finally
-            {
-                _previewSoundInstance = null;
-            }
-        }
-
-        private static void ReleaseManagedSound(ref ISound sound)
-        {
-            sound?.RemoveReference();
-            sound = null;
-        }
-
-        private static ISoundInstance CreatePreviewSoundInstance(ISound previewSound)
-        {
-            var rawInstance = previewSound?.CreateInstance();
-            return rawInstance == null ? null : new SoundInstanceWrapper(rawInstance);
         }
 
         /// <summary>
@@ -3312,6 +3189,12 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Cursor sound failed, continue
             }
+        }
+
+        private static void ReleaseManagedSound(ref ISound sound)
+        {
+            sound?.RemoveReference();
+            sound = null;
         }
 
         #endregion
@@ -3855,8 +3738,8 @@ namespace DTXMania.Game.Lib.Stage
                 config?.PitchSemitones ?? PitchRange.Default);
             telemetry.PlaybackProfileFrozen = false;
             telemetry.PreparedChartIdentity = _preparedChartSelection?.TelemetryIdentity;
-            telemetry.PreparedPreviewState = _preparedPreviewState.ToString();
-            telemetry.PreparedPreviewElapsedMs = _preparedPreviewElapsedMs;
+            telemetry.PreparedPreviewState = _previewController.PreparedState.ToString();
+            telemetry.PreparedPreviewElapsedMs = _previewController.PlayedMs;
         }
 
         #endregion

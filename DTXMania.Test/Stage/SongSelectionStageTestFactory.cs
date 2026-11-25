@@ -26,6 +26,19 @@ namespace DTXMania.Test.Stage
             return new SongSelectionStage(game);
         }
 
+        // HPA-802 review: stage whose preview controller uses a fake instance-creation
+        // delegate so tests can drive the real successful-play path headlessly.
+        public static SongSelectionStage CreateStage(
+            BaseGame? game,
+            Func<DTXMania.Game.Lib.Resources.ISound?, DTXMania.Game.Lib.Resources.ISoundInstance?>? createPreviewInstance)
+        {
+            game ??= CreateGame();
+            SetPrivateField(game, "_songLibrary", new SongLibrary(new SongDatabase(
+                Path.Combine(Path.GetTempPath(), "DTXManiaCX_Tests", "SongSelectionStageTestFactory",
+                    $"{System.Guid.NewGuid():N}.db"))));
+            return new SongSelectionStage(game, createPreviewInstance);
+        }
+
         /// <summary>
         /// A stage whose game exposes the caller's test-owned library (HPA-801).
         /// </summary>

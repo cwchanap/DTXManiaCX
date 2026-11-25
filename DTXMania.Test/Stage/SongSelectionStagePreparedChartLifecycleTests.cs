@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using DTXMania.Game;
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using Microsoft.Xna.Framework.Audio;
 using Moq;
 using Xunit;
@@ -19,6 +21,381 @@ namespace DTXMania.Test.Stage;
 [Trait("Category", "Unit")]
 public sealed class SongSelectionStagePreparedChartLifecycleTests
 {
+    // HPA-802 review round 1: backward difficulty cycling (status-panel Left) must
+    // route through the same prepared cleanup as OnDifficultyChanged — the manual
+    // path used to change the difficulty while the prepared preview kept playing.
+    [Fact]
+    public void CycleDifficulty_WhenBackwardCyclingLeavesPreparedDifficulty_ShouldClearPreparationAndRestoreOrdinaryPreview()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-cycle-back");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            node.Scores = new[]
+            {
+                node.Scores![0],
+                new SongScore { ChartId = node.DatabaseChart!.Id + 1, Instrument = EInstrumentPart.DRUMS }
+            };
+            var resourceManager = new Mock<IResourceManager>();
+            var sound = new Mock<ISound>();
+            var soundObj = sound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
+            SetPrivateField(stage, "_selectedSong", node);
+            SetPrivateField(stage, "_currentDifficulty", 0);
+
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+
+            InvokePrivateMethod(stage, "CycleDifficulty", -1);
+
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            sound.Verify(x => x.RemoveReference(), Times.Once);
+
+            // The ordinary delayed preview of the (still selected) song is restored.
+            PreviewControllerOf(stage).Update(1.5d);
+            sound.Verify(x => x.CreateInstance(), Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    // HPA-802 review round 1 companion: without a preparation, backward difficulty
+    // cycling must not disturb the ordinary interactive preview.
+    [Fact]
+    public void CycleDifficulty_WhenBackwardCyclingWithoutPreparation_ShouldKeepOrdinaryPreview()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-cycle-back-ordinary");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("song", chartPath, previewFile: "preview.wav");
+            node.Scores = new[]
+            {
+                node.Scores![0],
+                new SongScore { ChartId = node.DatabaseChart!.Id + 1, Instrument = EInstrumentPart.DRUMS }
+            };
+            var resourceManager = new Mock<IResourceManager>();
+            var sound = new Mock<ISound>();
+            var soundObj = sound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+            var stage = CreateStage();
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
+            SetPrivateField(stage, "_selectedSong", node);
+            SetPrivateField(stage, "_currentDifficulty", 0);
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(node, 0, true));
+
+            InvokePrivateMethod(stage, "CycleDifficulty", -1);
+
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            sound.Verify(x => x.RemoveReference(), Times.Never);
+
+            // The armed ordinary delay survived the difficulty change.
+            PreviewControllerOf(stage).Update(1.5d);
+            sound.Verify(x => x.CreateInstance(), Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    // HPA-802 review round 1: the stage must assert the two-way pairing between its
+    // prepared record and the controller's playback state at stable operation
+    // boundaries — a record exists exactly when the state is not None.
+    [Fact]
+    public void StageOperation_WhenRecordSurvivesWithoutPreparedState_ShouldFailFast()
+    {
+        var stage = CreateStage();
+        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "hpa802-invariant-record.dtx"));
+        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => InvokePrivateMethod(stage, "OnUpdate", 0.016));
+        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StageOperation_WhenPreparedStateSurvivesWithoutRecord_ShouldFailFast()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-invariant-state");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var soundObj = new Mock<ISound>().Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+
+            // Drop only the stage-side identity, leaving the controller Prepared.
+            SetPrivateField(stage, "_preparedChartSelection", null);
+
+            var exception = Assert.Throws<TargetInvocationException>(
+                () => InvokeCommand(stage, "CancelPreparedChart"));
+            var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
+            Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    // HPA-802 review round 2: every exit of OnSongSelectionChanged is a stable
+    // boundary — the scroll-incomplete early return must fail fast on a broken
+    // pairing too, not only the scroll-complete path.
+    [Fact]
+    public void StageOperation_WhenScrollIncompleteExitsWithBrokenPairing_ShouldFailFast()
+    {
+        var stage = CreateStage();
+        AttachCoreUi(stage);
+        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "hpa802-invariant-scroll.dtx"));
+        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(node, 0, false)));
+        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+    }
+
+    // HPA-802 review round 2: the invariant must stay enforced on stable failure
+    // exits of PrepareVideoChart — and because validation precedes teardown, a
+    // request rejected before teardown leaves an injected inconsistency intact
+    // for that boundary to catch.
+    [Fact]
+    public void PrepareVideoChart_WhenPairingBrokenAndRequestInvalid_ShouldFailFastAtStableFailureExit()
+    {
+        var stage = CreateStage();
+        AttachCoreUi(stage);
+        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "hpa802-invariant-invalid.dtx"));
+        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => InvokeCommand(stage, "PrepareVideoChart", "not-in-library.dtx"));
+        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+    }
+
+    // HPA-802 review round 1: the unexpected-stop boundary must keep the pairing
+    // legal (record + Failed) — the stage identity survives the stop.
+    [Fact]
+    public void StageOperation_WhenPlaybackStopsUnexpectedly_ShouldKeepFailedPairedWithIdentity()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-invariant-failed");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var preparedInstance = new Mock<ISoundInstance>();
+            preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                sound => ReferenceEquals(sound, preparedSound.Object) ? preparedInstance.Object : null);
+
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
+
+            // The instance stops outside the stage's control; OnUpdate must keep the
+            // Failed state paired with the record instead of failing the invariant.
+            preparedInstance.SetupGet(x => x.State).Returns(SoundState.Stopped);
+            InvokePrivateMethod(stage, "OnUpdate", 0.016);
+
+            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+            Assert.Equal("chart:901", GetTelemetryProperty<string>(telemetry, "PreparedChartIdentity"));
+            Assert.Equal("Failed", GetTelemetryProperty<string>(telemetry, "PreparedPreviewState"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    // HPA-802 review round 1: the removal regressions must drive the real
+    // publication/reconciliation path (ReconcileLibrarySnapshot), not the cleanup
+    // helper directly, so they fail if reconciliation stops routing removals
+    // through the prepared cleanup.
+    [Fact]
+    public void ReconcileLibrarySnapshot_WhenPreparedChartIsRemoved_ShouldClearIdentityAndPlaybackTogether()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-reconcile-removal");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var preparedInstance = new Mock<ISoundInstance>();
+            preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                sound => ReferenceEquals(sound, preparedSound.Object) ? preparedInstance.Object : null);
+
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
+            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+
+            // A publication replaces the tree without the prepared chart.
+            var replacement = Score("Replacement", 902, Path.Combine(root, "replacement.dtx"));
+            var snapshot = new SongLibrarySnapshot(
+                version: 2,
+                rootSongs: new[] { replacement },
+                activeRoots: new[] { Path.GetFullPath(root) },
+                enumeratedFileCount: 1,
+                discoveredScoreCount: 1);
+
+            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", snapshot);
+
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
+            preparedSound.Verify(x => x.RemoveReference(), Times.Once);
+            preparedInstance.Verify(x => x.Stop(), Times.Once);
+            preparedInstance.Verify(x => x.Dispose(), Times.Once);
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+            Assert.Null(GetTelemetryProperty<string>(telemetry, "PreparedChartIdentity"));
+            Assert.Equal("None", GetTelemetryProperty<string>(telemetry, "PreparedPreviewState"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    // HPA-802 regression companion: after reconciliation removed the prepared chart,
+    // a subsequent ordinary selection must still arm the ordinary delayed preview
+    // (and it must start after the delay — no stale prepared state blocks it).
+    [Fact]
+    public void ReconcileLibrarySnapshot_AfterPreparedChartRemoved_ThenOrdinarySelection_ShouldRestartDelayedPreview()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-reconcile-ordinary");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var ordinaryPath = Path.Combine(root, "ordinary.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(ordinaryPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+
+            var replacement = Score("Replacement", 902, Path.Combine(root, "replacement.dtx"));
+            var snapshot = new SongLibrarySnapshot(
+                version: 2,
+                rootSongs: new[] { replacement },
+                activeRoots: new[] { Path.GetFullPath(root) },
+                enumeratedFileCount: 1,
+                discoveredScoreCount: 1);
+            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", snapshot);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+
+            // The next ordinary selection loads and starts its delayed preview.
+            var ordinaryPreviewPath = Path.Combine(root, "ordinary.wav");
+            File.WriteAllText(ordinaryPreviewPath, "preview");
+            var ordinarySound = new Mock<ISound>();
+            var ordinarySoundObj = ordinarySound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(ordinaryPreviewPath, out ordinarySoundObj)).Returns(true);
+            var ordinaryNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "ordinary",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = ordinaryPath,
+                    PreviewFile = "ordinary.wav",
+                    HasDrumChart = true,
+                    DrumLevel = 5
+                }
+            };
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(ordinaryNode, 0, true));
+
+            resourceManager.Verify(
+                x => x.TryLoadSound(ordinaryPreviewPath, out It.Ref<ISound>.IsAny),
+                Times.Once);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+
+            PreviewControllerOf(stage).Update(1.5d);
+            ordinarySound.Verify(x => x.CreateInstance(), Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     [Fact]
     public void PrepareVideoChart_ShouldUseResolvedChartPreviewAndLeavePreviewStopped()
     {
@@ -51,18 +428,22 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             var loadedSound = new Mock<ISound>();
             var preparedSoundObj = loadedSound.Object;
             resourceManager.Setup(x => x.TryLoadSound(preparedPreview, out preparedSoundObj)).Returns(true);
-            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            var createCalls = 0;
+            var stage = CreatePreparedStage(root, node, resourceManager.Object, _ =>
+            {
+                createCalls++;
+                return null;
+            });
 
             var result = InvokeCommand(stage, "PrepareVideoChart", preparedPath);
 
             Assert.True(result.Success);
             resourceManager.Verify(x => x.TryLoadSound(preparedPreview, out It.Ref<ISound>.IsAny), Times.Once);
             resourceManager.Verify(x => x.TryLoadSound(primaryPreview, out It.Ref<ISound>.IsAny), Times.Never);
-            Assert.Same(loadedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-            Assert.Equal(0d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
-            Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            Assert.True(PreviewControllerOf(stage).HasLoadedSound);
+            Assert.Equal(0, createCalls);
+            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
         }
         finally
         {
@@ -75,24 +456,54 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-replace-interactive");
         Directory.CreateDirectory(root);
+        var interactivePath = Path.Combine(root, "interactive.dtx");
+        var interactivePreviewPath = Path.Combine(root, "interactive.wav");
         var chartPath = Path.Combine(root, "chart.dtx");
         var previewPath = Path.Combine(root, "prepared.wav");
+        File.WriteAllText(interactivePath, "chart");
+        File.WriteAllText(interactivePreviewPath, "preview");
         File.WriteAllText(chartPath, "chart");
         File.WriteAllText(previewPath, "preview");
 
         try
         {
-            var node = CreateNode("prepared", chartPath, previewFile: "prepared.wav");
+            var preparedNode = CreateNode("prepared", chartPath, previewFile: "prepared.wav");
+            var interactiveNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "interactive",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = interactivePath,
+                    PreviewFile = "interactive.wav",
+                    HasDrumChart = true,
+                    DrumLevel = 5
+                }
+            };
             var resourceManager = new Mock<IResourceManager>();
+            var interactiveSound = new Mock<ISound>();
+            var interactiveSoundObj = interactiveSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(interactivePreviewPath, out interactiveSoundObj)).Returns(true);
             var preparedSound = new Mock<ISound>();
             var preparedSoundObj = preparedSound.Object;
             resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
-            var stage = CreatePreparedStage(root, node, resourceManager.Object);
-            var interactiveSound = new Mock<ISound>();
             var interactiveInstance = new Mock<ISoundInstance>();
             interactiveInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
-            SetPrivateField(stage, "_previewSound", interactiveSound.Object);
-            SetPrivateField(stage, "_previewSoundInstance", interactiveInstance.Object);
+            var stage = CreatePreparedStage(
+                root,
+                preparedNode,
+                resourceManager.Object,
+                sound => ReferenceEquals(sound, interactiveSound.Object) ? interactiveInstance.Object : null);
+            AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(interactiveNode, 0, true));
+
+            // The interactive delayed preview starts and plays.
+            PreviewControllerOf(stage).Update(1.5d);
+            interactiveInstance.Verify(x => x.Play(), Times.Once);
 
             var result = InvokeCommand(stage, "PrepareVideoChart", chartPath);
 
@@ -100,10 +511,55 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             interactiveInstance.Verify(x => x.Stop(), Times.Once);
             interactiveInstance.Verify(x => x.Dispose(), Times.Once);
             interactiveSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Same(preparedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-            Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-            preparedSound.Verify(x => x.CreateInstance(), Times.Never);
+            preparedSound.Verify(x => x.RemoveReference(), Times.Never);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    // HPA-802 review round 1: re-preparing while a prepared preview is playing must
+    // dispose the old instance before republishing — the controller is single-voice.
+    [Fact]
+    public void PrepareVideoChart_WhenReplacingPlayingPreparedPreview_ShouldDisposeOldInstanceAndRepublish()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-replace-prepared");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var preparedInstance = new Mock<ISoundInstance>();
+            preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                sound => ReferenceEquals(sound, preparedSound.Object) ? preparedInstance.Object : null);
+
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
+            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+
+            preparedInstance.Verify(x => x.Stop(), Times.Once);
+            preparedInstance.Verify(x => x.Dispose(), Times.Once);
+            preparedSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
         }
         finally
         {
@@ -144,9 +600,9 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             Assert.False(noDeclarationResult.Success);
             Assert.False(missingFileResult.Success);
             Assert.False(loadFailureResult.Success);
-            Assert.Equal("None", GetPrivateField<object>(loadFailureStage, "_preparedPreviewState")?.ToString());
+            Assert.Equal("None", PreviewControllerOf(loadFailureStage).PreparedState.ToString());
             Assert.Null(GetPrivateField<object>(loadFailureStage, "_preparedChartSelection"));
-            Assert.Null(GetPrivateField<ISound>(loadFailureStage, "_previewSound"));
+            Assert.False(PreviewControllerOf(loadFailureStage).HasLoadedSound);
         }
         finally
         {
@@ -197,10 +653,13 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             Assert.False(result.Success);
             resourceManager.Verify(x => x.TryLoadSound(requestedPreviewPath, out It.Ref<ISound>.IsAny), Times.Once);
             resourceManager.Verify(x => x.TryLoadSound(primaryPreviewPath, out It.Ref<ISound>.IsAny), Times.Once);
-            Assert.Same(primarySound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.True(PreviewControllerOf(stage).HasLoadedSound);
+
+            // The restored primary preview arms its ordinary delayed start.
+            PreviewControllerOf(stage).Update(1.5d);
+            primarySound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
         {
@@ -224,14 +683,22 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             var sound = new Mock<ISound>();
             var soundObj = sound.Object;
             resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
-            var stage = CreatePreparedStage(root, CreateNode("song", chartPath, previewFile: "preview.wav"), resourceManager.Object);
+            var createCalls = 0;
+            var stage = CreatePreparedStage(
+                root,
+                CreateNode("song", chartPath, previewFile: "preview.wav"),
+                resourceManager.Object,
+                _ =>
+                {
+                    createCalls++;
+                    return null;
+                });
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 10d);
+            PreviewControllerOf(stage).Update(10d);
 
-            sound.Verify(x => x.CreateInstance(), Times.Never);
-            Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            Assert.Equal(0, createCalls);
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
         }
         finally
         {
@@ -242,228 +709,347 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     [Fact]
     public void StartPreparedPreview_WhenAlreadyPlaying_ShouldBeIdempotent()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPreparedState(stage, "Playing");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-start.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        var (stage, instance) = CreateReallyPreparedStageWithPlayingInstance(
+            Path.Combine(Path.GetTempPath(), "hpa802-start-idempotent"),
+            out var root,
+            out var preparedSound);
 
-        var result = InvokeCommand(stage, "StartPreparedPreview");
+        try
+        {
+            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
 
-        Assert.True(result.Success);
-        sound.Verify(x => x.CreateInstance(), Times.Never);
-        instance.Verify(x => x.Play(), Times.Never);
+            var result = InvokeCommand(stage, "StartPreparedPreview");
+
+            Assert.True(result.Success);
+            Assert.Null(result.Error);
+            preparedSound.Verify(x => x.CreateInstance(), Times.Never);
+            instance.Verify(x => x.Play(), Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void StartPreparedPreview_WhenInstanceCannotBeCreated_ShouldMarkPreviewFailed()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        sound.Setup(x => x.CreateInstance()).Returns((SoundEffectInstance)null!);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPreparedState(stage, "Prepared");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-start-failed.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-start-null-instance");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        var result = InvokeCommand(stage, "StartPreparedPreview");
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var soundObj = new Mock<ISound>().Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+            // No seam override: the default test seam cannot create an instance.
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
 
-        Assert.False(result.Success);
-        sound.Verify(x => x.CreateInstance(), Times.Once);
-        Assert.Equal("Failed", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+
+            var result = InvokeCommand(stage, "StartPreparedPreview");
+
+            Assert.False(result.Success);
+            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void UpdatePreparedPreview_WhenPlaying_ShouldAccumulateOnlyActualPlaybackAndFailOnStop()
     {
-        var stage = CreateStage();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPreparedState(stage, "Playing");
-        SetPrivateField(stage, "_preparedPreviewElapsedMs", 100d);
+        var (stage, instance) = CreateReallyPreparedStageWithPlayingInstance(
+            Path.Combine(Path.GetTempPath(), "hpa802-update-playing"),
+            out var root,
+            out _);
 
-        InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.5d);
+        try
+        {
+            PreviewControllerOf(stage).Update(0.5d);
+            Assert.Equal(500d, PreviewControllerOf(stage).PlayedMs);
 
-        Assert.Equal(600d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
+            instance.SetupGet(x => x.State).Returns(SoundState.Stopped);
+            PreviewControllerOf(stage).Update(1d);
 
-        instance.SetupGet(x => x.State).Returns(SoundState.Stopped);
-        InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 1d);
-
-        Assert.Equal(600d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
-        Assert.Equal("Failed", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            Assert.Equal(500d, PreviewControllerOf(stage).PlayedMs);
+            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
+    // HPA-802 review round 2: cancellation is exercised while the prepared preview
+    // is actually playing so the instance stop/dispose and the release are verified
+    // on real objects, as in the pre-extraction suite.
     [Fact]
     public void CancelPreparedChart_ShouldBeIdempotentAndReleasePreviewExactlyOnce()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPreparedState(stage, "Playing");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-cancel.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPrivateField(stage, "_preparedPreviewElapsedMs", 500d);
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-cancel-idempotent");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
-        Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var sound = new Mock<ISound>();
+            var soundObj = sound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+            var preparedInstance = new Mock<ISoundInstance>();
+            preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                loadedSound => ReferenceEquals(loadedSound, sound.Object) ? preparedInstance.Object : null);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
+            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
 
-        sound.Verify(x => x.RemoveReference(), Times.Once);
-        instance.Verify(x => x.Stop(), Times.Once);
-        instance.Verify(x => x.Dispose(), Times.Once);
-        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        Assert.Equal(0d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
+            Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
+            Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
+
+            preparedInstance.Verify(x => x.Stop(), Times.Once);
+            preparedInstance.Verify(x => x.Dispose(), Times.Once);
+            sound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
+    // HPA-802 review round 2: the ordinary preview is actually playing when the
+    // (preparation-less) cancellation arrives — an already-playing instance must
+    // be left untouched, as the pre-extraction suite verified.
     [Fact]
     public void CancelPreparedChart_WhenNoPreparation_ShouldPreserveInteractivePreview()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPrivateField(stage, "_previewPlayDelay", 1.5d);
-        SetPrivateField(stage, "_isPreviewDelayActive", true);
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-cancel-ordinary");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        var result = InvokeCommand(stage, "CancelPreparedChart");
+        try
+        {
+            var sound = new Mock<ISound>();
+            var playingInstance = new Mock<ISoundInstance>();
+            playingInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            var stage = CreateStageWithArmedInteractivePreview(
+                root,
+                chartPath,
+                previewPath,
+                sound,
+                loadedSound => ReferenceEquals(loadedSound, sound.Object) ? playingInstance.Object : null);
 
-        Assert.True(result.Success);
-        Assert.Same(sound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-        Assert.Same(instance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        Assert.Equal(1.5d, GetPrivateField<double>(stage, "_previewPlayDelay"));
-        Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        sound.Verify(x => x.RemoveReference(), Times.Never);
-        instance.Verify(x => x.Stop(), Times.Never);
-        instance.Verify(x => x.Dispose(), Times.Never);
+            // The armed ordinary delay actually starts the preview first.
+            PreviewControllerOf(stage).Update(1.5d);
+            playingInstance.Verify(x => x.Play(), Times.Once);
+
+            Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
+
+            // The already-playing ordinary instance is untouched: no stop, no
+            // dispose, no release.
+            sound.Verify(x => x.RemoveReference(), Times.Never);
+            playingInstance.Verify(x => x.Stop(), Times.Never);
+            playingInstance.Verify(x => x.Dispose(), Times.Never);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void PrepareVideoChart_WhenInvalidAndNoPreparation_ShouldPreserveInteractivePreview()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPrivateField(stage, "_previewPlayDelay", 2.5d);
-        SetPrivateField(stage, "_isPreviewDelayActive", true);
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-invalid-ordinary");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        var result = InvokeCommand(stage, "PrepareVideoChart", " ");
+        try
+        {
+            var sound = new Mock<ISound>();
+            var stage = CreateStageWithArmedInteractivePreview(root, chartPath, previewPath, sound);
 
-        Assert.False(result.Success);
-        Assert.Same(sound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-        Assert.Same(instance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        Assert.Equal(2.5d, GetPrivateField<double>(stage, "_previewPlayDelay"));
-        Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        sound.Verify(x => x.RemoveReference(), Times.Never);
-        instance.Verify(x => x.Stop(), Times.Never);
-        instance.Verify(x => x.Dispose(), Times.Never);
+            var result = InvokeCommand(stage, "PrepareVideoChart", " ");
+
+            Assert.False(result.Success);
+            sound.Verify(x => x.RemoveReference(), Times.Never);
+            PreviewControllerOf(stage).Update(1.5d);
+            sound.Verify(x => x.CreateInstance(), Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void PrepareVideoChart_WhenInvalidAndPreparationExists_ShouldPreserveExistingPreparation()
     {
-        var stage = CreateStage();
-        var preparedSound = new Mock<ISound>();
-        var preparedInstance = new Mock<ISoundInstance>();
-        preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSound", preparedSound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", preparedInstance.Object);
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-existing.dtx"));
-        var existingSelection = MakePreparedSelection(node, 0);
-        SetPrivateField(stage, "_preparedChartSelection", existingSelection);
-        SetPreparedState(stage, "Playing");
-        SetPrivateField(stage, "_preparedPreviewElapsedMs", 750d);
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-invalid-prepared");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        var result = InvokeCommand(stage, "PrepareVideoChart", " ");
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var preparedInstance = new Mock<ISoundInstance>();
+            preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                sound => ReferenceEquals(sound, preparedSound.Object) ? preparedInstance.Object : null);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
+            PreviewControllerOf(stage).Update(0.25d);
 
-        Assert.False(result.Success);
-        Assert.Same(existingSelection, GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("Playing", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        Assert.Same(preparedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-        Assert.Same(preparedInstance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        Assert.Equal(750d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
+            var result = InvokeCommand(stage, "PrepareVideoChart", " ");
+
+            Assert.False(result.Success);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal(250d, PreviewControllerOf(stage).PlayedMs);
+            preparedSound.Verify(x => x.RemoveReference(), Times.Never);
+            preparedInstance.Verify(x => x.Stop(), Times.Never);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void Deactivate_ShouldCleanPreparedPreviewExactlyOnceAcrossRepeatedCalls()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPreparedState(stage, "Playing");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-deactivate.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        var (stage, instance) = CreateReallyPreparedStageWithPlayingInstance(
+            Path.Combine(Path.GetTempPath(), "hpa802-deactivate-prepared"),
+            out var root,
+            out _);
 
-        stage.Deactivate();
-        stage.Deactivate();
+        try
+        {
+            stage.Deactivate();
+            stage.Deactivate();
 
-        sound.Verify(x => x.RemoveReference(), Times.Once);
-        instance.Verify(x => x.Stop(), Times.Once);
-        instance.Verify(x => x.Dispose(), Times.Once);
-        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            instance.Verify(x => x.Stop(), Times.Once);
+            instance.Verify(x => x.Dispose(), Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void OnSongSelectionChanged_WhenLeavingPreparedRow_ShouldClearPreparation()
     {
-        var stage = CreateStage();
-        var prepared = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared.dtx"));
-        var other = CreateNode("other", Path.Combine(Path.GetTempPath(), "other.dtx"));
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(prepared, 0));
-        SetPreparedState(stage, "Prepared");
-        AttachCoreUi(stage, display: new SongListDisplay());
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-leave-row");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        InvokePrivateMethod(
-            stage,
-            "OnSongSelectionChanged",
-            GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
-            new SongSelectionChangedEventArgs(other, 0, true));
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var other = CreateNode("other", Path.Combine(root, "other.dtx"));
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            AttachCoreUi(stage, display: new SongListDisplay());
 
-        sound.Verify(x => x.RemoveReference(), Times.Once);
-        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(other, 0, true));
+
+            preparedSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void OnSongSelectionChanged_WhenProjectingPreparedSelection_ShouldPreservePreparation()
     {
-        var stage = CreateStage();
-        var prepared = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-projecting.dtx"));
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(prepared, 0));
-        SetPreparedState(stage, "Prepared");
-        SetPrivateField(stage, "_isProjectingPreparedSelection", true);
-        AttachCoreUi(stage, display: new SongListDisplay());
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-projecting-row");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        InvokePrivateMethod(
-            stage,
-            "OnSongSelectionChanged",
-            GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
-            new SongSelectionChangedEventArgs(prepared, 0, true));
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            AttachCoreUi(stage, display: new SongListDisplay());
+            SetPrivateField(stage, "_isProjectingPreparedSelection", true);
 
-        sound.Verify(x => x.RemoveReference(), Times.Never);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(node, 0, true));
+
+            preparedSound.Verify(x => x.RemoveReference(), Times.Never);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
@@ -480,22 +1066,23 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         {
             var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
             var resourceManager = new Mock<IResourceManager>();
-            var loadedObj = new Mock<ISound>().Object;
-            resourceManager.Setup(x => x.TryLoadSound(previewPath, out loadedObj)).Returns(true);
-            var stage = CreatePreparedStage(root, node, resourceManager.Object);
             var preparedSound = new Mock<ISound>();
-            SetPrivateField(stage, "_previewSound", preparedSound.Object);
-            SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-            SetPreparedState(stage, "Prepared");
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
             AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
 
             InvokePrivateMethod(stage, "OnDifficultyChanged", stage, new DifficultyChangedEventArgs(node, 1));
 
             preparedSound.Verify(x => x.RemoveReference(), Times.Once);
-            resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
+            resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Exactly(2));
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+
+            // The ordinary delayed preview for the song is restored.
+            PreviewControllerOf(stage).Update(1.5d);
+            preparedSound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
         {
@@ -507,132 +1094,145 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     public void ActivatePreparedChart_WhenTransitionBlocked_ShouldPreservePreparation()
     {
         var game = CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-blocked"), out var root);
         var stageManager = new Mock<IStageManager>();
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-activation-blocked.dtx"));
         stage.StageManager = stageManager.Object;
-        SetPrivateField(stage, "_selectedSong", node);
-        SetPrivateField(stage, "_currentDifficulty", 0);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Prepared");
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.False(result.Success);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
+            Assert.False(result.Success);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void ActivatePreparedChart_WhenStageManagerIsTransitioning_ShouldPreservePreparation()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-transitioning"), out var root);
         var stageManager = new Mock<IStageManager>();
         stageManager.SetupGet(manager => manager.IsTransitioning).Returns(true);
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-activation-transitioning.dtx"));
         stage.StageManager = stageManager.Object;
-        SetPrivateField(stage, "_selectedSong", node);
-        SetPrivateField(stage, "_currentDifficulty", 0);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Prepared");
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.False(result.Success);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
+            Assert.False(result.Success);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void ActivatePreparedChart_WhenEligible_ShouldCleanPreparationAndUseSongTransition()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-eligible"), out var root);
         var stageManager = new Mock<IStageManager>();
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-activation.dtx"), songId: 902);
         stage.StageManager = stageManager.Object;
-        SetPrivateField(stage, "_selectedSong", node);
-        SetPrivateField(stage, "_currentDifficulty", 0);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Prepared");
+        // The projection selects the prepared row on the display (stage _selectedSong stays null).
+        var preparedNode = GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!.SelectedSong!;
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.True(result.Success);
-        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        stageManager.Verify(
-            x => x.ChangeStage(
-                StageType.SongTransition,
-                It.Is<IStageTransition>(transition => transition is InstantTransition),
-                It.Is<SongPlayRequest>(request =>
-                    ReferenceEquals(request.Song, node)
-                    && request.Difficulty == 0)),
-            Times.Once);
+            Assert.True(result.Success);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.Is<IStageTransition>(transition => transition is InstantTransition),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, preparedNode)
+                        && request.Difficulty == 0)),
+                Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void StartPreparedPreview_WhenPlayingButInstanceStopped_ShouldMarkFailed()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Stopped);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPreparedState(stage, "Playing");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-stopped.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        var (stage, instance) = CreateReallyPreparedStageWithPlayingInstance(
+            Path.Combine(Path.GetTempPath(), "hpa802-start-stopped"),
+            out var root,
+            out _);
 
-        var result = InvokeCommand(stage, "StartPreparedPreview");
+        try
+        {
+            instance.SetupGet(x => x.State).Returns(SoundState.Stopped);
 
-        Assert.False(result.Success);
-        Assert.Equal("The prepared preview stopped unexpectedly.", result.Error);
-        Assert.Equal("Failed", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        sound.Verify(x => x.CreateInstance(), Times.Never);
-    }
+            var result = InvokeCommand(stage, "StartPreparedPreview");
 
-    [Fact]
-    public void StartPreparedPreview_WhenStateIsNone_ShouldReturnNotReady()
-    {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPreparedState(stage, "None");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-none.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-
-        var result = InvokeCommand(stage, "StartPreparedPreview");
-
-        Assert.False(result.Success);
-        Assert.Equal("The prepared chart preview is not ready to play.", result.Error);
-        sound.Verify(x => x.CreateInstance(), Times.Never);
+            Assert.False(result.Success);
+            Assert.Equal("The prepared preview stopped unexpectedly.", result.Error);
+            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void StartPreparedPreview_WhenStateIsFailed_ShouldReturnNotReady()
     {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPreparedState(stage, "Failed");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-failed.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-start-failed");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        var result = InvokeCommand(stage, "StartPreparedPreview");
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                _ => throw new InvalidOperationException("device lost"));
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            Assert.False(InvokeCommand(stage, "StartPreparedPreview").Success);
+            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
 
-        Assert.False(result.Success);
-        Assert.Equal("The prepared chart preview is not ready to play.", result.Error);
+            var result = InvokeCommand(stage, "StartPreparedPreview");
+
+            Assert.False(result.Success);
+            Assert.Equal("The prepared chart preview is not ready to play.", result.Error);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void StartPreparedPreview_WhenPreparedSelectionIsNull_ShouldReturnNoPreview()
     {
         var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPreparedState(stage, "Prepared");
 
         var result = InvokeCommand(stage, "StartPreparedPreview");
 
@@ -641,57 +1241,40 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void StartPreparedPreview_WhenPreviewSoundIsNull_ShouldReturnNoPreview()
+    public void StartPreparedPreview_WhenCreateInstanceThrows_ShouldMarkFailed()
     {
-        var stage = CreateStage();
-        SetPreparedState(stage, "Prepared");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-no-sound.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-start-throw");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        var result = InvokeCommand(stage, "StartPreparedPreview");
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(
+                root,
+                node,
+                resourceManager.Object,
+                _ => throw new InvalidOperationException("device lost"));
 
-        Assert.False(result.Success);
-        Assert.Equal("No prepared chart preview is available.", result.Error);
-    }
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
 
-    [Fact]
-    public void StartPreparedPreview_WhenExistingInstancePresent_ShouldDisposeBeforeCreatingNew()
-    {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        sound.Setup(x => x.CreateInstance()).Returns((SoundEffectInstance)null!);
-        var existingInstance = new Mock<ISoundInstance>();
-        existingInstance.SetupGet(x => x.State).Returns(SoundState.Stopped);
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_previewSoundInstance", existingInstance.Object);
-        SetPreparedState(stage, "Prepared");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-dispose-existing.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+            var result = InvokeCommand(stage, "StartPreparedPreview");
 
-        var result = InvokeCommand(stage, "StartPreparedPreview");
-
-        Assert.False(result.Success);
-        existingInstance.Verify(x => x.Dispose(), Times.Once);
-        Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-    }
-
-    [Fact]
-    public void StartPreparedPreview_WhenCreateInstanceThrows_ShouldMarkFailedAndDispose()
-    {
-        var stage = CreateStage();
-        var sound = new Mock<ISound>();
-        sound.Setup(x => x.CreateInstance()).Throws(new InvalidOperationException("device lost"));
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPreparedState(stage, "Prepared");
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-throw.dtx"));
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-
-        var result = InvokeCommand(stage, "StartPreparedPreview");
-
-        Assert.False(result.Success);
-        Assert.Equal("The prepared chart preview could not be started.", result.Error);
-        Assert.Equal("Failed", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+            Assert.False(result.Success);
+            Assert.Equal("The prepared chart preview could not be started.", result.Error);
+            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
@@ -715,88 +1298,96 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     public void ActivatePreparedChart_WhenSelectedSongDiffersFromPreparedNode_ShouldReturnNoLongerSelected()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-node"), out var root);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
-        var preparedNode = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-node.dtx"));
-        var otherNode = CreateNode("other", Path.Combine(Path.GetTempPath(), "other-node.dtx"));
+        var otherNode = CreateNode("other", Path.Combine(root, "other-node.dtx"));
         SetPrivateField(stage, "_selectedSong", otherNode);
-        SetPrivateField(stage, "_currentDifficulty", 0);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(preparedNode, 0));
-        SetPreparedState(stage, "Prepared");
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.False(result.Success);
-        Assert.Equal("The prepared chart is no longer selected.", result.Error);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Never);
+            Assert.False(result.Success);
+            Assert.Equal("The prepared chart is no longer selected.", result.Error);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            stageManager.Verify(
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
+                Times.Never);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void ActivatePreparedChart_WhenDifficultyDiffersFromPrepared_ShouldReturnNoLongerSelected()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-diff"), out var root);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-diff.dtx"));
-        SetPrivateField(stage, "_selectedSong", node);
         SetPrivateField(stage, "_currentDifficulty", 3);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Prepared");
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.False(result.Success);
-        Assert.Equal("The prepared chart is no longer selected.", result.Error);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.False(result.Success);
+            Assert.Equal("The prepared chart is no longer selected.", result.Error);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void ActivatePreparedChart_WhenStageManagerIsNull_ShouldReturnTransitionUnavailable()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-no-sm"), out var root);
         stage.StageManager = null;
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-no-sm.dtx"));
-        SetPrivateField(stage, "_selectedSong", node);
-        SetPrivateField(stage, "_currentDifficulty", 0);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Prepared");
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.False(result.Success);
-        Assert.Equal("The song transition manager is unavailable.", result.Error);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.False(result.Success);
+            Assert.Equal("The song transition manager is unavailable.", result.Error);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void ActivatePreparedChart_WhenSelectedSongFromDisplayMatches_ShouldSucceed()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
-        var stage = CreateStage(game);
+        var stage = CreateReallyPreparedStage(game, Path.Combine(Path.GetTempPath(), "hpa802-activate-display"), out var root);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
-        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-display.dtx"), songId: 904);
-        var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
-        display.SetSelection(0, 0);
-        SetPrivateField(stage, "_songListDisplay", display);
         SetPrivateField(stage, "_selectedSong", null);
-        SetPrivateField(stage, "_currentDifficulty", 0);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Prepared");
 
-        var result = InvokeCommand(stage, "ActivatePreparedChart");
+        try
+        {
+            var result = InvokeCommand(stage, "ActivatePreparedChart");
 
-        Assert.True(result.Success);
-        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        stageManager.Verify(
-            x => x.ChangeStage(StageType.SongTransition, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
-            Times.Once);
+            Assert.True(result.Success);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            stageManager.Verify(
+                x => x.ChangeStage(StageType.SongTransition, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
+                Times.Once);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
@@ -932,83 +1523,80 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void DisposePreviewInstance_WhenDisposeThrows_ShouldSwallowExceptionAndClearInstance()
-    {
-        var stage = CreateStage();
-        var instance = new Mock<ISoundInstance>();
-        instance.Setup(x => x.Dispose()).Throws(new InvalidOperationException("disposed twice"));
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-
-        InvokePrivateMethod(stage, "DisposePreviewInstance");
-
-        Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        instance.Verify(x => x.Dispose(), Times.Once);
-    }
-
-    [Fact]
-    public void DisposePreviewInstance_WhenInstanceIsNull_ShouldBeNoOp()
-    {
-        var stage = CreateStage();
-        SetPrivateField(stage, "_previewSoundInstance", null);
-
-        InvokePrivateMethod(stage, "DisposePreviewInstance");
-
-        Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-    }
-
-    [Fact]
     public void OnSongSelectionChanged_WhenStayingOnPreparedRow_ShouldPreservePreparationAndNotLoadPreview()
     {
-        var stage = CreateStage();
-        var prepared = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-stay.dtx"));
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(prepared, 0));
-        SetPreparedState(stage, "Prepared");
-        AttachCoreUi(stage, display: new SongListDisplay());
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-stay-row");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        InvokePrivateMethod(
-            stage,
-            "OnSongSelectionChanged",
-            GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
-            new SongSelectionChangedEventArgs(prepared, 0, true));
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            AttachCoreUi(stage, display: new SongListDisplay());
+            resourceManager.Invocations.Clear();
 
-        sound.Verify(x => x.RemoveReference(), Times.Never);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+                new SongSelectionChangedEventArgs(node, 0, true));
+
+            resourceManager.Verify(
+                x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny),
+                Times.Never);
+            preparedSound.Verify(x => x.RemoveReference(), Times.Never);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
     public void OnDifficultyChanged_WhenStayingOnPreparedDifficulty_ShouldPreservePreparation()
     {
-        var stage = CreateStage();
-        var prepared = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-diff-stay.dtx"));
-        var sound = new Mock<ISound>();
-        SetPrivateField(stage, "_previewSound", sound.Object);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(prepared, 0));
-        SetPreparedState(stage, "Prepared");
-        AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
+        var root = Path.Combine(Path.GetTempPath(), "hpa802-stay-difficulty");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
 
-        InvokePrivateMethod(stage, "OnDifficultyChanged", stage, new DifficultyChangedEventArgs(prepared, 0));
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+            AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
 
-        sound.Verify(x => x.RemoveReference(), Times.Never);
-        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-    }
+            InvokePrivateMethod(stage, "OnDifficultyChanged", stage, new DifficultyChangedEventArgs(node, 0));
 
-    [Fact]
-    public void UpdatePreviewSoundTimers_WhenPlayingWithNegativeDelta_ShouldClampToZero()
-    {
-        var stage = CreateStage();
-        var instance = new Mock<ISoundInstance>();
-        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
-        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
-        SetPreparedState(stage, "Playing");
-        SetPrivateField(stage, "_preparedPreviewElapsedMs", 100d);
-
-        InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", -0.5d);
-
-        Assert.Equal(100d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
+            preparedSound.Verify(x => x.RemoveReference(), Times.Never);
+            resourceManager.Verify(
+                x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny),
+                Times.Once);
+            Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
     [Fact]
@@ -1074,8 +1662,6 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
             var stage = CreateStage();
             SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-            SetPrivateField(stage, "_preparedChartSelection", null);
-            SetPreparedState(stage, "None");
             AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
 
             InvokePrivateMethod(
@@ -1097,26 +1683,122 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     [Fact]
     public void PopulateTelemetry_ShouldReportPreparedIdentityStateAndElapsedWithoutAbsolutePath()
     {
-        var root = Path.Combine(Path.GetTempPath(), "hpa510-telemetry");
-        var chartPath = Path.Combine(root, "telemetry.dtx");
-        var stage = CreateStage();
-        var node = CreateNode("telemetry", chartPath, songId: 903);
-        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
-        SetPreparedState(stage, "Playing");
-        SetPrivateField(stage, "_preparedPreviewElapsedMs", 1234.5d);
-        var telemetry = new GameTelemetrySnapshot();
+        var (stage, _) = CreateReallyPreparedStageWithPlayingInstance(
+            Path.Combine(Path.GetTempPath(), "hpa802-telemetry-playing"),
+            out var root,
+            out _);
 
-        stage.PopulateTelemetry(telemetry);
+        try
+        {
+            PreviewControllerOf(stage).Update(1.2345d);
+            var telemetry = new GameTelemetrySnapshot();
 
-        Assert.Equal("chart:903", GetTelemetryProperty<string>(telemetry, "PreparedChartIdentity"));
-        Assert.Equal("Playing", GetTelemetryProperty<string>(telemetry, "PreparedPreviewState"));
-        Assert.Equal(1234.5d, GetTelemetryProperty<double?>(telemetry, "PreparedPreviewElapsedMs"));
-        Assert.DoesNotContain(Path.GetFullPath(chartPath), GetTelemetryProperty<string>(telemetry, "PreparedChartIdentity") ?? "", StringComparison.Ordinal);
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.Equal("chart:901", GetTelemetryProperty<string>(telemetry, "PreparedChartIdentity"));
+            Assert.Equal("Playing", GetTelemetryProperty<string>(telemetry, "PreparedPreviewState"));
+            Assert.Equal(1234.5d, GetTelemetryProperty<double?>(telemetry, "PreparedPreviewElapsedMs"));
+            Assert.DoesNotContain(root, GetTelemetryProperty<string>(telemetry, "PreparedChartIdentity") ?? "", StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
-    private static SongSelectionStage CreatePreparedStage(string root, SongListNode node, IResourceManager resourceManager)
+    private static SongSelectionStage CreateReallyPreparedStage(BaseGame? game, string root, out string rootPath)
     {
-        var stage = CreateStage(CreateGame(totalGameTime: 2d));
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+        var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+        var resourceManager = new Mock<IResourceManager>();
+        var soundObj = new Mock<ISound>().Object;
+        resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+        var stage = CreatePreparedStage(root, node, resourceManager.Object, game: game);
+        Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+        rootPath = root;
+        return stage;
+    }
+
+    // Prepared + explicitly started with a fake playing instance (seam-supplied),
+    // used by tests that must observe the real playing → stopped/failed lifecycle.
+    private static (SongSelectionStage Stage, Mock<ISoundInstance> Instance)
+        CreateReallyPreparedStageWithPlayingInstance(
+            string root,
+            out string rootPath,
+            out Mock<ISound> preparedSound)
+    {
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+        var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
+        var resourceManager = new Mock<IResourceManager>();
+        preparedSound = new Mock<ISound>();
+        var sound = preparedSound; // local copy: out parameters cannot be captured in lambdas
+        var preparedSoundObj = sound.Object;
+        resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
+        var preparedInstance = new Mock<ISoundInstance>();
+        preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+        var stage = CreatePreparedStage(
+            root,
+            node,
+            resourceManager.Object,
+            loadedSound => ReferenceEquals(loadedSound, sound.Object) ? preparedInstance.Object : null);
+        Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
+        Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
+        rootPath = root;
+        return (stage, preparedInstance);
+    }
+
+    private static SongSelectionStage CreateStageWithArmedInteractivePreview(
+        string root,
+        string chartPath,
+        string previewPath,
+        Mock<ISound> sound,
+        Func<ISound?, ISoundInstance?>? createPreviewInstance = null)
+    {
+        Directory.CreateDirectory(root);
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+        var resourceManager = new Mock<IResourceManager>();
+        var soundObj = sound.Object;
+        resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
+        var stage = CreateStage(null, createPreviewInstance);
+        SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        AttachCoreUi(stage, display: new SongListDisplay(), statusPanel: new SongStatusPanel());
+        var node = new SongListNode
+        {
+            Type = NodeType.Score,
+            Title = "song",
+            DatabaseChart = new SongChart
+            {
+                FilePath = chartPath,
+                PreviewFile = "preview.wav",
+                HasDrumChart = true,
+                DrumLevel = 5
+            }
+        };
+        InvokePrivateMethod(
+            stage,
+            "OnSongSelectionChanged",
+            GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+            new SongSelectionChangedEventArgs(node, 0, true));
+        return stage;
+    }
+
+    private static SongSelectionStage CreatePreparedStage(
+        string root,
+        SongListNode node,
+        IResourceManager resourceManager,
+        Func<ISound?, ISoundInstance?>? createPreviewInstance = null,
+        BaseGame? game = null)
+    {
+        var stage = CreateStage(game ?? CreateGame(totalGameTime: 2d), createPreviewInstance);
         AttachCoreUi(stage, display: new SongListDisplay { CurrentList = new List<SongListNode> { node } });
         SetPrivateField(stage, "_resourceManager", resourceManager);
         SetPrivateField(stage, "_currentSongList", new List<SongListNode> { node });
@@ -1162,12 +1844,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         return Activator.CreateInstance(selectionType, node, chart, difficulty, $"chart:{chart.Id}")!;
     }
 
-    private static void SetPreparedState(SongSelectionStage stage, string state)
-    {
-        var field = GetField(typeof(SongSelectionStage), "_preparedPreviewState");
-        Assert.NotNull(field);
-        SetPrivateField(stage, "_preparedPreviewState", Enum.Parse(field!.FieldType, state));
-    }
+    private static SongSelectionPreviewController PreviewControllerOf(SongSelectionStage stage) =>
+        GetPrivateField<SongSelectionPreviewController>(stage, "_previewController")!;
 
     private static (bool Success, string? Error) InvokeCommand(SongSelectionStage stage, string methodName, params object[] args)
     {

@@ -100,72 +100,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void StopCurrentPreview_WhenPreviewSoundInstanceIsNull_ShouldResetPreviewTimers()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_previewSoundInstance", null);
-            SetPrivateField(stage, "_previewSound", null);
-            SetPrivateField(stage, "_previewPlayDelay", 5.0);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-
-            InvokePrivateMethod(stage, "StopCurrentPreview");
-
-            Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        }
-
-        [Fact]
-        public void StopCurrentPreview_WhenPreviewSoundInstanceStopThrows_ShouldStillDisposeAndClear()
-        {
-            var stage = CreateStage();
-            var mockInstance = new Mock<ISoundInstance>();
-            mockInstance.Setup(x => x.State).Returns(SoundState.Playing);
-            mockInstance.Setup(x => x.Stop()).Throws(new Exception("stop error"));
-
-            SetPrivateField(stage, "_previewSoundInstance", mockInstance.Object);
-            SetPrivateField(stage, "_previewSound", null);
-
-            InvokePrivateMethod(stage, "StopCurrentPreview");
-
-            mockInstance.Verify(x => x.Dispose(), Times.Once);
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        }
-
-        [Fact]
-        public void StopCurrentPreview_WhenPreviewSoundInstanceIsNotPlaying_ShouldNotCallStop()
-        {
-            var stage = CreateStage();
-            var mockInstance = new Mock<ISoundInstance>();
-            mockInstance.Setup(x => x.State).Returns(SoundState.Stopped);
-
-            SetPrivateField(stage, "_previewSoundInstance", mockInstance.Object);
-            SetPrivateField(stage, "_previewSound", null);
-
-            InvokePrivateMethod(stage, "StopCurrentPreview");
-
-            mockInstance.Verify(x => x.Stop(), Times.Never);
-            mockInstance.Verify(x => x.Dispose(), Times.Once);
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        }
-
-        [Fact]
-        public void StopCurrentPreview_WhenPreviewSoundExists_ShouldReleaseReference()
-        {
-            var stage = CreateStage();
-            var mockSound = new Mock<ISound>();
-            var mockInstance = new Mock<ISoundInstance>();
-            mockInstance.Setup(x => x.State).Returns(SoundState.Stopped);
-
-            SetPrivateField(stage, "_previewSoundInstance", mockInstance.Object);
-            SetPrivateField(stage, "_previewSound", mockSound.Object);
-
-            InvokePrivateMethod(stage, "StopCurrentPreview");
-
-            mockSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-        }
-
-        [Fact]
         public void PlayCursorMoveSound_WhenSoundIsNull_ShouldNotThrow()
         {
             var stage = CreateStage();
@@ -588,25 +522,6 @@ namespace DTXMania.Test.Stage
 
             mockSound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(args[0]);
-        }
-
-        [Fact]
-        public void CreatePreviewSoundInstance_WithNullSound_ShouldReturnNull()
-        {
-            var result = InvokeStaticMethod<ISoundInstance>(typeof(SongSelectionStage), "CreatePreviewSoundInstance", new object?[] { null });
-
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void CreatePreviewSoundInstance_WithSoundThatReturnsNullInstance_ShouldReturnNull()
-        {
-            var mockSound = new Mock<ISound>();
-            mockSound.Setup(x => x.CreateInstance()).Returns((SoundEffectInstance?)null);
-
-            var result = InvokeStaticMethod<object>(typeof(SongSelectionStage), "CreatePreviewSoundInstance", mockSound.Object);
-
-            Assert.Null(result);
         }
 
         [Fact]

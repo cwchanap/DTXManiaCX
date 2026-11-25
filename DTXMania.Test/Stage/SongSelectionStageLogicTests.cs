@@ -17,6 +17,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
@@ -359,18 +360,38 @@ namespace DTXMania.Test.Stage
         public void OnSongSelectionChanged_WhenScoreAndScrollIncomplete_ShouldUpdateLightweightUiOnly()
         {
             var stage = CreateStage();
-            var display = new SongListDisplay
-            {
-                CurrentList = [CreateScoreNode("Song A"), CreateScoreNode("Song B")]
-            };
             var statusPanel = new SongStatusPanel { Visible = false };
             var previewPanel = new PreviewImagePanel();
             var breadcrumbLabel = new UILabel();
             var existingPreviewSound = new Mock<ISound>();
+            var previewPath = CreateWorkspacePath("previews", $"{Guid.NewGuid():N}.wav");
+            Directory.CreateDirectory(Path.GetDirectoryName(previewPath)!);
+            File.WriteAllText(previewPath, "preview");
+            var resourceManager = new Mock<IResourceManager>();
+            var existingPreviewSoundObj = existingPreviewSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out existingPreviewSoundObj)).Returns(true);
+            var songWithPreview = CreateScoreNode("Song A", chart: new SongChart
+            {
+                FilePath = Path.Combine(Path.GetDirectoryName(previewPath)!, "chart.dtx"),
+                PreviewFile = Path.GetFileName(previewPath),
+                HasDrumChart = true,
+                DrumLevel = 35
+            });
+            var display = new SongListDisplay
+            {
+                CurrentList = [songWithPreview, CreateScoreNode("Song B")]
+            };
 
             AttachCoreUi(stage, display, statusPanel, previewPanel, breadcrumbLabel);
+            AttachResourceManager(stage, resourceManager.Object);
             SetPrivateField(stage, "_currentBreadcrumb", "Folder A");
-            SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
+            // Establish a really held preview sound: the first selection arms the
+            // ordinary preview before the tested scroll begins.
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                display,
+                new SongSelectionChangedEventArgs(songWithPreview, 0, isScrollComplete: true));
             GetTextureQueue(display).Clear();
 
             var selectedSong = CreateScoreNode("Selected");
@@ -487,22 +508,42 @@ namespace DTXMania.Test.Stage
         public void OnSongSelectionChanged_WhenSelectedSongIsNull_ShouldHideStatusPanelAndSkipPreviewReload()
         {
             var stage = CreateStage();
-            var display = new SongListDisplay
-            {
-                CurrentList = [CreateScoreNode("Song A"), CreateScoreNode("Song B")]
-            };
+            SongListDisplay display;
             var statusPanel = new SongStatusPanel { Visible = true };
             var previewPanel = new PreviewImagePanel();
             var breadcrumbLabel = new UILabel();
             var existingPreviewSound = new Mock<ISound>();
+            var previewPath = CreateWorkspacePath("previews", $"{Guid.NewGuid():N}.wav");
+            Directory.CreateDirectory(Path.GetDirectoryName(previewPath)!);
+            File.WriteAllText(previewPath, "preview");
+            var resourceManager = new Mock<IResourceManager>();
+            var existingPreviewSoundObj = existingPreviewSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out existingPreviewSoundObj)).Returns(true);
+            var songWithPreview = CreateScoreNode("Song A", chart: new SongChart
+            {
+                FilePath = Path.Combine(Path.GetDirectoryName(previewPath)!, "chart.dtx"),
+                PreviewFile = Path.GetFileName(previewPath),
+                HasDrumChart = true,
+                DrumLevel = 35
+            });
+            display = new SongListDisplay
+            {
+                CurrentList = [songWithPreview, CreateScoreNode("Song B")]
+            };
 
             AttachCoreUi(stage, display, statusPanel, previewPanel, breadcrumbLabel);
+            AttachResourceManager(stage, resourceManager.Object);
             SetPrivateField(stage, "_currentBreadcrumb", "Folder A");
             SetPrivateField(stage, "_isInStatusPanel", true);
-            SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
-            SetPrivateField(stage, "_previewPlayDelay", 2.0);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
+            // Establish a really held preview sound with an armed delay: the first
+            // selection arms the ordinary preview before the tested null selection.
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                display,
+                new SongSelectionChangedEventArgs(songWithPreview, 0, isScrollComplete: true));
             GetTextureQueue(display).Clear();
+            GetVisibleIndices(display).Clear();
             GetVisibleIndices(display).Clear();
 
             var exception = Record.Exception(() => InvokePrivateMethod(
@@ -517,8 +558,9 @@ namespace DTXMania.Test.Stage
             Assert.False(GetPrivateField<bool>(stage, "_isInStatusPanel"));
             Assert.False(statusPanel.Visible);
             Assert.Null(GetPrivateField<SongListNode>(previewPanel, "_currentSong"));
-            Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            // The armed ordinary delay was cleared by the stop: nothing starts.
+            PreviewControllerOf(stage).Update(1.5d);
+            existingPreviewSound.Verify(x => x.CreateInstance(), Times.Never);
             Assert.Equal("Folder A", breadcrumbLabel.Text);
             Assert.NotEmpty(GetTextureQueue(display));
             Assert.NotEmpty(GetVisibleIndices(display));
@@ -1345,12 +1387,25 @@ namespace DTXMania.Test.Stage
             try
             {
                 var previewPath = Path.Combine(dir, "preview.ogg");
+                var previousPreviewPath = Path.Combine(dir, "previous.ogg");
                 File.WriteAllText(previewPath, "preview");
+                File.WriteAllText(previousPreviewPath, "previous");
 
                 AttachResourceManager(stage, resourceManager.Object);
-                SetPrivateField(stage, "_previewSound", previousSound.Object);
-                SetPrivateField(stage, "_previewPlayDelay", 5.0);
-                SetPrivateField(stage, "_isPreviewDelayActive", false);
+                var previousSoundObj = previousSound.Object;
+                resourceManager.Setup(x => x.TryLoadSound(previousPreviewPath, out previousSoundObj)).Returns(true);
+
+                // Hold a really loaded previous preview first (armed ordinary delay).
+                var previousSong = CreateScoreNode(
+                    "Previous",
+                    chart: new SongChart
+                    {
+                        FilePath = Path.Combine(dir, "previous.dtx"),
+                        PreviewFile = "previous.ogg",
+                        HasDrumChart = true,
+                        DrumLevel = 30
+                    });
+                InvokePrivateMethod(stage, "LoadPreviewSound", previousSong);
 
                 var loaded = loadedSound.Object;
                 resourceManager.Setup(x => x.TryLoadSound(previewPath, out loaded)).Returns(true);
@@ -1369,9 +1424,13 @@ namespace DTXMania.Test.Stage
 
                 previousSound.Verify(x => x.RemoveReference(), Times.Once);
                 resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
-                Assert.Same(loadedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-                Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
-                Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+                Assert.True(PreviewControllerOf(stage).HasLoadedSound);
+
+                // The replacement armed a fresh ordinary delay for the new sound;
+                // the released previous sound no longer starts.
+                PreviewControllerOf(stage).Update(1.5d);
+                loadedSound.Verify(x => x.CreateInstance(), Times.Once);
+                previousSound.Verify(x => x.CreateInstance(), Times.Never);
             }
             finally
             {
@@ -1386,10 +1445,7 @@ namespace DTXMania.Test.Stage
         public void OnSongSelectionChanged_WhenNonScoreAndScrollIncomplete_ShouldHideStatusAndSkipHeavyRefresh()
         {
             var stage = CreateStage();
-            var display = new SongListDisplay
-            {
-                CurrentList = [CreateScoreNode("Song A"), CreateBoxNode("Folder")]
-            };
+            SongListDisplay display;
             var statusPanel = new SongStatusPanel { Visible = true };
             var previewPanel = new PreviewImagePanel();
             var previewTexture = new Mock<ITexture>();
@@ -1397,11 +1453,34 @@ namespace DTXMania.Test.Stage
             var existingPreviewSound = new Mock<ISound>();
             var previousSong = CreateScoreNode("Previous");
             var folder = CreateBoxNode("Folder");
+            var previewPath = CreateWorkspacePath("previews", $"{Guid.NewGuid():N}.wav");
+            Directory.CreateDirectory(Path.GetDirectoryName(previewPath)!);
+            File.WriteAllText(previewPath, "preview");
+            var resourceManager = new Mock<IResourceManager>();
+            var existingPreviewSoundObj = existingPreviewSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out existingPreviewSoundObj)).Returns(true);
+            var songWithPreview = CreateScoreNode("Song A", chart: new SongChart
+            {
+                FilePath = Path.Combine(Path.GetDirectoryName(previewPath)!, "chart.dtx"),
+                PreviewFile = Path.GetFileName(previewPath),
+                HasDrumChart = true,
+                DrumLevel = 35
+            });
+            display = new SongListDisplay
+            {
+                CurrentList = [songWithPreview, CreateBoxNode("Folder")]
+            };
 
             AttachCoreUi(stage, display, statusPanel, previewPanel, breadcrumbLabel);
+            AttachResourceManager(stage, resourceManager.Object);
             SetPrivateField(stage, "_currentBreadcrumb", "Genre");
             SetPrivateField(stage, "_isInStatusPanel", true);
-            SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
+            // Hold a really loaded preview sound before the tested non-score scroll.
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                display,
+                new SongSelectionChangedEventArgs(songWithPreview, 0, isScrollComplete: true));
             SetPrivateField(previewPanel, "_currentPreviewTexture", previewTexture.Object);
             SetPrivateField(statusPanel, "_currentSong", previousSong);
             SetPrivateField(statusPanel, "_currentDifficulty", 3);
@@ -1426,31 +1505,6 @@ namespace DTXMania.Test.Stage
             Assert.Equal("Genre", breadcrumbLabel.Text);
             Assert.Empty(GetTextureQueue(display));
             Assert.Empty(GetVisibleIndices(display));
-        }
-
-        [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadFails_ShouldReleaseLoadedSound()
-        {
-            var stage = CreateStage();
-            var resourceManager = new Mock<IResourceManager>();
-            var previousSound = new Mock<ISound>();
-            var failedSound = new Mock<ISound>();
-            var previewPath = CreateWorkspacePath("preview-failure.ogg");
-
-            AttachResourceManager(stage, resourceManager.Object);
-            SetPrivateField(stage, "_previewSound", previousSound.Object);
-
-            var fallback = failedSound.Object;
-            resourceManager
-                .Setup(x => x.TryLoadSound(previewPath, out fallback))
-                .Returns(false);
-
-            var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
-
-            Assert.False(loaded);
-            previousSound.Verify(x => x.RemoveReference(), Times.Once);
-            failedSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
         }
 
         [Fact]
@@ -1859,48 +1913,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadSucceeds_ShouldSetPreviewSoundAndDelay()
-        {
-            var stage = CreateStage();
-            var resourceManager = new Mock<IResourceManager>();
-            var previousSound = new Mock<ISound>();
-            var loadedSound = new Mock<ISound>();
-            var previewPath = CreateWorkspacePath("preview-success.ogg");
-
-            AttachResourceManager(stage, resourceManager.Object);
-            SetPrivateField(stage, "_previewSound", previousSound.Object);
-            var loadedSound_ = loadedSound.Object;
-            resourceManager.Setup(x => x.TryLoadSound(previewPath, out loadedSound_)).Returns(true);
-
-            var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
-
-            Assert.True(loaded);
-            previousSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Same(loadedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
-            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        }
-
-        [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadThrows_ShouldReturnFalseAndClearPreview()
-        {
-            var stage = CreateStage();
-            var resourceManager = new Mock<IResourceManager>();
-            var previousSound = new Mock<ISound>();
-            var previewPath = CreateWorkspacePath("preview-throw.ogg");
-
-            AttachResourceManager(stage, resourceManager.Object);
-            SetPrivateField(stage, "_previewSound", previousSound.Object);
-            resourceManager.Setup(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny)).Throws(new IOException("boom"));
-
-            var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
-
-            Assert.False(loaded);
-            previousSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-        }
-
-        [Fact]
         public void LoadPreviewSound_WhenPreviewFileBlankOrMissing_ShouldRemainNoOp()
         {
             var stage = CreateStage();
@@ -1912,8 +1924,18 @@ namespace DTXMania.Test.Stage
             try
             {
                 AttachResourceManager(stage, resourceManager.Object);
-                SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
-                SetPrivateField(stage, "_isPreviewDelayActive", true);
+                var armedPreviewPath = Path.Combine(baseDir, "armed.ogg");
+                File.WriteAllText(armedPreviewPath, "armed");
+                var existingPreviewSoundObj = existingPreviewSound.Object;
+                resourceManager.Setup(x => x.TryLoadSound(armedPreviewPath, out existingPreviewSoundObj)).Returns(true);
+                var armedSong = CreateScoreNode("Armed", chart: new SongChart
+                {
+                    FilePath = Path.Combine(baseDir, "armed.dtx"),
+                    PreviewFile = "armed.ogg",
+                    HasDrumChart = true,
+                    DrumLevel = 20
+                });
+                InvokePrivateMethod(stage, "LoadPreviewSound", armedSong);
 
                 InvokePrivateMethod(stage, "LoadPreviewSound", CreateScoreNode("Blank", chart: new SongChart
                 {
@@ -1930,9 +1952,14 @@ namespace DTXMania.Test.Stage
                     DrumLevel = 20
                 }));
 
-                resourceManager.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Never);
-                Assert.Same(existingPreviewSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-                Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+                // Only the initial armed load called the resource manager.
+                resourceManager.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Once);
+                Assert.True(PreviewControllerOf(stage).HasLoadedSound);
+                existingPreviewSound.Verify(x => x.RemoveReference(), Times.Never);
+
+                // The armed delay survived both no-op loads.
+                PreviewControllerOf(stage).Update(1.5d);
+                existingPreviewSound.Verify(x => x.CreateInstance(), Times.Once);
             }
             finally
             {
@@ -2045,133 +2072,17 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void StopCurrentPreview_ShouldResetDelay()
-        {
-            var stage = CreateStage();
-            var previewSound = new Mock<ISound>();
-
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_previewPlayDelay", 2.5);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-
-            InvokePrivateMethod(stage, "StopCurrentPreview");
-
-            previewSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        }
-
-        [Fact]
-        public void StopCurrentPreview_WhenPreviewInstanceThrows_ShouldClearInstance()
-        {
-            var stage = CreateStage();
-            var previewSound = new Mock<ISound>();
-            var previewInstance = new Mock<ISoundInstance>();
-
-            previewInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
-            previewInstance.Setup(x => x.Stop()).Throws(new InvalidOperationException("stop failed"));
-
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_previewSoundInstance", previewInstance.Object);
-
-            var ex = Record.Exception(() => InvokePrivateMethod(stage, "StopCurrentPreview"));
-
-            Assert.Null(ex);
-            previewInstance.Verify(x => x.Stop(), Times.Once);
-            previewInstance.Verify(x => x.Dispose(), Times.Once);
-            previewSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_WhenPreviewDelayElapsesAndCreateInstanceThrows_ShouldClearPreviewInstance()
-        {
-            var stage = CreateStage();
-            var previewSound = new Mock<ISound>();
-
-            previewSound.Setup(x => x.CreateInstance()).Throws(new InvalidOperationException("preview failed"));
-
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-            SetPrivateField(stage, "_previewPlayDelay", SongSelectionUILayout.Audio.PreviewPlayDelaySeconds - 0.01);
-
-            var ex = Record.Exception(() => InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.02));
-
-            Assert.Null(ex);
-            previewSound.Verify(x => x.CreateInstance(), Times.Once);
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_WhenPreviewDelayElapsesWithPlayingInstance_ShouldKeepExistingPreview()
-        {
-            var stage = CreateStage();
-            var previewSound = new Mock<ISound>();
-            var previewInstance = new Mock<ISoundInstance>();
-
-            previewInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
-
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_previewSoundInstance", previewInstance.Object);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-            SetPrivateField(stage, "_previewPlayDelay", SongSelectionUILayout.Audio.PreviewPlayDelaySeconds - 0.01);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.02);
-
-            previewSound.Verify(x => x.CreateInstance(), Times.Never);
-            previewInstance.Verify(x => x.Play(), Times.Never);
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-            Assert.Same(previewInstance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_WhenExistingPreviewInstanceStopped_ShouldDisposeAndReplaceBeforePlayAttempt()
-        {
-            var stage = CreateStage();
-            var previewSound = new Mock<ISound>();
-            var oldInstance = new Mock<ISoundInstance>();
-
-            oldInstance.SetupGet(x => x.State).Returns(SoundState.Stopped);
-            previewSound.Setup(x => x.CreateInstance()).Returns((SoundEffectInstance)null!);
-
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_previewSoundInstance", oldInstance.Object);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-            SetPrivateField(stage, "_previewPlayDelay", SongSelectionUILayout.Audio.PreviewPlayDelaySeconds - 0.01);
-
-            var ex = Record.Exception(() => InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.02));
-
-            Assert.Null(ex);
-            oldInstance.Verify(x => x.Dispose(), Times.Once);
-            previewSound.Verify(x => x.CreateInstance(), Times.Once);
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        }
-
-        [Fact]
-        public void StopCurrentPreview_WhenPreviewInstanceStateIsPlaying_ShouldStopAndClearInstance()
-        {
-            var stage = CreateStage();
-            var previewInstance = new Mock<ISoundInstance>();
-
-            previewInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
-            SetPrivateField(stage, "_previewSoundInstance", previewInstance.Object);
-
-            var ex = Record.Exception(() => InvokePrivateMethod(stage, "StopCurrentPreview"));
-
-            Assert.Null(ex);
-            previewInstance.Verify(x => x.Stop(), Times.Once);
-            previewInstance.Verify(x => x.Dispose(), Times.Once);
-            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-        }
-
-        [Fact]
         public void LoadPreviewSound_WhenPathResolutionThrows_ShouldClearPreviewState()
         {
             var stage = CreateStage();
             var previewSound = new Mock<ISound>();
+            var resourceManager = new Mock<IResourceManager>();
+            var previewSoundObj = previewSound.Object;
+            var armedPreviewPath = CreateWorkspacePath("armed.ogg");
+            Directory.CreateDirectory(Path.GetDirectoryName(armedPreviewPath)!);
+            File.WriteAllText(armedPreviewPath, "armed");
+            resourceManager.Setup(x => x.TryLoadSound(armedPreviewPath, out previewSoundObj)).Returns(true);
+            AttachResourceManager(stage, resourceManager.Object);
             var node = CreateScoreNode("Broken", chart: new SongChart
             {
                 FilePath = CreateWorkspacePath("broken.dtx"),
@@ -2180,14 +2091,25 @@ namespace DTXMania.Test.Stage
                 DrumLevel = 20
             });
 
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
+            // Hold a really loaded preview with an armed delay first.
+            var armedSong = CreateScoreNode("Armed", chart: new SongChart
+            {
+                FilePath = Path.Combine(Path.GetDirectoryName(armedPreviewPath)!, "armed.dtx"),
+                PreviewFile = Path.GetFileName(armedPreviewPath),
+                HasDrumChart = true,
+                DrumLevel = 20
+            });
+            InvokePrivateMethod(stage, "LoadPreviewSound", armedSong);
 
             var ex = Record.Exception(() => InvokePrivateMethod(stage, "LoadPreviewSound", node));
 
             Assert.Null(ex);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            Assert.False(PreviewControllerOf(stage).HasLoadedSound);
+            previewSound.Verify(x => x.RemoveReference(), Times.Once);
+
+            // The armed delay was cleared: nothing starts afterwards.
+            PreviewControllerOf(stage).Update(1.5d);
+            previewSound.Verify(x => x.CreateInstance(), Times.Never);
         }
 
         [Fact]
@@ -2205,45 +2127,6 @@ namespace DTXMania.Test.Stage
             Assert.Equal(SongSelectionPhase.FadeOut, GetPrivateField<SongSelectionPhase>(stage, "_selectionPhase"));
             Assert.Equal(StagePhase.FadeOut, stage.CurrentPhase);
             Assert.Equal(0.0, GetPrivateField<double>(stage, "_phaseStartTime"));
-        }
-
-        [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadFails_ShouldReturnFalseAndReleaseFallback()
-        {
-            var stage = CreateStage();
-            var resourceManager = new Mock<IResourceManager>();
-            var loadedSound = new Mock<ISound>();
-            var previewPath = CreateWorkspacePath("preview-load-failed.ogg");
-
-            AttachResourceManager(stage, resourceManager.Object);
-            var fallback = loadedSound.Object;
-            resourceManager
-                .Setup(x => x.TryLoadSound(previewPath, out fallback))
-                .Returns(false);
-
-            var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
-
-            Assert.False(loaded);
-            loadedSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-        }
-
-        [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadReturnsNull_ShouldReturnFalseWithoutDelay()
-        {
-            var stage = CreateStage();
-            var resourceManager = new Mock<IResourceManager>();
-            var previewPath = CreateWorkspacePath("preview-null.ogg");
-
-            AttachResourceManager(stage, resourceManager.Object);
-            ISound nullSound = null!;
-            resourceManager.Setup(x => x.TryLoadSound(previewPath, out nullSound)).Returns(true);
-
-            var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
-
-            Assert.False(loaded);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
         }
 
         [Fact]
@@ -2279,7 +2162,21 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_ownsInputManager", true);
             SetPrivateField(stage, "_headerPanelTexture", headerTexture.Object);
             SetPrivateField(stage, "_footerPanelTexture", footerTexture.Object);
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
+            // Hold a really loaded preview sound (armed ordinary preview) before teardown.
+            var previewPath = CreateWorkspacePath("deactivate-previews", $"{Guid.NewGuid():N}.wav");
+            Directory.CreateDirectory(Path.GetDirectoryName(previewPath)!);
+            File.WriteAllText(previewPath, "preview");
+            var resourceManager = new Mock<IResourceManager>();
+            var previewSoundObj = previewSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out previewSoundObj)).Returns(true);
+            AttachResourceManager(stage, resourceManager.Object);
+            InvokePrivateMethod(stage, "LoadPreviewSound", CreateScoreNode("Song", chart: new SongChart
+            {
+                FilePath = Path.Combine(Path.GetDirectoryName(previewPath)!, "chart.dtx"),
+                PreviewFile = Path.GetFileName(previewPath),
+                HasDrumChart = true,
+                DrumLevel = 20
+            }));
             SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
             SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
             SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
@@ -2629,6 +2526,9 @@ namespace DTXMania.Test.Stage
                 SetPrivateField(songManager, "_isInitialized", originalInitialized);
             }
         }
+
+        private static SongSelectionPreviewController PreviewControllerOf(SongSelectionStage stage) =>
+            GetPrivateField<SongSelectionPreviewController>(stage, "_previewController")!;
 
         private static void AttachResourceManager(SongSelectionStage stage, IResourceManager resourceManager)
         {
@@ -4397,31 +4297,6 @@ namespace DTXMania.Test.Stage
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "ProcessModalKeys"));
 
             Assert.Null(exception);
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_WhenNotActive_ShouldNotChange()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-
-            var exception = Record.Exception(() => InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.016));
-
-            Assert.Null(exception);
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_WhenPreviewDelayActiveBelowThreshold_ShouldIncrement()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-            SetPrivateField(stage, "_previewPlayDelay", 0.0);
-            SetPrivateField(stage, "_previewSound", null);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.1);
-
-            Assert.Equal(0.1, GetPrivateField<double>(stage, "_previewPlayDelay"));
-            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
         }
 
         [Fact]

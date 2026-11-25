@@ -80,20 +80,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void StopCurrentPreview_ShouldReleaseManagedPreviewSoundReference()
-        {
-            var stage = CreateUninitializedStage();
-            var previewSound = new Mock<ISound>();
-
-            SetPrivateField(stage, "_previewSound", previewSound.Object);
-
-            InvokePrivateMethod(stage, "StopCurrentPreview");
-
-            previewSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-        }
-
-        [Fact]
         public void ReleaseManagedSound_WhenSoundProvided_ShouldCallRemoveReferenceAndClearReference()
         {
             var sound = new Mock<ISound>();
@@ -222,7 +208,9 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PopulateTelemetry_WhenSongSelected_ShouldExposeTitleDifficultyAndPanelState()
         {
-            var stage = CreateUninitializedStage();
+            // HPA-802: telemetry reads the preview controller, so the stage must be
+            // constructor-built (an uninitialized object has no controller).
+            var stage = CreateStageWithFakeGraphicsManager();
             var song = new SongListNode { Title = "My Song" };
             SetPrivateField(stage, "_selectedSong", song);
             SetPrivateField(stage, "_currentDifficulty", 3);
@@ -246,8 +234,10 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PopulateTelemetry_WhenNoSongSelected_ShouldSetDefaults()
         {
-            var stage = CreateUninitializedStage();
-            // _selectedSong is null (uninitialized)
+            // HPA-802: telemetry reads the preview controller, so the stage must be
+            // constructor-built (an uninitialized object has no controller).
+            var stage = CreateStageWithFakeGraphicsManager();
+            // _selectedSong is null (fresh stage)
 
             var telemetry = new GameTelemetrySnapshot();
             stage.PopulateTelemetry(telemetry);
