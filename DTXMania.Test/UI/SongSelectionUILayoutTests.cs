@@ -609,34 +609,9 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Audio_BgmFadeOutDuration_ShouldBePositive()
-        {
-            Assert.True(SongSelectionUILayout.Audio.BgmFadeOutDuration > 0);
-        }
-
-        [Fact]
-        public void Audio_BgmFadeInDuration_ShouldBePositive()
-        {
-            Assert.True(SongSelectionUILayout.Audio.BgmFadeInDuration > 0);
-        }
-
-        [Fact]
         public void Audio_PreviewPlayDelaySeconds_ShouldBePositive()
         {
             Assert.True(SongSelectionUILayout.Audio.PreviewPlayDelaySeconds > 0);
-        }
-
-        [Fact]
-        public void Audio_BgmMinVolume_ShouldBeLessThanMax()
-        {
-            Assert.True(SongSelectionUILayout.Audio.BgmMinVolume < SongSelectionUILayout.Audio.BgmMaxVolume);
-        }
-
-        [Fact]
-        public void Audio_BgmFadeRange_ShouldMatchDifference()
-        {
-            Assert.Equal(SongSelectionUILayout.Audio.BgmMaxVolume - SongSelectionUILayout.Audio.BgmMinVolume,
-                SongSelectionUILayout.Audio.BgmFadeRange);
         }
 
         [Fact]

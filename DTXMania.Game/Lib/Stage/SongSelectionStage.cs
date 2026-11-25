@@ -200,23 +200,15 @@ namespace DTXMania.Game.Lib.Stage
         // Preview sound functionality
         private ISound _previewSound;
         private ISoundInstance _previewSoundInstance;
-        private ISound _backgroundMusic; // Reference to BGM
-        private ISoundInstance _backgroundMusicInstance;
         
         // Navigation sound functionality (same as TitleStage)
         private ISound _cursorMoveSound;
         private ISound _gameStartSound;
         private double _previewPlayDelay = 0.0;
-        private double _bgmFadeOutTimer = 0.0;
-        private double _bgmFadeInTimer = 0.0;
         private bool _isPreviewDelayActive = false;
-        private bool _isBgmFadingOut = false;
-        private bool _isBgmFadingIn = false;
         
         // Preview sound timing constants
         private const double PREVIEW_PLAY_DELAY_SECONDS = SongSelectionUILayout.Audio.PreviewPlayDelaySeconds;
-        private const double BGM_FADE_OUT_DURATION = SongSelectionUILayout.Audio.BgmFadeOutDuration;
-        private const double BGM_FADE_IN_DURATION = SongSelectionUILayout.Audio.BgmFadeInDuration;
 
         internal enum SongLibraryEmptyState
         {
@@ -474,10 +466,6 @@ namespace DTXMania.Game.Lib.Stage
 
             // Clean up preview sound resources
             ClearPreparedPreviewState();
-            _backgroundMusicInstance?.Dispose();
-            _backgroundMusicInstance = null;
-            _backgroundMusic?.RemoveReference();
-            _backgroundMusic = null;
 
             // Clean up navigation sound (same as TitleStage)
             ReleaseManagedSound(ref _cursorMoveSound);
@@ -1419,7 +1407,6 @@ namespace DTXMania.Game.Lib.Stage
                 _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
                 _previewSoundInstance.IsLooped = true;
                 _previewSoundInstance.Play();
-                StartBGMFade(true);
                 _preparedPreviewElapsedMs = 0.0;
                 _preparedPreviewState = PreparedPreviewState.Playing;
                 return PreparedSuccess();
@@ -3160,67 +3147,12 @@ namespace DTXMania.Game.Lib.Stage
                                 _previewSoundInstance.IsLooped = true; // Enable looping
                                 _previewSoundInstance.Play();
                             }
-                            
-                            if (_previewSoundInstance != null)
-                            {
-                                StartBGMFade(true); // Fade out BGM
-                            }
                         }
                     }
                     catch (Exception ex)
                     {
                         Logger.LogWarning(ex, "Song preview playback failed");
                         DisposePreviewInstance();
-                    }
-                }
-            }
-
-            // Update BGM fade out timer
-            if (_isBgmFadingOut)
-            {
-                _bgmFadeOutTimer += deltaTime;
-                if (_bgmFadeOutTimer >= BGM_FADE_OUT_DURATION)
-                {
-                    _isBgmFadingOut = false;
-                    _bgmFadeOutTimer = BGM_FADE_OUT_DURATION; // Clamp to duration
-                }
-                
-                // Apply volume fade
-                if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
-                {
-                    try
-                    {
-                        float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
-                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
-                    }
-                    catch (Exception)
-                    {
-                        _isBgmFadingOut = false; // Stop retrying on error
-                    }
-                }
-            }
-
-            // Update BGM fade in timer
-            if (_isBgmFadingIn)
-            {
-                _bgmFadeInTimer += deltaTime;
-                if (_bgmFadeInTimer >= BGM_FADE_IN_DURATION)
-                {
-                    _isBgmFadingIn = false;
-                    _bgmFadeInTimer = BGM_FADE_IN_DURATION; // Clamp to duration
-                }
-                
-                // Apply volume fade
-                if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
-                {
-                    try
-                    {
-                        float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
-                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
-                    }
-                    catch (Exception)
-                    {
-                        _isBgmFadingIn = false; // Stop retrying on error
                     }
                 }
             }
@@ -3320,9 +3252,6 @@ namespace DTXMania.Game.Lib.Stage
             // Reset timers
             _previewPlayDelay = 0.0;
             _isPreviewDelayActive = false;
-            
-            // Start BGM fade in
-            StartBGMFade(false);
         }
 
         private void DisposePreviewInstance()
@@ -3353,25 +3282,6 @@ namespace DTXMania.Game.Lib.Stage
         {
             var rawInstance = previewSound?.CreateInstance();
             return rawInstance == null ? null : new SoundInstanceWrapper(rawInstance);
-        }
-
-        /// <summary>
-        /// Start BGM fade transition
-        /// </summary>
-        private void StartBGMFade(bool fadeOut)
-        {
-            if (fadeOut)
-            {
-                _bgmFadeOutTimer = 0.0;
-                _isBgmFadingOut = true;
-                _isBgmFadingIn = false;
-            }
-            else
-            {
-                _bgmFadeInTimer = 0.0;
-                _isBgmFadingIn = true;
-                _isBgmFadingOut = false;
-            }
         }
 
         /// <summary>
@@ -3925,52 +3835,6 @@ namespace DTXMania.Game.Lib.Stage
                     HandleSongActivation(_selectedSong);
                 }
             }
-        }
-
-        #endregion
-
-        #region Set Background Music Reference
-
-        /// <summary>
-        /// Set the background music instance for volume control during preview
-        /// </summary>
-        public void SetBackgroundMusic(ISound backgroundMusic, ISoundInstance backgroundMusicInstance)
-        {
-            // Release reference to existing background music before replacing (mirrors _previewSound handling)
-            if (_backgroundMusic != null)
-            {
-                try
-                {
-                    _backgroundMusic.RemoveReference();
-                }
-                catch (Exception)
-                {
-                    // Log but don't throw - cleanup should be best-effort
-                }
-            }
-            
-            // Dispose existing instance before replacing to prevent resource leak
-            if (_backgroundMusicInstance != null)
-            {
-                try
-                {
-                    _backgroundMusicInstance.Stop();
-                }
-                catch (Exception)
-                {
-                }
-
-                try
-                {
-                    _backgroundMusicInstance.Dispose();
-                }
-                catch (Exception)
-                {
-                }
-            }
-            
-            _backgroundMusic = backgroundMusic;
-            _backgroundMusicInstance = backgroundMusicInstance;
         }
 
         #endregion
