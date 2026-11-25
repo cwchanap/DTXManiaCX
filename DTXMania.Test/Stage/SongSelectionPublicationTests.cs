@@ -221,67 +221,8 @@ namespace DTXMania.Test.Stage
             oldTexture.Verify(texture => texture.RemoveReference(), Times.Once);
         }
 
-        [Fact]
-        public void PopulateBookmarksList_WhenCachedRowsAreOutsideActiveRoots_ShouldHideThemWithoutDiscardingCache()
-        {
-            var stage = CreateStage();
-            var display = new SongListDisplay();
-            AttachCoreUi(stage, display: display);
-            var active = Score("Active", 1, "/library/active/active.dtx");
-            var inactive = Score("Inactive", 2, "/library/inactive/inactive.dtx");
-            var cached = new List<SongListNode> { active, inactive };
-            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot",
-                Snapshot(15, new[] { active }, new[] { "/library/active" }));
-            SetPrivateField(stage, "_bookmarkNodes", cached);
 
-            InvokePrivateMethod(stage, "PopulateBookmarksList");
 
-            Assert.Equal(new[] { active }, display.CurrentList);
-            Assert.Equal(2, cached.Count);
-        }
-
-        [Fact]
-        public void PopulateBookmarksList_WhenRootIsReadded_ShouldMakeTheRetainedCachedRowVisibleAgain()
-        {
-            var stage = CreateStage();
-            var display = new SongListDisplay();
-            AttachCoreUi(stage, display: display);
-            var active = Score("Active", 1, "/library/active/active.dtx");
-            var readded = Score("Readded", 2, "/library/readded/readded.dtx");
-            var cached = new List<SongListNode> { active, readded };
-            SetPrivateField(stage, "_bookmarkNodes", cached);
-
-            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot",
-                Snapshot(151, new[] { active }, new[] { "/library/active" }));
-            InvokePrivateMethod(stage, "PopulateBookmarksList");
-            Assert.Equal(new[] { active }, display.CurrentList);
-
-            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot",
-                Snapshot(152, new[] { active, readded }, new[] { "/library/active", "/library/readded" }));
-            InvokePrivateMethod(stage, "PopulateBookmarksList");
-
-            Assert.Equal(new[] { active, readded }, display.CurrentList);
-            Assert.Equal(2, cached.Count);
-        }
-
-        [Fact]
-        public void PopulateRecentPlaysList_WhenCachedRowsAreOutsideActiveRoots_ShouldHideThemWithoutDiscardingCache()
-        {
-            var stage = CreateStage();
-            var display = new SongListDisplay();
-            AttachCoreUi(stage, display: display);
-            var active = Score("Active", 1, "/library/active/active.dtx");
-            var inactive = Score("Inactive", 2, "/library/inactive/inactive.dtx");
-            var cached = new List<SongListNode> { active, inactive };
-            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot",
-                Snapshot(16, new[] { active }, new[] { "/library/active" }));
-            SetPrivateField(stage, "_recentPlayNodes", cached);
-
-            InvokePrivateMethod(stage, "PopulateRecentPlaysList");
-
-            Assert.Equal(new[] { active }, display.CurrentList);
-            Assert.Equal(2, cached.Count);
-        }
 
         [Fact]
         public void ApplyPendingLibraryPublication_WhenSignalIsOlderThanTheManagerSnapshot_ShouldApplyTheNewerManagerSnapshot()
@@ -402,38 +343,7 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        [Fact]
-        public void CompleteTabListRefreshConsumption_WhenAsyncCacheCompletesDuringReconciliation_ShouldKeepRefreshPending()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_tabListNeedsRefresh", true);
-            SetPrivateField(stage, "_asyncTabListRefreshVersion", 4);
 
-            var consumedVersion = InvokePrivateMethod<int>(stage, "BeginTabListRefreshConsumption");
-            InvokePrivateMethod(stage, "RequestAsyncTabListRefresh");
-            InvokePrivateMethod(stage, "CompleteTabListRefreshConsumption", consumedVersion);
-
-            Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
-        }
-
-        [Fact]
-        public void PopulateBookmarksList_WhenCachedChartIsRemovedFromPublishedSnapshot_ShouldHideButRetainTheCacheRow()
-        {
-            var stage = CreateStage();
-            var display = new SongListDisplay();
-            AttachCoreUi(stage, display: display);
-            var retained = Score("Retained", 1, "/library/active/retained.dtx");
-            var removed = Score("Removed", 2, "/library/active/removed.dtx");
-            var cached = new List<SongListNode> { retained, removed };
-            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot",
-                Snapshot(32, new[] { retained }, new[] { "/library/active" }));
-            SetPrivateField(stage, "_bookmarkNodes", cached);
-
-            InvokePrivateMethod(stage, "PopulateBookmarksList");
-
-            Assert.Equal(new[] { retained }, display.CurrentList);
-            Assert.Equal(2, cached.Count);
-        }
 
         [Fact]
         public void ApplyInitializedLibrarySnapshot_WhenNewerPublicationIsAlreadyApplied_ShouldNotResetRestoredSelection()

@@ -2975,17 +2975,20 @@ namespace DTXMania.Test.Stage
             Assert.False(popup.IsOpen);
         }
 
+        // Tests that need the tabs owner build the stage through the constructor factory
+        // seam and KEEP the instance — no owner-field reflection (HPA-802 review).
+
         [Fact]
         public void OnPadLaneHit_OnPadRelease_DoesNothing()
         {
-            var stage = CreateStage();
+            var (stage, tabs) = CreateStageWithTabs();
             AttachCoreUi(stage);
-            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+            tabs.SetActiveTabQuiet(SongSelectionTab.AllSongs);
 
             var release = new LaneHitEventArgs(7, new DTXMania.Game.Lib.Input.ButtonState("MIDI.43", false));
             InvokePrivateMethod(stage, "OnPadLaneHit", stage, release);
 
-            Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+            Assert.Equal(SongSelectionTab.AllSongs, tabs.ActiveTab);
         }
 
         [Fact]
@@ -3701,11 +3704,11 @@ namespace DTXMania.Test.Stage
         public void SelectRandomSong_WhenActiveTabIsNotAllSongs_ShouldNotSelectHiddenSong()
         {
             var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
-            var stage = CreateStage(game);
+            var (stage, tabs) = CreateStageWithTabs(game);
             var stageManager = new Mock<IStageManager>();
 
             stage.StageManager = stageManager.Object;
-            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            tabs.SetActiveTabQuiet(SongSelectionTab.RecentPlays);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode>
             {
                 CreateScoreNode("Hidden Song")
@@ -4843,7 +4846,7 @@ namespace DTXMania.Test.Stage
         {
             // Off All Songs, OpenSearch is a no-op (there is no Search UI on Recent Plays),
             // so the drain must continue: a queued MoveDown still moves the selection.
-            var stage = CreateStage();
+            var (stage, tabs) = CreateStageWithTabs();
             var display = new SongListDisplay
             {
                 CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
@@ -4856,7 +4859,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_searchFilterModal", modal);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("A"), CreateScoreNode("B") });
             SetPrivateField(stage, "_inputManager", inputManager);
-            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            tabs.SetActiveTabQuiet(SongSelectionTab.RecentPlays);
 
             inputManager.Enqueue(new InputCommand(InputCommandType.OpenSearch, 0.0));
             inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));

@@ -18,6 +18,7 @@ using Microsoft.Xna.Framework;
 using Moq;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Test.Stage
@@ -498,16 +499,35 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PopulateRecentPlaysList_WithLatestVariantSpeed_ShouldLabelVisibleRow()
         {
-            var stage = CreateStage();
+            // A real row loaded through the constructor loader seam: the display
+            // assignment is only meaningfully wired when it projects a non-empty owner
+            // cache. The speed label itself is the tabs owner's (covered by
+            // SongSelectionTabsTests); this keeps the Recent-tab display assignment wired
+            // through public API only — no owner-field reflection.
+            var row = CreateScoreNode("Recent Song");
+            row.RecentPlaySpeedPercent = 75;
+            var (stage, tabs) = CreateStageWithTabs(
+                loadRecentPlaysAsync: () => Task.FromResult(new List<SongListNode> { row }));
             var display = new SongListDisplay();
-            var node = CreateScoreNode("Recent Song");
-            node.RecentPlaySpeedPercent = 75;
             AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode> { node });
+            var scope = stage.InstallTestBackgroundScope();
+            tabs.SwitchToTab(SongSelectionTab.RecentPlays);
+
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        scope.Drain();
+                        return tabs.RecentPlayNodes != null;
+                    },
+                    TimeSpan.FromSeconds(5)),
+                "the Recent-plays load was never applied on the update thread");
 
             InvokePrivateMethod(stage, "PopulateRecentPlaysList");
 
-            Assert.Equal("Recent Song [0.75x]", Assert.Single(display.CurrentList).Title);
+            var visible = Assert.Single(display.CurrentList);
+            Assert.Same(row, visible);
+            Assert.Equal("Recent Song [0.75x]", visible.Title);
         }
 
         private static void AttachCoreUi(

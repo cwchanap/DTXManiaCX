@@ -3,6 +3,7 @@ using System.IO;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI.Components;
@@ -47,6 +48,82 @@ namespace DTXMania.Test.Stage
             var game = CreateGame();
             SetPrivateField(game, "_songLibrary", library);
             return new SongSelectionStage(game);
+        }
+
+        // HPA-802 task 3: stage whose tabs owner uses the caller's loader/writer seams so
+        // stage-level tests can gate bookmark loads/writes with deterministic TCS tasks
+        // while the real query functions still run (no owner-field access).
+        public static SongSelectionStage CreateStage(
+            SongLibrary library,
+            Func<Task<List<SongListNode>>>? loadRecentPlaysAsync,
+            Func<Task<List<SongListNode>>>? loadBookmarkedNodesAsync,
+            Func<SongLibrary, int, bool, Task>? setBookmarkAsync)
+        {
+            var game = CreateGame();
+            SetPrivateField(game, "_songLibrary", library);
+            return new SongSelectionStage(
+                game,
+                createPreviewInstance: null,
+                loadRecentPlaysAsync: loadRecentPlaysAsync,
+                loadBookmarkedNodesAsync: loadBookmarkedNodesAsync,
+                setBookmarkAsync: setBookmarkAsync);
+        }
+
+        // HPA-802 review: stage whose tabs owner is built through the constructor factory
+        // seam — the test keeps the owner instance (no owner-field reflection) and
+        // controls its loader/writer seams directly. Optional arguments keep the simple
+        // wiring-test call sites short.
+        public static (SongSelectionStage Stage, SongSelectionTabs Tabs) CreateStageWithTabs(
+            SongLibrary? library = null,
+            Func<Task<List<SongListNode>>>? loadRecentPlaysAsync = null,
+            Func<Task<List<SongListNode>>>? loadBookmarkedNodesAsync = null,
+            Func<SongLibrary, int, bool, Task>? setBookmarkAsync = null)
+        {
+            var game = CreateGame();
+            library ??= new SongLibrary(new SongDatabase(Path.Combine(
+                Path.GetTempPath(), "DTXManiaCX_Tests", "SongSelectionStageTestFactory",
+                $"{System.Guid.NewGuid():N}.db")));
+            SetPrivateField(game, "_songLibrary", library);
+            SongSelectionTabs? tabs = null;
+            var stage = new SongSelectionStage(
+                game,
+                createPreviewInstance: null,
+                createTabs: (intake, getScope, logger) => tabs = new SongSelectionTabs(
+                    () => library,
+                    intake,
+                    getScope,
+                    logger,
+                    loadRecentPlaysAsync,
+                    loadBookmarkedNodesAsync,
+                    setBookmarkAsync));
+            return (stage, tabs!);
+        }
+
+        // Same seam with a caller-built game (custom clocks/stubs — mirrors
+        // CreateStage(BaseGame? game)); keeps tests off the owner-field reflection.
+        public static (SongSelectionStage Stage, SongSelectionTabs Tabs) CreateStageWithTabs(
+            BaseGame game,
+            Func<Task<List<SongListNode>>>? loadRecentPlaysAsync = null,
+            Func<Task<List<SongListNode>>>? loadBookmarkedNodesAsync = null,
+            Func<SongLibrary, int, bool, Task>? setBookmarkAsync = null)
+        {
+            var library = new SongLibrary(new SongDatabase(
+                Path.Combine(Path.GetTempPath(), "DTXManiaCX_Tests", "SongSelectionStageTestFactory",
+                    $"{System.Guid.NewGuid():N}.db")));
+            SetPrivateField(game, "_songLibrary", library);
+            SongSelectionTabs? tabs = null;
+            var stage = new SongSelectionStage(
+                game,
+                createPreviewInstance: null,
+                createTabs: (intake, getScope, logger) => tabs = new SongSelectionTabs(
+                    () => library,
+                    intake,
+                    getScope,
+                    logger,
+                    loadRecentPlaysAsync,
+                    loadBookmarkedNodesAsync,
+                    setBookmarkAsync));
+            return (stage, tabs!);
         }
 
         /// <summary>

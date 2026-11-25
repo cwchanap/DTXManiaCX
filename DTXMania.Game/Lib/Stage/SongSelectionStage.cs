@@ -64,65 +64,7 @@ namespace DTXMania.Game.Lib.Stage
         private readonly ISongListFilterService _filterService = new SongListFilterService();
         private bool _showEmptyFilterMessage;
 
-        // Tab state. The stage instance is cached per game; reset to AllSongs on Activate.
-        private SongSelectionTab _activeTab = SongSelectionTab.AllSongs;
         private static readonly SongSelectionTab[] AllTabs = System.Enum.GetValues<SongSelectionTab>();
-        // Cached recent-plays nodes (flat Score nodes), refreshed on activation and on
-        // switching into the Recent tab. Null until first load. Worker completions only
-        // enqueue immutable records; this and all related flags are update-thread owned.
-        private List<SongListNode>? _recentPlayNodes;
-        private bool _showEmptyRecentMessage;
-        // True when the most recent BeginRecentPlaysLoad continuation failed (DB error,
-        // IO error, etc.). Distinct from _showEmptyRecentMessage so a corrupted/locked
-        // score DB doesn't look identical to "no plays yet."
-        private bool _recentPlaysLoadFailed;
-        // Cached bookmark nodes (flat Score nodes), refreshed on activation and on switching
-        // into the Bookmarks tab. Worker completions only enqueue immutable records; this and
-        // all related flags are update-thread owned.
-        private List<SongListNode>? _bookmarkNodes;
-        private bool _showEmptyBookmarksMessage;
-        // True when the most recent BeginBookmarksLoad continuation failed (DB/IO error).
-        private bool _bookmarksLoadFailed;
-        // Per-load sequence guard for BeginBookmarksLoad. Incremented on the update thread so
-        // a queued completion from an older same-activation load cannot overwrite the result
-        // of a newer load with a pre-toggle snapshot that omits a newly bookmarked song.
-        private int _bookmarksLoadVersion;
-        private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync;
-        // Set when the active tab's list must be repopulated on the next OnUpdate. It is owned
-        // by the update thread; background completions queue into the activation scope instead.
-        private bool _tabListNeedsRefresh;
-        // Completion application increments this before requesting a refresh. The update thread
-        // consumes the value around a projection so a refresh requested during reconciliation is
-        // re-queued instead of being lost by a stale false write.
-        private int _asyncTabListRefreshVersion;
-
-        // Serializes bookmark persistence writes per song. Each toggle chains after the
-        // in-flight write for the same song so rapid double-toggles apply in order and the
-        // last user intent wins in the database, instead of a fire-and-forget race that can
-        // leave the DB divergent from the in-memory flag. ToggleBookmarkForSelectedSong runs
-        // on the update thread, so dictionary access here is single-threaded.
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, Task> _pendingBookmarkWrites = new();
-
-        // Monotonic per-song toggle generation. Bumped on every toggle so a persist fault from
-        // an older toggle can be detected and its rollback discarded when a newer toggle has
-        // since changed the in-memory flag (otherwise a stale fault would override a successful
-        // later toggle). Bumped and read on the update thread; the value is captured immutably
-        // by the background write continuation, which also reads it (thread-safe dictionary
-        // access) to version-guard the worker-side shared-entity revert.
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _bookmarkToggleVersion = new();
-
-        // Serializes the bookmark revert decision across threads: the update-thread toggle
-        // bump and the worker-side fault continuation's version check + shared-snapshot
-        // revert hold this same gate, so a newer toggle's bump can never slip between the
-        // stale continuation's version check and its revert (check-then-write atomicity).
-        // Held only for in-memory flag work — never across DB I/O.
-        private readonly object _bookmarkRevertGate = new();
-
-        // Pending bookmark reverts are posted into the activation scope by the faulted persist
-        // continuation (which runs on a thread-pool thread); the scope drain applies them on
-        // the update thread so the in-memory flag and the reconciled lists roll back safely
-        // without racing the draw/input path. Each posted rollback carries the toggle
-        // generation that triggered it so a superseded revert is skipped.
 
         // True once the activation's initializer terminal has been applied on the update
         // thread (success or fallback), so the search modal stops waiting on the library.
@@ -177,7 +119,6 @@ namespace DTXMania.Game.Lib.Stage
 
         // Constants for DTXMania-style display - using values from SongSelectionUILayout
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
-        private const int RecentPlaysLimit = 20;        // Max rows shown on the Recent tab.
 
         private const int FloorTomLaneIndex = (int)PerformanceUILayout.LaneType.FT;
         private const int HiHatLaneIndex = (int)PerformanceUILayout.LaneType.HH;
@@ -197,6 +138,13 @@ namespace DTXMania.Game.Lib.Stage
         // eligibility and the library-empty classification. The library is resolved
         // lazily and the stage drives reconciliation linearly.
         private readonly SongSelectionLibraryIntake _intake;
+
+        // Tabs and bookmark writes (HPA-802): owns the active tab, the Recent/Bookmarks
+        // caches with their distinct empty/error states, the refresh request/consumption
+        // protocol, flat-tab loads, and the durable bookmark write path. Resolves the
+        // library lazily; the stage keeps input/overlay policy, navigation and the
+        // visible-list projection.
+        private readonly SongSelectionTabs _tabs;
         
         // Navigation sound functionality (same as TitleStage)
         private ISound _cursorMoveSound;
@@ -238,15 +186,22 @@ namespace DTXMania.Game.Lib.Stage
         {
         }
 
-        // HPA-802 review: narrow test seam — forwards the instance-creation delegate
+        // HPA-802 review: narrow test seams — forwards the instance-creation delegate
         // to the preview controller so headless tests can drive the real
         // successful-play path (MonoGame's SoundEffectInstance cannot be constructed
-        // in tests). Production uses the single-argument constructor.
-        internal SongSelectionStage(IStageGame game, Func<ISound?, ISoundInstance?>? createPreviewInstance) : base(game)
+        // in tests), the tabs-owner factory so stage-level tests can own the owner
+        // instance (constructor seam, not owner-field reflection), and the tabs
+        // loader/writer seams so stage-level tests can gate bookmark loads/writes
+        // without touching owner state. Production uses the single-argument constructor.
+        internal SongSelectionStage(
+            IStageGame game,
+            Func<ISound?, ISoundInstance?>? createPreviewInstance,
+            Func<SongSelectionLibraryIntake, Func<StageBackgroundWorkScope?>, ILogger, SongSelectionTabs>? createTabs = null,
+            Func<Task<List<SongListNode>>>? loadRecentPlaysAsync = null,
+            Func<Task<List<SongListNode>>>? loadBookmarkedNodesAsync = null,
+            Func<SongLibrary, int, bool, Task>? setBookmarkAsync = null) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
-            // Lazy library resolution (HPA-801): resolved when a bookmarks load executes.
-            _loadBookmarkedNodesAsync = () => Library.Queries.GetBookmarkedNodesAsync();
             // HPA-802: the preview controller resolves the resource manager lazily,
             // only when a preview loads — construction does no filesystem work.
             _previewController = createPreviewInstance == null
@@ -255,6 +210,18 @@ namespace DTXMania.Game.Lib.Stage
             // HPA-802: the intake resolves the game-owned library lazily —
             // construction does no database or filesystem work.
             _intake = new SongSelectionLibraryIntake(() => Library);
+            // The tabs owner wires the real query functions; the optional seams exist
+            // only for tests (deterministic TCS gates over loads/writes).
+            _tabs = createTabs != null
+                ? createTabs(_intake, () => BackgroundWork, Logger)
+                : new SongSelectionTabs(
+                    () => Library,
+                    _intake,
+                    () => BackgroundWork,
+                    Logger,
+                    loadRecentPlaysAsync,
+                    loadBookmarkedNodesAsync,
+                    setBookmarkAsync);
             AssignInputManager(game.InputManager);
         }
 
@@ -364,25 +331,17 @@ namespace DTXMania.Game.Lib.Stage
             // the Recent tab is populated the moment the user switches to it. Reset this
             // before projecting the activation snapshot so reconciliation never renders a
             // previous activation's tab while restoring hierarchy and selection.
-            _activeTab = SongSelectionTab.AllSongs;
-            _recentPlayNodes = null;
-            _showEmptyRecentMessage = false;
-            _recentPlaysLoadFailed = false;
-            _bookmarkNodes = null;
-            _showEmptyBookmarksMessage = false;
-            _bookmarksLoadFailed = false;
-            // Clear any stale refresh flag from the previous activation (e.g., a tab-switch
-            // that set the flag just before Deactivate). Without this, the first OnUpdate
-            // would repopulate the All Songs list and reset selection/scroll to index 0.
-            _tabListNeedsRefresh = false;
-            Interlocked.Exchange(ref _asyncTabListRefreshVersion, 0);
+            _tabs.ResetForActivation();
 
             // Start song loading after the tab state is reset. An initialized manager is
             // reconciled instead of raw-applied, which restores only paths still present in
             // the current snapshot and clears a removed hierarchy before it is displayed.
             InitializeSongList();
-            BeginRecentPlaysLoad();
-            BeginBookmarksLoad();
+            _tabs.BeginRecentPlaysLoad();
+            // Warm Bookmarks refresh enters the same deferred wait path as the tab switch
+            // and rollback reloads: a write still pending from a previous activation
+            // (durable across resets) settles before the warm query reads the DB.
+            _tabs.RequestBookmarksRefresh();
 
             SubscribePadLaneHits();
 
@@ -486,23 +445,9 @@ namespace DTXMania.Game.Lib.Stage
 
             if (disposing)
             {
-                var pending = _pendingBookmarkWrites.Values.ToArray();
-                if (pending.Length > 0)
-                {
-                    try
-                    {
-                        if (!Task.WhenAll(pending).Wait(TimeSpan.FromSeconds(5)))
-                        {
-                            Logger.LogWarning(
-                                "Timed out waiting for {PendingCount} pending bookmark write(s) during stage disposal",
-                                pending.Length);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(ex, "Pending bookmark write failed during stage disposal");
-                    }
-                }
+                // Bounded five-second wait before the game disposes the library: pending
+                // durable bookmark writes must never race database disposal.
+                _tabs.WaitForPendingWritesAtDisposal();
             }
         }
 
@@ -1012,7 +957,7 @@ namespace DTXMania.Game.Lib.Stage
             string? previousSelectionIdentity,
             bool isFailureRestore = false)
         {
-            int tabListRefreshVersion = BeginTabListRefreshConsumption();
+            int tabListRefreshVersion = _tabs.BeginTabListRefreshConsumption();
 
             // Apply roots and root paths from this single snapshot before rebuilding any
             // projection. Navigation rebuild then selects child lists owned by that same tree.
@@ -1079,7 +1024,7 @@ namespace DTXMania.Game.Lib.Stage
 
             UpdateBreadcrumb();
             UpdateStatusPanelFolderHint();
-            CompleteTabListRefreshConsumption(tabListRefreshVersion);
+            _tabs.CompleteTabListRefreshConsumption(tabListRefreshVersion);
             _intake.Commit(snapshot.Version);
         }
 
@@ -1305,7 +1250,7 @@ namespace DTXMania.Game.Lib.Stage
             if (resolution == null || snapshot == null || _songListDisplay == null)
                 return false;
 
-            var previousTab = _activeTab;
+            var previousTab = _tabs.ActiveTab;
             var previousFilterCriteria = _filterCriteria;
             var previousFilteredView = _filteredView;
             var previousShowEmptyFilterMessage = _showEmptyFilterMessage;
@@ -1316,7 +1261,7 @@ namespace DTXMania.Game.Lib.Stage
             _isProjectingPreparedSelection = true;
             try
             {
-                _activeTab = SongSelectionTab.AllSongs;
+                _tabs.SetActiveTabQuiet(SongSelectionTab.AllSongs);
                 _filterCriteria = SongFilterCriteria.Default;
                 _filteredView = null;
                 _showEmptyFilterMessage = false;
@@ -1359,7 +1304,7 @@ namespace DTXMania.Game.Lib.Stage
             string breadcrumb,
             List<SongListNode> navigation)
         {
-            _activeTab = tab;
+            _tabs.SetActiveTabQuiet(tab);
             _filterCriteria = filterCriteria;
             _filteredView = filteredView;
             _showEmptyFilterMessage = showEmptyFilterMessage;
@@ -1591,13 +1536,13 @@ namespace DTXMania.Game.Lib.Stage
                 return null;
 
             IEnumerable<SongListNode> candidates;
-            if (_activeTab == SongSelectionTab.RecentPlays)
+            if (_tabs.ActiveTab == SongSelectionTab.RecentPlays)
             {
-                candidates = _intake.Filter(_recentPlayNodes);
+                candidates = _intake.Filter(_tabs.RecentPlayNodes);
             }
-            else if (_activeTab == SongSelectionTab.Bookmarks)
+            else if (_tabs.ActiveTab == SongSelectionTab.Bookmarks)
             {
-                candidates = _intake.Filter(_bookmarkNodes);
+                candidates = _intake.Filter(_tabs.BookmarkNodes);
             }
             else if (_filteredView != null)
             {
@@ -1948,7 +1893,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void SelectRandomSong()
         {
-            if (_activeTab != SongSelectionTab.AllSongs)
+            if (_tabs.ActiveTab != SongSelectionTab.AllSongs)
                 return;
 
             if (_currentSongList != null && _currentSongList.Count > 0)
@@ -2045,58 +1990,28 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Repopulates the visible song list according to the active tab.
-        /// AllSongs uses the existing hierarchical/filtered view; RecentPlays shows the
-        /// cached flat recent-plays list (and toggles the empty-state flag).
+        /// AllSongs uses the existing hierarchical/filtered view; RecentPlays/Bookmarks
+        /// show the tab owner's projected flat rows (row building and empty/error flags
+        /// are the tabs owner's; assigning them to the display is the stage's).
         /// </summary>
         private void RefreshSongListForActiveTab()
         {
-            if (_activeTab == SongSelectionTab.RecentPlays)
+            if (_tabs.ActiveTab == SongSelectionTab.RecentPlays)
                 PopulateRecentPlaysList();
-            else if (_activeTab == SongSelectionTab.Bookmarks)
+            else if (_tabs.ActiveTab == SongSelectionTab.Bookmarks)
                 PopulateBookmarksList();
             else
                 PopulateSongListForCurrentMode();
         }
 
-        private void RequestAsyncTabListRefresh()
-        {
-            // Increment before the refresh flag write. A reconciliation that sees the new
-            // generation but races this request will restore the flag itself; one that completes
-            // first is followed by this write and is likewise re-queued.
-            Interlocked.Increment(ref _asyncTabListRefreshVersion);
-            _tabListNeedsRefresh = true;
-        }
-
-        private int BeginTabListRefreshConsumption()
-        {
-            int version = Volatile.Read(ref _asyncTabListRefreshVersion);
-            _tabListNeedsRefresh = false;
-            return version;
-        }
-
-        private void CompleteTabListRefreshConsumption(int consumedVersion)
-        {
-            if (Volatile.Read(ref _asyncTabListRefreshVersion) != consumedVersion)
-                _tabListNeedsRefresh = true;
-        }
-
         private void PopulateRecentPlaysList()
         {
-            var nodes = _intake.Filter(_recentPlayNodes);
-            LabelRecentPlayNodes(nodes);
-            _songListDisplay.CurrentList = nodes;
-            // Show empty message only when the load succeeded but returned nothing.
-            // A failed load gets its own distinct message in the draw path.
-            _showEmptyRecentMessage = !_recentPlaysLoadFailed && nodes.Count == 0;
+            _songListDisplay.CurrentList = _tabs.BuildRecentPlaysRows();
         }
 
         private void PopulateBookmarksList()
         {
-            var nodes = _intake.Filter(_bookmarkNodes);
-            _songListDisplay.CurrentList = nodes;
-            // Show empty message only when the load succeeded but returned nothing.
-            // A failed load gets its own distinct message in the draw path.
-            _showEmptyBookmarksMessage = !_bookmarksLoadFailed && nodes.Count == 0;
+            _songListDisplay.CurrentList = _tabs.BuildBookmarksRows();
         }
 
         private void PopulateFilteredSongList()
@@ -2167,11 +2082,11 @@ namespace DTXMania.Game.Lib.Stage
             HandleInput();
 
             // Apply any pending tab list repopulate on the update thread.
-            if (_tabListNeedsRefresh)
+            if (_tabs.TabListNeedsRefresh)
             {
-                int tabListRefreshVersion = BeginTabListRefreshConsumption();
+                int tabListRefreshVersion = _tabs.BeginTabListRefreshConsumption();
                 RefreshSongListForActiveTab();
-                CompleteTabListRefreshConsumption(tabListRefreshVersion);
+                _tabs.CompleteTabListRefreshConsumption(tabListRefreshVersion);
             }
 
             // Update UI (PreviewImagePanel will handle its own timing)
@@ -2195,7 +2110,7 @@ namespace DTXMania.Game.Lib.Stage
             DrawBackground();
 
             bool showLibraryRecoveryMessage =
-                _activeTab == SongSelectionTab.AllSongs
+                _tabs.ActiveTab == SongSelectionTab.AllSongs
                 && _filteredView == null
                 && _intake.EmptyState != SongSelectionLibraryEmptyState.HasSongs
                 && _font != null
@@ -2222,7 +2137,7 @@ namespace DTXMania.Game.Lib.Stage
             // Draw empty-state message when the active filter returns no results.
             // Only on the All Songs tab (filter is All-Songs-only) and skipped while the
             // search modal is open to avoid overlaying the modal / the Recent empty state.
-            if (_activeTab == SongSelectionTab.AllSongs && _showEmptyFilterMessage && _font != null
+            if (_tabs.ActiveTab == SongSelectionTab.AllSongs && _showEmptyFilterMessage && _font != null
                 && !IsOverlayOpen)
             {
                 string msg = "No songs match this filter";
@@ -2256,11 +2171,11 @@ namespace DTXMania.Game.Lib.Stage
             // Draw status message for the Recent tab: distinct text for load failure vs.
             // genuinely empty, so a corrupted/locked score DB is not indistinguishable
             // from "no plays yet."
-            if (_activeTab == SongSelectionTab.RecentPlays && _font != null
+            if (_tabs.ActiveTab == SongSelectionTab.RecentPlays && _font != null
                 && !IsOverlayOpen
-                && (_recentPlaysLoadFailed || _showEmptyRecentMessage))
+                && (_tabs.RecentPlaysLoadFailed || _tabs.ShowEmptyRecentMessage))
             {
-                string msg = _recentPlaysLoadFailed
+                string msg = _tabs.RecentPlaysLoadFailed
                     ? "Could not load recent plays"
                     : "No recent plays yet";
                 _font.DrawString(_spriteBatch, msg,
@@ -2270,11 +2185,11 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw status message for the Bookmarks tab: distinct text for load failure vs.
             // genuinely empty, mirroring the Recent-tab status block above.
-            if (_activeTab == SongSelectionTab.Bookmarks && _font != null
+            if (_tabs.ActiveTab == SongSelectionTab.Bookmarks && _font != null
                 && !IsOverlayOpen
-                && (_bookmarksLoadFailed || _showEmptyBookmarksMessage))
+                && (_tabs.BookmarksLoadFailed || _tabs.ShowEmptyBookmarksMessage))
             {
-                string msg = _bookmarksLoadFailed
+                string msg = _tabs.BookmarksLoadFailed
                     ? "Could not load bookmarks"
                     : "No bookmarks yet";
                 _font.DrawString(_spriteBatch, msg,
@@ -2566,7 +2481,7 @@ namespace DTXMania.Game.Lib.Stage
                         // Exit status panel mode - no debounce needed for navigation
                         _isInStatusPanel = false;
                     }
-                    else if (_activeTab == SongSelectionTab.AllSongs && _filteredView != null)
+                    else if (_tabs.ActiveTab == SongSelectionTab.AllSongs && _filteredView != null)
                     {
                         // Clear active filter so subsequent Back presses navigate normally.
                         // Drain remaining queued commands to prevent a stale second Back
@@ -2576,7 +2491,7 @@ namespace DTXMania.Game.Lib.Stage
                         OnFilterReset(this, System.EventArgs.Empty);
                         return false;
                     }
-                    else if (_activeTab == SongSelectionTab.AllSongs && _navigationStack.Count > 0)
+                    else if (_tabs.ActiveTab == SongSelectionTab.AllSongs && _navigationStack.Count > 0)
                     {
                         // Navigate back in folder structure - no debounce needed for navigation.
                         // Gated by AllSongs: the navigation stack is All-Songs browse state
@@ -2620,7 +2535,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OpenSearchFilterModal()
         {
-            if (_activeTab != SongSelectionTab.AllSongs) return;
+            if (_tabs.ActiveTab != SongSelectionTab.AllSongs) return;
             if (_searchFilterModal == null) return;
             _isInStatusPanel = false;
             // Reset mouse edge-detection state so the first click after the modal
@@ -2703,34 +2618,6 @@ namespace DTXMania.Game.Lib.Stage
             ? theme.GetColor("SongSelect.TabActive",
                 theme.GetColor("UI.Accent", SongSelectionUILayout.Tabs.ActiveColor))
             : theme.GetColor("SongSelect.TabInactive", SongSelectionUILayout.Tabs.InactiveColor);
-
-        /// <summary>
-        /// Formats a detached Recent Plays node with the exact speed of the persisted
-        /// play that caused it to appear in the cross-speed recent query.
-        /// </summary>
-        internal static string FormatRecentPlayDisplayTitle(SongListNode node)
-        {
-            if (node == null)
-                return "";
-
-            string title = node.DisplayTitle ?? "Unknown Song";
-            if (!node.RecentPlaySpeedPercent.HasValue)
-                return title;
-
-            string suffix = $" [{PlaySpeedRange.Format(node.RecentPlaySpeedPercent.Value)}]";
-            return title.EndsWith(suffix, StringComparison.Ordinal)
-                ? title
-                : title + suffix;
-        }
-
-        private static void LabelRecentPlayNodes(IEnumerable<SongListNode> nodes)
-        {
-            foreach (var node in nodes)
-            {
-                if (node?.RecentPlaySpeedPercent.HasValue == true)
-                    node.Title = FormatRecentPlayDisplayTitle(node);
-            }
-        }
 
         // The shared baked 16px UI font cannot be resized by LoadFont; scale only this label's ink.
         private sealed class PlaybackProfileLabel : UILabel
@@ -2834,7 +2721,7 @@ namespace DTXMania.Game.Lib.Stage
             foreach (SongSelectionTab tab in AllTabs)
             {
                 string label = tab.DisplayLabel();
-                var color = ResolveTabColor(tab == _activeTab, theme);
+                var color = ResolveTabColor(tab == _tabs.ActiveTab, theme);
 
                 font.DrawString(_spriteBatch, label, new Vector2(x, y), color);
 
@@ -3059,143 +2946,27 @@ namespace DTXMania.Game.Lib.Stage
         #region Tab Switching
 
         /// <summary>
-        /// Cycles to the next tab, exits status-panel mode, kicks a recent-plays reload
-        /// when entering the Recent tab, and requests a list repopulate on the next update.
-        /// Invoked by the Tab key and the Floor Tom pad (wired in the input-handling path).
+        /// Cycles to the next tab. Invoked by the Tab key and the Floor Tom pad (wired
+        /// in the input-handling path); tab state, loads and refresh requests are the
+        /// tabs owner's, sounds and status-panel exit stay here.
         /// </summary>
-        private void SwitchToNextTab() => SwitchToTab(_activeTab.Next());
+        private void SwitchToNextTab() => SwitchToTab(_tabs.ActiveTab.Next());
 
         private void SwitchToTab(SongSelectionTab tab)
         {
-            _activeTab = tab;
             _isInStatusPanel = false;
-
-            if (_activeTab == SongSelectionTab.RecentPlays)
-                BeginRecentPlaysLoad();
-
-            if (_activeTab == SongSelectionTab.Bookmarks)
-            {
-                // Chain the load after any in-flight bookmark writes so the DB query reflects
-                // the latest toggles instead of the pre-toggle snapshot. Without this, a
-                // bookmark-on followed by a quick tab switch can query the DB before
-                // SetBookmarkAsync commits, returning a stale list that omits the
-                // just-bookmarked song (the optimistic reconciler only updates nodes already
-                // present in _bookmarkNodes, so a newly bookmarked song wouldn't appear until
-                // the next reload). Task.WhenAll of an empty/completed set settles immediately.
-                var pending = _pendingBookmarkWrites.Values.ToArray();
-                var scope = BackgroundWork;
-                _ = Task.WhenAll(pending).ContinueWith(_ =>
-                {
-                    // This continuation may run on a worker. The load request posts into the
-                    // activation scope so it starts on the update thread; a request arriving
-                    // after retirement (navigation away) drops instead of starting a load.
-                    scope?.Post(() => BeginBookmarksLoad());
-                }, TaskScheduler.Default);
-            }
-
-            _tabListNeedsRefresh = true;
+            _tabs.SwitchToTab(tab);
             PlayCursorMoveSound();
         }
 
-        /// <summary>
-        /// Loads recent-plays nodes on the activation scope. The DB query itself starts
-        /// inside the scope worker (it may execute synchronously and must never stall
-        /// the update thread, and a retirement-cancelled load must not leave an
-        /// orphaned query task behind); the worker only queues a completion, and the
-        /// scope drain applies it on the update thread (HPA-799).
-        /// </summary>
-        private void BeginRecentPlaysLoad()
-        {
-            var scope = BackgroundWork;
-            if (scope == null)
-                return;
+        #endregion
 
-            scope.Run<IReadOnlyList<SongListNode>>(
-                token =>
-                {
-                    token.ThrowIfCancellationRequested();
-                    // Query here, on the worker: reaching the DB (which may run
-                    // synchronously) must never happen on the update thread, matching
-                    // BeginBookmarksLoad. Results apply in completion order, not request
-                    // order: a slower older load can land after (and overwrite) a newer
-                    // one, unlike the version-guarded bookmark load.
-                    return CopyTabLoadNodes(
-                        Library.Queries.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
-                            .GetAwaiter().GetResult());
-                },
-                onSuccess: nodes =>
-                {
-                    _recentPlaysLoadFailed = false;
-                    _recentPlayNodes = nodes.ToList();
-                    if (_activeTab == SongSelectionTab.RecentPlays)
-                        RequestAsyncTabListRefresh();
-                },
-                onError: _ =>
-                {
-                    _recentPlaysLoadFailed = true;
-                    if (_activeTab == SongSelectionTab.RecentPlays)
-                        RequestAsyncTabListRefresh();
-                });
-        }
+        #region Bookmark Toggle
 
         /// <summary>
-        /// Loads bookmark nodes on the activation scope. The DB query itself starts inside
-        /// the scope worker (it may execute synchronously and must never stall the update
-        /// thread); the worker only queues a completion, and the update thread applies it
-        /// only while this load is still the newest same-activation load (HPA-799).
-        /// </summary>
-        private void BeginBookmarksLoad()
-        {
-            var scope = BackgroundWork;
-            if (scope == null)
-                return;
-
-            // Assign a monotonic per-load id on the update thread so an older
-            // same-activation load (e.g., the activation-time warm load still in flight when
-            // the user bookmarks a song and switches to the Bookmarks tab) can detect it has
-            // been superseded by a newer load and discard its stale result.
-            int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
-            var loadBookmarkedNodesAsync = _loadBookmarkedNodesAsync;
-            scope.Run<IReadOnlyList<SongListNode>>(
-                token =>
-                {
-                    token.ThrowIfCancellationRequested();
-                    // Invoke the loader here, on the worker: reaching the DB (which may
-                    // run synchronously) must never happen on the update thread.
-                    return CopyTabLoadNodes(loadBookmarkedNodesAsync().GetAwaiter().GetResult());
-                },
-                onSuccess: nodes =>
-                {
-                    if (capturedLoadVersion != Volatile.Read(ref _bookmarksLoadVersion))
-                        return;
-
-                    _bookmarksLoadFailed = false;
-                    _bookmarkNodes = nodes.ToList();
-                    if (_activeTab == SongSelectionTab.Bookmarks)
-                        RequestAsyncTabListRefresh();
-                },
-                onError: _ =>
-                {
-                    if (capturedLoadVersion != Volatile.Read(ref _bookmarksLoadVersion))
-                        return;
-
-                    _bookmarksLoadFailed = true;
-                    if (_activeTab == SongSelectionTab.Bookmarks)
-                        RequestAsyncTabListRefresh();
-                });
-        }
-
-        private static IReadOnlyList<SongListNode> CopyTabLoadNodes(
-            IEnumerable<SongListNode>? nodes)
-        {
-            return Array.AsReadOnly(nodes?.ToArray() ?? Array.Empty<SongListNode>());
-        }
-
-        /// <summary>
-        /// Toggles the bookmark flag on the highlighted song. No-op for non-song nodes
-        /// (folders/back boxes). Updates the in-memory flag immediately so the star marker
-        /// refreshes this frame, persists asynchronously, and—on the Bookmarks tab when
-        /// un-bookmarking—removes the row from the cached list and requests a repopulate.
+        /// Toggles the bookmark on the highlighted song (stage input policy: only a
+        /// selected song node qualifies; the flag flip, persistence, reconciliation and
+        /// row removal are the tabs owner's). No-op for non-song nodes.
         /// </summary>
         private void ToggleBookmarkForSelectedSong()
         {
@@ -3203,201 +2974,13 @@ namespace DTXMania.Game.Lib.Stage
             if (node == null || node.Type != NodeType.Score)
                 return;
 
-            var song = node.DatabaseSong;
-            if (song == null)
-                return;
-
-            bool newState = !song.IsBookmarked;
-            // Prefer the persisted id over the in-memory entity id. When re-enumerating
-            // SET.def songs that already exist in the DB, AddSongAsync returns the existing
-            // id without assigning it to the parsed SongEntity.Id (left at 0), while
-            // DatabaseSongId holds the real persisted id. Using song.Id would pass 0 to
-            // SetBookmarkAsync (a no-op) and reconcile against every zero-id node.
-            int songId = node.DatabaseSongId ?? song.Id;
-            // When neither the persisted id nor the entity id is set (e.g. an unpersisted
-            // fallback node whose DatabaseSong.Id is still 0), keying the persistence write
-            // and the cross-list reconciliation on the sentinel 0 would (a) be a silent
-            // no-op in the DB and (b) flip IsBookmarked on EVERY unrelated zero-id node via
-            // BookmarkStateReconciler.Apply. The optimistic in-memory flip on the selected
-            // node above already refreshed its star marker, so bail out before touching the
-            // shared persistence/reconciliation state to leave unrelated nodes untouched.
-            if (songId <= 0)
-            {
-                song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
-                return;
-            }
-            var library = Library;
-            // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
-            // from a fault of an older, already-superseded toggle at rollback time. The bump
-            // shares _bookmarkRevertGate with the worker-side fault continuation so a stale
-            // check-then-revert can never interleave with this bump. The optimistic
-            // shared-library flip must join the same critical section, before the write is
-            // even scheduled: a persist that faults immediately could otherwise run its
-            // worker-side revert first and then be overwritten by the rejected value here.
-            Interlocked.Increment(ref _bookmarksLoadVersion);
-            int toggleVersion;
-            lock (_bookmarkRevertGate)
-            {
-                toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
-                // Immediate, in-memory flip (the star refreshes next draw). It joins the
-                // gate with the version bump so a worker-side shared revert can never
-                // interleave between the two writes.
-                song.IsBookmarked = newState;
-                BookmarkStateReconciler.Apply(
-                    _intake.AppliedSnapshot?.RootSongs
-                        ?? library.GetLibrarySnapshot().RootSongs,
-                    songId,
-                    newState);
-            }
-            // Reconcile the flag across every in-memory representation of this song (Recent
-            // list, Bookmarks list) so the star marker stays consistent across tabs without
-            // a reload — each surface holds a distinct node/entity instance. These lists are
-            // update-thread owned, so they stay outside the gate.
-            BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
-            BookmarkStateReconciler.Apply(_bookmarkNodes, songId, newState);
-
-            // Persist asynchronously, serialized per song so rapid toggles apply in order and
-            // the last user intent (the captured newState above) is what lands in the database.
-            // Each write chains after the previous in-flight write for the same song; without
-            // this, two overlapping fire-and-forget calls could complete out of order and leave
-            // the DB divergent from the in-memory flag.
-            // Capture THIS activation's scope now, when the toggle happens: the fault
-            // continuation below must post its rollback here, into the scope that owned the
-            // toggle. Reading BackgroundWork at fault time could land the rollback in a
-            // LATER activation's scope, where the generation check still matches (no
-            // intervening toggle) and the stale revert would mutate the new activation's
-            // lists and start another bookmark load. A retired scope drops the rollback.
-            var originScope = BackgroundWork;
-            var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
-            var write = prior.ContinueWith(
-                _ => library.Queries.SetBookmarkAsync(songId, newState),
-                TaskScheduler.Default).Unwrap();
-            _pendingBookmarkWrites[songId] = write;
-
-            // If the persist fails, the optimistic in-memory flip would otherwise diverge from
-            // the database (the star would vanish on next load with no feedback). Post a
-            // rollback to the pre-toggle state into the activation scope; the scope drain
-            // applies it on the update thread so it can't race the draw path. The captured
-            // toggleVersion lets the rollback be skipped if a newer toggle has since superseded
-            // this one. The write itself is never canceled: a committed persistence task may
-            // outlive navigation, and only the stale UI rollback is dropped on retirement.
-            write.ContinueWith(task =>
-            {
-                if (task.IsFaulted || task.IsCanceled)
-                {
-                    // A failed write leaves no committed intent. While the origin scope
-                    // is live the whole revert — shared library entities, Recent and
-                    // Bookmarks lists — is applied on the update thread, so no worker
-                    // ever writes IsBookmarked while the player may be toggling.
-                    // If navigation retired the origin scope first, the posted rollback
-                    // is dropped and the drop callback still reverts the SHARED library
-                    // entities (the snapshot backs the reentry browse tree), so reentry
-                    // starts DB-consistent; that path takes the same gate as the
-                    // update-thread toggle bump, so it cannot interleave with a toggle.
-                    // Hand the revert off first, then log: the warning says
-                    // "reverting", so it must describe a hand-off that already happened
-                    // (do-then-log); this order also makes the warning a post-posting
-                    // signal for observers of the log stream.
-                    if (originScope != null)
-                    {
-                        originScope.Post(
-                            () => ApplyBookmarkRevertCore(library, songId, !newState, toggleVersion),
-                            onDropped: () => RevertSharedBookmark(library, songId, !newState, toggleVersion));
-                    }
-                    else
-                    {
-                        RevertSharedBookmark(library, songId, !newState, toggleVersion);
-                    }
-
-                    Logger.LogWarning(
-                        task.Exception?.GetBaseException(),
-                        "Bookmark save failed for song {SongId} (target state {Bookmarked}); reverting",
-                        songId,
-                        newState);
-                }
-            }, TaskScheduler.Default);
-
-            // On the Bookmarks tab, an un-bookmark should drop the row from view.
-            if (_activeTab == SongSelectionTab.Bookmarks && !newState)
-            {
-                // Bookmark caches are update-thread owned. A pending background query only
-                // becomes visible when its queued completion is applied on a later update.
-                _bookmarkNodes?.RemoveAll(n =>
-                    ReferenceEquals(n, node) || (n.DatabaseSongId ?? n.DatabaseSong?.Id) == songId);
-                _tabListNeedsRefresh = true;
-            }
-
-            PlayCursorMoveSound();
+            if (_tabs.ToggleBookmark(node))
+                PlayCursorMoveSound();
         }
 
-        /// <summary>
-        /// Reverts the SHARED library entities (the manager's current snapshot, which
-        /// survives navigation and backs the reentry browse tree) for a failed persist,
-        /// unless a newer toggle has superseded it. The version check and the reconcile
-        /// hold the same gate as the update-thread toggle bump, so a newer toggle can
-        /// never slip between the check and the revert. Reconciling by song id also
-        /// covers duplicate SET.def nodes.
-        /// </summary>
-        private void RevertSharedBookmark(
-            SongLibrary library,
-            int songId,
-            bool revertTo,
-            int toggleVersion)
-        {
-            lock (_bookmarkRevertGate)
-            {
-                if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
-                    || current == toggleVersion)
-                {
-                    BookmarkStateReconciler.Apply(
-                        library.GetLibrarySnapshot().RootSongs,
-                        songId,
-                        revertTo);
-                }
-            }
-        }
+        #endregion
 
-        private void ApplyBookmarkRevert(int songId, bool revertTo, int toggleVersion) =>
-            ApplyBookmarkRevertCore(Library, songId, revertTo, toggleVersion);
-
-        /// <summary>
-        /// Applies one posted bookmark rollback on the update thread. If the rollback's toggle
-        /// generation is still current, the pre-toggle bookmark state is restored across every
-        /// in-memory representation (browse tree, Recent list, Bookmarks list) so the star
-        /// marker matches the database after a failed persist. A superseded revert — one
-        /// superseded by a newer toggle — is skipped so a stale fault cannot override a
-        /// later, possibly successful toggle.
-        /// </summary>
-        private void ApplyBookmarkRevertCore(
-            SongLibrary library,
-            int songId,
-            bool revertTo,
-            int toggleVersion)
-        {
-            if (_bookmarkToggleVersion.TryGetValue(songId, out var current)
-                && current != toggleVersion)
-            {
-                // A newer toggle has since changed the flag; this fault is stale.
-                return;
-            }
-
-            BookmarkStateReconciler.Apply(
-                _intake.AppliedSnapshot?.RootSongs
-                    ?? library.GetLibrarySnapshot().RootSongs,
-                songId,
-                revertTo);
-            // The manager's current snapshot may be a newer publication than the one
-            // this activation applied; revert it too (idempotent when they match).
-            RevertSharedBookmark(library, songId, revertTo, toggleVersion);
-            BookmarkStateReconciler.Apply(_recentPlayNodes, songId, revertTo);
-            BookmarkStateReconciler.Apply(_bookmarkNodes, songId, revertTo);
-
-            // On the Bookmarks tab, an un-bookmark that failed to persist wrongly removed
-            // the row from view (the song is still bookmarked in the DB). Re-sync from the
-            // authoritative store so the row reappears.
-            if (_activeTab == SongSelectionTab.Bookmarks)
-                BeginBookmarksLoad();
-        }
+        #region Pad Lane Hits and Quick Settings
 
         private void OnPadLaneHit(object? sender, DTXMania.Game.Lib.Input.LaneHitEventArgs e)
         {
@@ -3430,7 +3013,7 @@ namespace DTXMania.Game.Lib.Stage
                 else
                 {
                     // The first hit already moved a tab; search lives on All Songs.
-                    if (_activeTab != SongSelectionTab.AllSongs)
+                    if (_tabs.ActiveTab != SongSelectionTab.AllSongs)
                         SwitchToTab(SongSelectionTab.AllSongs);
                     OpenSearchFilterModal();
                 }
@@ -3493,7 +3076,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Played/unplayed filters read the scores for the active speed.
                 RebuildFilteredView();
-                if (_activeTab == SongSelectionTab.AllSongs)
+                if (_tabs.ActiveTab == SongSelectionTab.AllSongs)
                     PopulateSongListForCurrentMode();
             }
             _statusPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty, playSpeedPercent);

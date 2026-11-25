@@ -137,7 +137,7 @@ namespace DTXMania.Game.Lib.Song
         /// empty list if the database is unavailable. Reuses the same node builder as the
         /// browse list so difficulty cycling, status panel, preview, and activation behave
         /// identically. Exceptions from the database layer propagate so the caller
-        /// (BeginBookmarksLoad) can distinguish a genuine failure from an empty result.
+        /// (RequestBookmarksRefresh) can distinguish a genuine failure from an empty result.
         /// </summary>
         public async Task<List<SongListNode>> GetBookmarkedNodesAsync()
         {

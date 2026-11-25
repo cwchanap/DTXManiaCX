@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
@@ -17,6 +18,9 @@ namespace DTXMania.Test.Stage
     [Trait("Category", "Unit")]
     public class SongSelectionStageThemeColorTests
     {
+        // Tests that need the tabs owner build the stage through the constructor factory
+        // seam and KEEP the instance — no owner-field reflection (HPA-802 review).
+
         [Fact]
         public void ResolveTabColor_ActiveWithEmptyTheme_ShouldKeepNxWhite()
         {
@@ -120,7 +124,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void DrawTabBar_WithOnlyThemedTabFont_ShouldUseThemeColorsAndMeasureEveryLabel()
         {
-            var stage = SongSelectionStageTestFactory.CreateStage();
+            var (stage, tabs) = SongSelectionStageTestFactory.CreateStageWithTabs();
             var tabFont = new Mock<IFont>();
             tabFont.Setup(value => value.MeasureString(It.IsAny<string>()))
                 .Returns(new Vector2(40, 16));
@@ -137,7 +141,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_font", null);
             ReflectionHelpers.SetPrivateField(stage, "_tabFont", tabFont.Object);
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-            ReflectionHelpers.SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            tabs.SetActiveTabQuiet(SongSelectionTab.RecentPlays);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawTabBar");
 
