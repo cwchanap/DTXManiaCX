@@ -343,7 +343,6 @@ namespace DTXMania.Test.Stage
                 Assert.True(applied, "the initializer terminal was not applied within the timeout");
 
                 Assert.Same(selectedNode, display.SelectedSong);
-                Assert.Equal(51L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
                 Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
             }
             finally
@@ -2405,26 +2404,6 @@ namespace DTXMania.Test.Stage
                 rootSongs.AddRange(originalSongs);
                 SetPrivateField(songManager, "_isInitialized", originalInitialized);
             }
-        }
-
-        [Fact]
-        public void ApplyLibrarySnapshot_ShouldRetainTheCoherentSnapshotUsedForUiProjection()
-        {
-            var stage = CreateStage();
-            var display = new SongListDisplay();
-            var song = CreateScoreNode("Snapshot Song");
-            var snapshot = new SongLibrarySnapshot(
-                version: 91,
-                rootSongs: new[] { song },
-                activeRoots: new[] { "/library/active" },
-                enumeratedFileCount: 1,
-                discoveredScoreCount: 1);
-
-            AttachCoreUi(stage, display: display);
-            InvokePrivateMethod(stage, "ApplyLibrarySnapshot", snapshot);
-
-            Assert.Same(snapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
-            Assert.Equal(91L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
         }
 
         [Fact]

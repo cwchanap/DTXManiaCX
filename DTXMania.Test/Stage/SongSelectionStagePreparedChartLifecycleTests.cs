@@ -1416,7 +1416,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             DatabaseChart = chart,
             Scores = new[] { new SongScore { ChartId = 0, Instrument = EInstrumentPart.DRUMS } }
         };
-        SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
+        AttachCoreUi(stage);
+        InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new SongLibrarySnapshot(
             version: 1,
             rootSongs: new[] { node },
             activeRoots: new[] { Path.GetFullPath(root) },
@@ -1452,7 +1453,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             DatabaseSong = song,
             DatabaseChart = chart,
         };
-        SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
+        AttachCoreUi(stage);
+        InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new SongLibrarySnapshot(
             version: 1,
             rootSongs: new[] { node },
             activeRoots: new[] { Path.GetFullPath(root) },
@@ -1802,7 +1804,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         AttachCoreUi(stage, display: new SongListDisplay { CurrentList = new List<SongListNode> { node } });
         SetPrivateField(stage, "_resourceManager", resourceManager);
         SetPrivateField(stage, "_currentSongList", new List<SongListNode> { node });
-        SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
+        // Install the applied snapshot through the stage's real reconciliation path.
+        InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new SongLibrarySnapshot(
             version: 1,
             rootSongs: new[] { node },
             activeRoots: new[] { Path.GetFullPath(root) },

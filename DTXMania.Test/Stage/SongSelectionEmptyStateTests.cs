@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Xna.Framework;
@@ -13,49 +14,49 @@ namespace DTXMania.Test.Stage
     {
         [Theory]
         [InlineData(
-            (int)SongSelectionStage.SongLibraryEmptyState.NoActiveRoots,
+            (int)SongSelectionLibraryEmptyState.NoActiveRoots,
             "No usable song folder - see CONFIG > Song Folders")]
         [InlineData(
-            (int)SongSelectionStage.SongLibraryEmptyState.NoSupportedCharts,
+            (int)SongSelectionLibraryEmptyState.NoSupportedCharts,
             "No supported charts - see CONFIG > Song Folders")]
         public void ResolveLibraryEmptyMessage_EmptyState_ShouldExplainCorrectRecovery(
             int stateValue,
             string expected)
         {
-            var state = (SongSelectionStage.SongLibraryEmptyState)stateValue;
-            Assert.Equal(expected, SongSelectionStage.ResolveLibraryEmptyMessage(state));
+            var state = (SongSelectionLibraryEmptyState)stateValue;
+            Assert.Equal(expected, SongSelectionLibraryIntake.ResolveLibraryEmptyMessage(state));
         }
 
         [Fact]
         public void ResolveLibraryEmptyMessage_HasSongs_ShouldReturnEmpty()
         {
-            Assert.Equal(string.Empty, SongSelectionStage.ResolveLibraryEmptyMessage(
-                SongSelectionStage.SongLibraryEmptyState.HasSongs));
+            Assert.Equal(string.Empty, SongSelectionLibraryIntake.ResolveLibraryEmptyMessage(
+                SongSelectionLibraryEmptyState.HasSongs));
         }
 
         [Theory]
-        [InlineData((int)SongSelectionStage.SongLibraryEmptyState.NoActiveRoots)]
-        [InlineData((int)SongSelectionStage.SongLibraryEmptyState.NoSupportedCharts)]
+        [InlineData((int)SongSelectionLibraryEmptyState.NoActiveRoots)]
+        [InlineData((int)SongSelectionLibraryEmptyState.NoSupportedCharts)]
         public void ResolveLibraryEmptyMessage_RecoveryCopy_ShouldUseSpriteFontSafeAscii(
             int stateValue)
         {
-            var state = (SongSelectionStage.SongLibraryEmptyState)stateValue;
-            var message = SongSelectionStage.ResolveLibraryEmptyMessage(state);
+            var state = (SongSelectionLibraryEmptyState)stateValue;
+            var message = SongSelectionLibraryIntake.ResolveLibraryEmptyMessage(state);
 
             Assert.NotEmpty(message);
             Assert.All(message, character => Assert.InRange((int)character, 0x20, 0x7e));
         }
 
         [Theory]
-        [InlineData((int)SongSelectionStage.SongLibraryEmptyState.NoActiveRoots)]
-        [InlineData((int)SongSelectionStage.SongLibraryEmptyState.NoSupportedCharts)]
+        [InlineData((int)SongSelectionLibraryEmptyState.NoActiveRoots)]
+        [InlineData((int)SongSelectionLibraryEmptyState.NoSupportedCharts)]
         public void ResolveLibraryEmptyMessage_RenderedCopy_ShouldFitSongBarWidth(int stateValue)
         {
             var font = new Mock<IFont>();
             font.Setup(value => value.MeasureString(It.IsAny<string>()))
                 .Returns<string>(text => new Vector2(text.Length * 8f, 14f));
-            var state = (SongSelectionStage.SongLibraryEmptyState)stateValue;
-            var message = SongSelectionStage.ResolveLibraryEmptyMessage(state);
+            var state = (SongSelectionLibraryEmptyState)stateValue;
+            var message = SongSelectionLibraryIntake.ResolveLibraryEmptyMessage(state);
 
             var rendered = TextHelper.TruncateToWidth(
                 message,

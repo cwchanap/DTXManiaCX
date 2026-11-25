@@ -292,7 +292,9 @@ public sealed class SongSelectionStagePreparedChartTests
     private static SongSelectionStage CreateStageWithSnapshot(string activeRoot, params SongListNode[] roots)
     {
         var stage = CreateStage();
-        SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
+        // Install the applied snapshot through the stage's real reconciliation path.
+        AttachCoreUi(stage);
+        InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new SongLibrarySnapshot(
             version: 1,
             rootSongs: roots,
             activeRoots: new[] { Path.GetFullPath(activeRoot) },
