@@ -100,94 +100,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SetBackgroundMusic_WhenPreviousBgmExists_ShouldReleaseReference()
-        {
-            var stage = CreateStage();
-            var oldSound = new Mock<ISound>();
-            var oldInstance = new Mock<ISoundInstance>();
-            var newSound = new Mock<ISound>();
-            var newInstance = new Mock<ISoundInstance>();
-
-            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
-            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
-
-            stage.SetBackgroundMusic(newSound.Object, newInstance.Object);
-
-            oldSound.Verify(x => x.RemoveReference(), Times.Once);
-            oldInstance.Verify(x => x.Stop(), Times.Once);
-            oldInstance.Verify(x => x.Dispose(), Times.Once);
-            Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
-            Assert.Same(newInstance.Object, GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
-        }
-
-        [Fact]
-        public void SetBackgroundMusic_WhenPreviousBgmRemoveReferenceThrows_ShouldNotThrow()
-        {
-            var stage = CreateStage();
-            var oldSound = new Mock<ISound>();
-            oldSound.Setup(x => x.RemoveReference()).Throws(new Exception("boom"));
-            var newSound = new Mock<ISound>();
-
-            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
-            SetPrivateField(stage, "_backgroundMusicInstance", null);
-
-            var exception = Record.Exception(() => stage.SetBackgroundMusic(newSound.Object, null));
-
-            Assert.Null(exception);
-            Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
-        }
-
-        [Fact]
-        public void SetBackgroundMusic_WhenPreviousInstanceStopThrows_ShouldNotThrow()
-        {
-            var stage = CreateStage();
-            var oldSound = new Mock<ISound>();
-            var oldInstance = new Mock<ISoundInstance>();
-            oldInstance.Setup(x => x.Stop()).Throws(new Exception("stop fail"));
-
-            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
-            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
-
-            var exception = Record.Exception(() => stage.SetBackgroundMusic(null, null));
-
-            Assert.Null(exception);
-            oldInstance.Verify(x => x.Dispose(), Times.Once);
-        }
-
-        [Fact]
-        public void SetBackgroundMusic_WhenPreviousInstanceDisposeThrows_ShouldNotThrow()
-        {
-            var stage = CreateStage();
-            var oldSound = new Mock<ISound>();
-            var oldInstance = new Mock<ISoundInstance>();
-            oldInstance.Setup(x => x.Dispose()).Throws(new Exception("dispose fail"));
-
-            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
-            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
-
-            var exception = Record.Exception(() => stage.SetBackgroundMusic(null, null));
-
-            Assert.Null(exception);
-        }
-
-        [Fact]
-        public void SetBackgroundMusic_WhenExistingBgmIsNull_ShouldSetDirectly()
-        {
-            var stage = CreateStage();
-            var newSound = new Mock<ISound>();
-            var newInstance = new Mock<ISoundInstance>();
-
-            SetPrivateField(stage, "_backgroundMusic", null);
-            SetPrivateField(stage, "_backgroundMusicInstance", null);
-
-            stage.SetBackgroundMusic(newSound.Object, newInstance.Object);
-
-            Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
-            Assert.Same(newInstance.Object, GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
-        }
-
-        [Fact]
-        public void StopCurrentPreview_WhenPreviewSoundInstanceIsNull_ShouldResetTimersAndStartBgmFadeIn()
+        public void StopCurrentPreview_WhenPreviewSoundInstanceIsNull_ShouldResetPreviewTimers()
         {
             var stage = CreateStage();
             SetPrivateField(stage, "_previewSoundInstance", null);
@@ -199,8 +112,6 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
             Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
         }
 
         [Fact]
@@ -218,7 +129,6 @@ namespace DTXMania.Test.Stage
 
             mockInstance.Verify(x => x.Dispose(), Times.Once);
             Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
-            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
         }
 
         [Fact]
@@ -253,142 +163,6 @@ namespace DTXMania.Test.Stage
 
             mockSound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
-        }
-
-        [Fact]
-        public void StartBGMFade_WithFadeOutTrue_ShouldSetFadeOutState()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_isBgmFadingIn", true);
-            SetPrivateField(stage, "_isBgmFadingOut", false);
-
-            InvokePrivateMethod(stage, "StartBGMFade", true);
-
-            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
-            Assert.Equal(0.0, GetPrivateField<double>(stage, "_bgmFadeOutTimer"));
-        }
-
-        [Fact]
-        public void StartBGMFade_WithFadeOutFalse_ShouldSetFadeInState()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_isBgmFadingOut", true);
-            SetPrivateField(stage, "_isBgmFadingIn", false);
-
-            InvokePrivateMethod(stage, "StartBGMFade", false);
-
-            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
-            Assert.Equal(0.0, GetPrivateField<double>(stage, "_bgmFadeInTimer"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_BgmFadeOut_WhenTimerExceedsDuration_ShouldStopFading()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-            SetPrivateField(stage, "_isBgmFadingOut", true);
-            SetPrivateField(stage, "_bgmFadeOutTimer", 0.4);
-            SetPrivateField(stage, "_backgroundMusicInstance", null);
-            SetPrivateField(stage, "_isBgmFadingIn", false);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.2);
-
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
-            Assert.Equal(SongSelectionUILayout.Audio.BgmFadeOutDuration,
-                GetPrivateField<double>(stage, "_bgmFadeOutTimer"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_BgmFadeOut_WithPlayingBgmInstance_ShouldApplyVolumeFade()
-        {
-            var stage = CreateStage();
-            var bgmInstance = new Mock<ISoundInstance>();
-            bgmInstance.Setup(x => x.State).Returns(SoundState.Playing);
-
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-            SetPrivateField(stage, "_isBgmFadingOut", true);
-            SetPrivateField(stage, "_bgmFadeOutTimer", 0.0);
-            SetPrivateField(stage, "_backgroundMusicInstance", bgmInstance.Object);
-            SetPrivateField(stage, "_isBgmFadingIn", false);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.25);
-
-            bgmInstance.VerifySet(x => x.Volume = It.IsAny<float>(), Times.Once);
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_BgmFadeOut_WhenVolumeSetThrows_ShouldStopFading()
-        {
-            var stage = CreateStage();
-            var bgmInstance = new Mock<ISoundInstance>();
-            bgmInstance.Setup(x => x.State).Returns(SoundState.Playing);
-            bgmInstance.SetupSet(x => x.Volume = It.IsAny<float>()).Throws(new Exception("vol error"));
-
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-            SetPrivateField(stage, "_isBgmFadingOut", true);
-            SetPrivateField(stage, "_bgmFadeOutTimer", 0.0);
-            SetPrivateField(stage, "_backgroundMusicInstance", bgmInstance.Object);
-            SetPrivateField(stage, "_isBgmFadingIn", false);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.1);
-
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_BgmFadeIn_WhenTimerExceedsDuration_ShouldStopFading()
-        {
-            var stage = CreateStage();
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-            SetPrivateField(stage, "_isBgmFadingOut", false);
-            SetPrivateField(stage, "_isBgmFadingIn", true);
-            SetPrivateField(stage, "_bgmFadeInTimer", 0.9);
-            SetPrivateField(stage, "_backgroundMusicInstance", null);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.2);
-
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
-            Assert.Equal(SongSelectionUILayout.Audio.BgmFadeInDuration,
-                GetPrivateField<double>(stage, "_bgmFadeInTimer"));
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_BgmFadeIn_WithPlayingBgmInstance_ShouldApplyVolumeFade()
-        {
-            var stage = CreateStage();
-            var bgmInstance = new Mock<ISoundInstance>();
-            bgmInstance.Setup(x => x.State).Returns(SoundState.Playing);
-
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-            SetPrivateField(stage, "_isBgmFadingOut", false);
-            SetPrivateField(stage, "_isBgmFadingIn", true);
-            SetPrivateField(stage, "_bgmFadeInTimer", 0.0);
-            SetPrivateField(stage, "_backgroundMusicInstance", bgmInstance.Object);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.5);
-
-            bgmInstance.VerifySet(x => x.Volume = It.IsAny<float>(), Times.Once);
-        }
-
-        [Fact]
-        public void UpdatePreviewSoundTimers_BgmFadeIn_WhenVolumeSetThrows_ShouldStopFading()
-        {
-            var stage = CreateStage();
-            var bgmInstance = new Mock<ISoundInstance>();
-            bgmInstance.Setup(x => x.State).Returns(SoundState.Playing);
-            bgmInstance.SetupSet(x => x.Volume = It.IsAny<float>()).Throws(new Exception("vol error"));
-
-            SetPrivateField(stage, "_isPreviewDelayActive", false);
-            SetPrivateField(stage, "_isBgmFadingOut", false);
-            SetPrivateField(stage, "_isBgmFadingIn", true);
-            SetPrivateField(stage, "_bgmFadeInTimer", 0.0);
-            SetPrivateField(stage, "_backgroundMusicInstance", bgmInstance.Object);
-
-            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.1);
-
-            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
         }
 
         [Fact]

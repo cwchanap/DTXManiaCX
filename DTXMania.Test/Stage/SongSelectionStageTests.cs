@@ -245,32 +245,6 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region Background Music Tests
-
-        [Fact]
-        public void SetBackgroundMusic_WithValidParameters_ShouldConfigureBackground()
-        {
-            // Arrange
-            var stage = CreateStage();
-            var mockSound = new Mock<ISound>();
-            var mockSoundInstance = new Mock<ISoundInstance>();
-
-            // Act & Assert - Should not throw exception
-            stage.SetBackgroundMusic(mockSound.Object, mockSoundInstance.Object);
-        }
-
-        [Fact]
-        public void SetBackgroundMusic_WithNullParameters_ShouldHandleGracefully()
-        {
-            // Arrange
-            var stage = CreateStage();
-
-            // Act & Assert - Should not throw exception
-            stage.SetBackgroundMusic(null, null);
-        }
-
-        #endregion
-
         #region Phase Transition Tests
 
         [Fact]

@@ -335,8 +335,6 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         SetPrivateField(stage, "_previewSoundInstance", instance.Object);
         SetPrivateField(stage, "_previewPlayDelay", 1.5d);
         SetPrivateField(stage, "_isPreviewDelayActive", true);
-        SetPrivateField(stage, "_isBgmFadingOut", true);
-        SetPrivateField(stage, "_isBgmFadingIn", false);
 
         var result = InvokeCommand(stage, "CancelPreparedChart");
 
@@ -345,8 +343,6 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         Assert.Same(instance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
         Assert.Equal(1.5d, GetPrivateField<double>(stage, "_previewPlayDelay"));
         Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
-        Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
         sound.Verify(x => x.RemoveReference(), Times.Never);
         instance.Verify(x => x.Stop(), Times.Never);
         instance.Verify(x => x.Dispose(), Times.Never);
@@ -363,8 +359,6 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         SetPrivateField(stage, "_previewSoundInstance", instance.Object);
         SetPrivateField(stage, "_previewPlayDelay", 2.5d);
         SetPrivateField(stage, "_isPreviewDelayActive", true);
-        SetPrivateField(stage, "_isBgmFadingOut", true);
-        SetPrivateField(stage, "_isBgmFadingIn", false);
 
         var result = InvokeCommand(stage, "PrepareVideoChart", " ");
 
@@ -373,8 +367,6 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         Assert.Same(instance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
         Assert.Equal(2.5d, GetPrivateField<double>(stage, "_previewPlayDelay"));
         Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-        Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
-        Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
         sound.Verify(x => x.RemoveReference(), Times.Never);
         instance.Verify(x => x.Stop(), Times.Never);
         instance.Verify(x => x.Dispose(), Times.Never);

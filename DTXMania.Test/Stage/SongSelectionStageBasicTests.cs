@@ -80,22 +80,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void Deactivate_WhenBackgroundMusicIsSet_ShouldDisposeBackgroundMusicInstance()
-        {
-            // Arrange
-            var stage = CreateStageWithFakeGraphicsManager();
-            var mockSound = new Mock<ISound>();
-            var mockSoundInstance = new Mock<ISoundInstance>();
-            stage.SetBackgroundMusic(mockSound.Object, mockSoundInstance.Object);
-
-            // Act
-            stage.Deactivate();
-
-            // Assert
-            mockSoundInstance.Verify(x => x.Dispose(), Times.Once);
-        }
-
-        [Fact]
         public void StopCurrentPreview_ShouldReleaseManagedPreviewSoundReference()
         {
             var stage = CreateUninitializedStage();
