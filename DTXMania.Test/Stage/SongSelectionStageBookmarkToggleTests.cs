@@ -226,7 +226,13 @@ namespace DTXMania.Test.Stage
 
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
-            SetPrivateField(stage, "_appliedLibrarySnapshot", snapshot);
+            // Reconciliation installs v101 as the applied snapshot (the real stage path).
+            InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", snapshot);
+            // Re-establish the toggle scenario: the selected node is a DISTINCT instance
+            // from the applied view's node for the same song id.
+            display.CurrentList = new List<SongListNode> { selectedNode };
+            display.SelectedIndex = 0;
+            SetPrivateField(stage, "_selectedSong", selectedNode);
 
             var roots = GetPrivateField<List<SongListNode>>(LibraryOf(stage), "_rootSongs");
             var savedRoots = roots.ToList();

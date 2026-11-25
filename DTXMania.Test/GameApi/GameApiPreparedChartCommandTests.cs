@@ -479,7 +479,8 @@ public sealed class GameApiPreparedChartCommandTests
         resourceManager.Setup(x => x.TryLoadSound(previewPath, out previewSound)).Returns(true);
         ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
         ReflectionHelpers.SetPrivateField(stage, "_currentSongList", new List<SongListNode> { node });
-        ReflectionHelpers.SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
+        // Install the applied snapshot through the stage's real reconciliation path.
+        ReflectionHelpers.InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new SongLibrarySnapshot(
             version: 1,
             rootSongs: new[] { node },
             activeRoots: new[] { root },
