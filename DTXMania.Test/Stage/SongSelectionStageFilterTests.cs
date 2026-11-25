@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Game.Lib.Config;
 using System.Collections.Generic;
 using Xunit;
@@ -195,7 +196,7 @@ namespace DTXMania.Test.Stage
             var node = new SongListNode { Title = "Recent Song" };
             node.RecentPlaySpeedPercent = 75;
 
-            var result = SongSelectionStage.FormatRecentPlayDisplayTitle(node);
+            var result = SongSelectionTabs.FormatRecentPlayDisplayTitle(node);
 
             Assert.Equal("Recent Song [0.75x]", result);
         }
@@ -205,7 +206,7 @@ namespace DTXMania.Test.Stage
         {
             var node = new SongListNode { Title = "Browse Song" };
 
-            var result = SongSelectionStage.FormatRecentPlayDisplayTitle(node);
+            var result = SongSelectionTabs.FormatRecentPlayDisplayTitle(node);
 
             Assert.Equal("Browse Song", result);
         }
@@ -216,7 +217,7 @@ namespace DTXMania.Test.Stage
             var node = new SongListNode { Title = "Recent Song [1.50x]" };
             node.RecentPlaySpeedPercent = PlaySpeedRange.Max;
 
-            var result = SongSelectionStage.FormatRecentPlayDisplayTitle(node);
+            var result = SongSelectionTabs.FormatRecentPlayDisplayTitle(node);
 
             Assert.Equal("Recent Song [1.50x]", result);
         }

@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -15,13 +16,15 @@ namespace DTXMania.Test.Stage;
 [Trait("Category", "Unit")]
 public sealed class SongSelectionStagePreparedChartTests
 {
+    // Tests that need the tabs owner build the stage through the constructor factory
+    // seam and KEEP the instance — no owner-field reflection (HPA-802 review).
     [Fact]
     public void ResolvePreparedChart_ForRootLevelChart_ShouldReturnExactNodeChartAndDifficulty()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-root");
         var chartPath = Path.Combine(root, "root.dtx");
         var node = CreateNode("same title", chartPath, chartId: 11, instrument: EInstrumentPart.DRUMS);
-        var stage = CreateStageWithSnapshot(root, node);
+        var (stage, _) = CreateStageWithSnapshot(root, node);
 
         var resolution = Resolve(stage, chartPath);
 
@@ -42,7 +45,7 @@ public sealed class SongSelectionStagePreparedChartTests
         var node = CreateNode("nested", chartPath, chartId: 12, instrument: EInstrumentPart.DRUMS);
         var inner = Box("same title", innerPath, node);
         var outer = Box("same title", outerPath, inner);
-        var stage = CreateStageWithSnapshot(root, outer);
+        var (stage, _) = CreateStageWithSnapshot(root, outer);
 
         var resolution = Resolve(stage, chartPath);
 
@@ -72,7 +75,7 @@ public sealed class SongSelectionStagePreparedChartTests
             DatabaseChart = primary,
             Scores = Scores((22, EInstrumentPart.DRUMS))
         };
-        var stage = CreateStageWithSnapshot(root, node);
+        var (stage, _) = CreateStageWithSnapshot(root, node);
 
         var resolution = Resolve(stage, requestedPath);
 
@@ -87,7 +90,7 @@ public sealed class SongSelectionStagePreparedChartTests
         var root = Path.Combine(Path.GetTempPath(), "hpa510-duplicates");
         var first = CreateNode("duplicate", Path.Combine(root, "one", "chart.dtx"), 31, EInstrumentPart.DRUMS);
         var second = CreateNode("duplicate", Path.Combine(root, "two", "chart.dtx"), 32, EInstrumentPart.DRUMS);
-        var stage = CreateStageWithSnapshot(root, first, second);
+        var (stage, _) = CreateStageWithSnapshot(root, first, second);
 
         var resolution = Resolve(stage, second.DatabaseChart!.FilePath);
 
@@ -102,7 +105,7 @@ public sealed class SongSelectionStagePreparedChartTests
         var root = Path.Combine(Path.GetTempPath(), "hpa510-active");
         var outsidePath = Path.Combine(Path.GetTempPath(), "hpa510-outside", "chart.dtx");
         var node = CreateNode("outside", outsidePath, 41, EInstrumentPart.DRUMS);
-        var stage = CreateStageWithSnapshot(root, node);
+        var (stage, _) = CreateStageWithSnapshot(root, node);
 
         Assert.Null(Resolve(stage, outsidePath));
     }
@@ -113,7 +116,7 @@ public sealed class SongSelectionStagePreparedChartTests
         var root = Path.Combine(Path.GetTempPath(), "hpa510-unindexed");
         var requestedPath = Path.Combine(root, "not-indexed.dtx");
         var indexed = CreateNode("indexed", Path.Combine(root, "indexed.dtx"), 51, EInstrumentPart.DRUMS);
-        var stage = CreateStageWithSnapshot(root, indexed);
+        var (stage, _) = CreateStageWithSnapshot(root, indexed);
 
         Assert.Null(Resolve(stage, requestedPath));
     }
@@ -132,7 +135,7 @@ public sealed class SongSelectionStagePreparedChartTests
                 (61, EInstrumentPart.GUITAR),
                 (61, EInstrumentPart.DRUMS),
                 (61, EInstrumentPart.BASS)));
-        var stage = CreateStageWithSnapshot(root, node);
+        var (stage, _) = CreateStageWithSnapshot(root, node);
 
         var resolution = Resolve(stage, chartPath);
 
@@ -153,7 +156,7 @@ public sealed class SongSelectionStagePreparedChartTests
             scores: Scores(
                 (71, EInstrumentPart.GUITAR),
                 (71, EInstrumentPart.BASS)));
-        var stage = CreateStageWithSnapshot(root, node);
+        var (stage, _) = CreateStageWithSnapshot(root, node);
 
         Assert.Null(Resolve(stage, chartPath));
     }
@@ -163,7 +166,7 @@ public sealed class SongSelectionStagePreparedChartTests
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-validation");
         var node = CreateNode("song", Path.Combine(root, "song.dtx"), 81, EInstrumentPart.DRUMS);
-        var stage = CreateStageWithSnapshot(root, node);
+        var (stage, _) = CreateStageWithSnapshot(root, node);
 
         Assert.Null(Resolve(stage, " "));
         Assert.Null(Resolve(stage, "relative/song.dtx"));
@@ -182,7 +185,7 @@ public sealed class SongSelectionStagePreparedChartTests
             instrument: EInstrumentPart.DRUMS,
             scores: Scores((91, EInstrumentPart.DRUMS), (91, EInstrumentPart.GUITAR)));
         var box = Box("box", boxPath, node);
-        var stage = CreateStageWithSnapshot(root, box);
+        var (stage, tabs) = CreateStageWithSnapshot(root, box);
         var display = new SongListDisplay();
         AttachCoreUi(stage, display: display);
         SetPrivateField(stage, "_currentSongList", new List<SongListNode> { box });
@@ -193,7 +196,7 @@ public sealed class SongSelectionStagePreparedChartTests
         var projected = InvokePrivateMethod<bool>(stage, "ProjectPreparedChartSelection", resolution!);
 
         Assert.True(projected);
-        Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        Assert.Equal(SongSelectionTab.AllSongs, tabs.ActiveTab);
         Assert.Null(GetPrivateField<object>(stage, "_filteredView"));
         Assert.Single(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
         Assert.Same(node, display.SelectedSong);
@@ -209,7 +212,7 @@ public sealed class SongSelectionStagePreparedChartTests
         var chartPath = Path.Combine(boxPath, "visible.dtx");
         var visibleNode = CreateNode("visible", chartPath, 91, EInstrumentPart.DRUMS);
         var box = Box("box", boxPath, visibleNode);
-        var stage = CreateStageWithSnapshot(root, box);
+        var (stage, _) = CreateStageWithSnapshot(root, box);
         var display = new SongListDisplay();
         AttachCoreUi(stage, display: display);
 
@@ -289,9 +292,10 @@ public sealed class SongSelectionStagePreparedChartTests
         Assert.Equal(0, display.CurrentDifficulty);
     }
 
-    private static SongSelectionStage CreateStageWithSnapshot(string activeRoot, params SongListNode[] roots)
+    private static (SongSelectionStage Stage, SongSelectionTabs Tabs) CreateStageWithSnapshot(
+        string activeRoot, params SongListNode[] roots)
     {
-        var stage = CreateStage();
+        var (stage, tabs) = CreateStageWithTabs();
         // Install the applied snapshot through the stage's real reconciliation path.
         AttachCoreUi(stage);
         InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new SongLibrarySnapshot(
@@ -300,7 +304,7 @@ public sealed class SongSelectionStagePreparedChartTests
             activeRoots: new[] { Path.GetFullPath(activeRoot) },
             enumeratedFileCount: roots.Length,
             discoveredScoreCount: roots.Length));
-        return stage;
+        return (stage, tabs);
     }
 
     private static object? Resolve(SongSelectionStage stage, string path) =>
