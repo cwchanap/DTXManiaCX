@@ -10,6 +10,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.SongSelection;
 using DTXMania.Test.Stage;
 using DTXMania.Test.TestData;
 using Moq;
@@ -371,25 +372,11 @@ public sealed class GameApiPreparedChartCommandTests
         // succeeds but before the command finishes. The execution path must own
         // completion — the caller should see the command's real result, not
         // "canceled", and the stage transition must have happened.
-        var game = ReflectionHelpers.CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0d);
-        var stage = SongSelectionStageTestFactory.CreateStage(game);
-        var node = CreateNode();
+        var stage = CreatePreparedStageForApi(Path.Combine(Path.GetTempPath(), "hpa510-api-cancel"), out var node);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
         stageManager.SetupGet(manager => manager.IsTransitioning).Returns(false);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", node);
-        ReflectionHelpers.SetPrivateField(stage, "_currentDifficulty", 0);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_preparedChartSelection",
-            CreatePreparedSelection(stage, node));
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_preparedPreviewState",
-            Enum.Parse(
-                ReflectionHelpers.GetField(typeof(SongSelectionStage), "_preparedPreviewState")!.FieldType,
-                "Prepared"));
 
         var enteredChangeStage = new ManualResetEventSlim(initialState: false);
         var releaseChangeStage = new ManualResetEventSlim(initialState: false);
@@ -444,63 +431,64 @@ public sealed class GameApiPreparedChartCommandTests
 
     private static BlockedActivationFixture CreateBlockedActivationFixture()
     {
-        var game = ReflectionHelpers.CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0d);
-        var stage = SongSelectionStageTestFactory.CreateStage(game);
+        var stage = CreatePreparedStageForApi(Path.Combine(Path.GetTempPath(), "hpa510-api-blocked"), out _, totalGameTime: 0.1);
         var stageManager = new Mock<IStageManager>();
-        var node = CreateNode();
         stage.StageManager = stageManager.Object;
         stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", node);
-        ReflectionHelpers.SetPrivateField(stage, "_currentDifficulty", 0);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_preparedChartSelection",
-            CreatePreparedSelection(stage, node));
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_preparedPreviewState",
-            Enum.Parse(
-                ReflectionHelpers.GetField(typeof(SongSelectionStage), "_preparedPreviewState")!.FieldType,
-                "Prepared"));
 
         var context = new Mock<IGameContext>();
         context.SetupGet(gameContext => gameContext.StageManager).Returns(stageManager.Object);
         return new BlockedActivationFixture(stage, stageManager, context);
     }
 
-    private static object CreatePreparedSelection(SongSelectionStage stage, SongListNode node)
+    // HPA-802 review round 1: prepared state comes from the real PrepareVideoChart
+    // flow (temp chart + preview files) instead of injected private fields, so the
+    // stage's record/state pairing invariant holds in these fixtures.
+    private static SongSelectionStage CreatePreparedStageForApi(string root, out SongListNode node, double totalGameTime = 2d)
     {
-        var field = ReflectionHelpers.GetField(typeof(SongSelectionStage), "_preparedChartSelection");
-        var chart = node.DatabaseChart!;
-        return Activator.CreateInstance(
-            field!.FieldType,
-            node,
-            chart,
-            0,
-            $"chart:{chart.Id}")!;
-    }
-
-    private static SongListNode CreateNode()
-    {
-        var chartPath = Path.Combine(Path.GetTempPath(), "hpa510-api-command.dtx");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "preview.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
         var chart = new SongChart
         {
             Id = 901,
             FilePath = chartPath,
+            PreviewFile = "preview.wav",
             HasDrumChart = true,
             DrumLevel = 5
         };
         var song = new SongEntity { Id = 901, Title = "prepared", Charts = new List<SongChart> { chart } };
         chart.Song = song;
         chart.SongId = song.Id;
-        return new SongListNode
+        node = new SongListNode
         {
             Type = NodeType.Score,
             Title = song.Title,
             DatabaseSongId = song.Id,
             DatabaseSong = song,
             DatabaseChart = chart,
+            Scores = new[] { new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS } }
         };
+        var game = ReflectionHelpers.CreateGame(totalGameTime: totalGameTime, lastStageTransitionTime: 0d);
+        var stage = SongSelectionStageTestFactory.CreateStage(game);
+        SongSelectionStageTestFactory.AttachCoreUi(stage, display: new SongListDisplay());
+        var resourceManager = new Mock<IResourceManager>();
+        var previewSound = new Mock<ISound>().Object;
+        resourceManager.Setup(x => x.TryLoadSound(previewPath, out previewSound)).Returns(true);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentSongList", new List<SongListNode> { node });
+        ReflectionHelpers.SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
+            version: 1,
+            rootSongs: new[] { node },
+            activeRoots: new[] { root },
+            enumeratedFileCount: 1,
+            discoveredScoreCount: 1));
+
+        var prepare = stage.PrepareVideoChart(chartPath);
+        Assert.True(prepare.Success, prepare.Error);
+        return stage;
     }
 
     private sealed record BlockedActivationFixture(
