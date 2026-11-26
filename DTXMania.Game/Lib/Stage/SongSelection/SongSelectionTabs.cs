@@ -129,6 +129,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
         // leave the DB divergent from the in-memory flag. ToggleBookmark runs on the update
         // thread, so dictionary access here is single-threaded.
         private readonly ConcurrentDictionary<int, Task> _pendingBookmarkWrites = new();
+        private readonly ConcurrentDictionary<int, bool> _bookmarkPersistedStates = new();
 
         // Monotonic per-song toggle generation. Bumped on every toggle so a persist fault from
         // an older toggle can be detected and its rollback discarded when a newer toggle has
@@ -426,7 +427,9 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                         applySuccess: nodes =>
                         {
                             _recentPlaysLoadFailed = false;
-                            _recentPlayNodes = nodes.ToList();
+                            var recentNodes = nodes.ToList();
+                            ApplyCurrentBookmarkStates(recentNodes);
+                            _recentPlayNodes = recentNodes;
                             if (_activeTab == SongSelectionTab.RecentPlays)
                                 RequestAsyncTabListRefresh();
                         },
@@ -564,6 +567,45 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             AwaitPendingWritesThenLoadBookmarks(scope, capturedRequestId);
         }
 
+        private void ApplyCurrentBookmarkStates(List<SongListNode> nodes)
+        {
+            var states = new Dictionary<int, bool>();
+            CollectBookmarkStates(
+                _intake.AppliedSnapshot?.RootSongs ?? _getLibrary().GetLibrarySnapshot().RootSongs,
+                states);
+            CollectBookmarkStates(_bookmarkNodes, states);
+            CollectBookmarkStates(_recentPlayNodes, states);
+
+            foreach (var node in nodes)
+            {
+                int? effectiveId = node.DatabaseSongId ?? node.DatabaseSong?.Id;
+                if (node.DatabaseSong != null
+                    && effectiveId is int songId
+                    && states.TryGetValue(songId, out var isBookmarked))
+                {
+                    node.DatabaseSong.IsBookmarked = isBookmarked;
+                }
+            }
+        }
+
+        private static void CollectBookmarkStates(
+            IEnumerable<SongListNode>? nodes,
+            Dictionary<int, bool> states)
+        {
+            if (nodes == null)
+                return;
+
+            foreach (var node in nodes)
+            {
+                int? effectiveId = node.DatabaseSongId ?? node.DatabaseSong?.Id;
+                if (node.DatabaseSong != null && effectiveId is int songId && songId > 0)
+                    states[songId] = node.DatabaseSong.IsBookmarked;
+
+                if (node.Children.Count > 0)
+                    CollectBookmarkStates(node.Children, states);
+            }
+        }
+
         private static IReadOnlyList<SongListNode> CopyTabLoadNodes(
             IEnumerable<SongListNode>? nodes)
         {
@@ -619,6 +661,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             int toggleVersion;
             lock (_bookmarkRevertGate)
             {
+                _bookmarkPersistedStates.TryAdd(songId, !newState);
                 toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
                 // Immediate, in-memory flip (the star refreshes next draw). It joins the
                 // gate with the version bump so a worker-side shared revert can never
@@ -655,7 +698,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             // the accessor, which may have been cleared (shutdown) or re-pointed at a newer
             // activation's library by the time this serialized write actually runs.
             var write = prior.ContinueWith(
-                _ => setBookmarkAsync(library, songId, newState),
+                _ => PersistBookmarkWriteAsync(setBookmarkAsync, library, songId, newState),
                 TaskScheduler.Default).Unwrap();
             _pendingBookmarkWrites[songId] = write;
 
@@ -694,13 +737,18 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                     // itself); never rely on awaiting the antecedent alone.
                     if (originScope != null)
                     {
+                        var revertTo = GetBookmarkPersistedState(songId, !newState);
                         originScope.Post(
-                            () => ApplyBookmarkRevertCore(library, songId, !newState, toggleVersion),
-                            onDropped: () => RevertSharedBookmark(library, songId, !newState, toggleVersion));
+                            () => ApplyBookmarkRevertCore(library, songId, revertTo, toggleVersion),
+                            onDropped: () => RevertSharedBookmark(library, songId, revertTo, toggleVersion));
                     }
                     else
                     {
-                        RevertSharedBookmark(library, songId, !newState, toggleVersion);
+                        RevertSharedBookmark(
+                            library,
+                            songId,
+                            GetBookmarkPersistedState(songId, !newState),
+                            toggleVersion);
                     }
 
                     _logger.LogWarning(
@@ -723,6 +771,21 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
 
             return true;
         }
+
+        private async Task PersistBookmarkWriteAsync(
+            Func<SongLibrary, int, bool, Task> setBookmarkAsync,
+            SongLibrary library,
+            int songId,
+            bool newState)
+        {
+            await setBookmarkAsync(library, songId, newState).ConfigureAwait(false);
+            _bookmarkPersistedStates[songId] = newState;
+        }
+
+        private bool GetBookmarkPersistedState(int songId, bool fallback) =>
+            _bookmarkPersistedStates.TryGetValue(songId, out var persistedState)
+                ? persistedState
+                : fallback;
 
         /// <summary>
         /// Reverts the SHARED library entities (the manager's current snapshot, which
@@ -819,7 +882,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             var nodes = _intake.Filter(_bookmarkNodes);
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
-            _showEmptyBookmarksMessage = !_bookmarksLoadFailed && nodes.Count == 0;
+            _showEmptyBookmarksMessage = !_bookmarksLoadFailed && _bookmarkNodes != null && nodes.Count == 0;
             return nodes;
         }
 

@@ -1019,6 +1019,49 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnFilterApplied_WhenTheFirstPublicationRollsBack_ShouldKeepDraftAndEmptyPlaceholder()
+        {
+            var stage = CreateStage();
+            var songManager = LibraryOf(stage);
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var newNode = Score("New", 2, "/library/new/new.dtx");
+            var display = new SongListDisplay();
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(newNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/new" });
+                display.SelectionChanged += (_, _) =>
+                    throw new InvalidOperationException("selection callback failed");
+                var failedSnapshot = new SongLibrarySnapshot(
+                    version: 1,
+                    rootSongs: new[] { newNode },
+                    activeRoots: new[] { "/library/new" },
+                    enumeratedFileCount: 1,
+                    discoveredScoreCount: 1);
+                Assert.Throws<TargetInvocationException>(() =>
+                    InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", failedSnapshot));
+                var criteria = new SongFilterCriteria("New", null, null, PlayedStatus.All, SongSortCriteria.Title, false);
+
+                InvokePrivateMethod(stage, "OnFilterApplied", stage, criteria);
+
+                Assert.Equal(criteria, GetPrivateField<SongFilterCriteria>(stage, "_filterCriteria"));
+                Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>>(stage, "_filteredView"));
+                Assert.DoesNotContain(newNode, display.CurrentList);
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+            }
+        }
+
+        [Fact]
         public void ApplyPendingLibraryPublication_WhenAProjectionFailsBetweenDeliveries_ShouldRetryThroughTheRealScopeDrain()
         {
             var (stage, intake) = CreateStageWithIntake();
@@ -1029,14 +1072,12 @@ namespace DTXMania.Test.Stage
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var priorSong = Score("Prior", 1, "/library/prior/prior.dtx");
             var newNode = Score("New", 2, "/library/new/new.dtx");
-            var recoveredSong = Score("Recovered", 3, "/library/recovered/recovered.dtx");
             var display = new SongListDisplay();
-            var faults = new List<Exception>();
 
             try
             {
                 AttachCoreUi(stage, display: display);
-                var scope = new StageBackgroundWorkScope(faults.Add);
+                var scope = stage.InstallTestBackgroundScope();
                 rootSongs.Clear();
                 rootSongs.Add(priorSong);
                 SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/prior" });
@@ -1050,17 +1091,21 @@ namespace DTXMania.Test.Stage
                 scope.Drain();
 
                 Assert.Equal(2, display.CurrentList.Count);
-                var appliedPrior = intake.AppliedSnapshot;
                 Assert.Equal(11L, intake.CommittedVersion);
 
                 // A projection fault on the next delivered publication: the drain
                 // contains the fault (it reaches the scope's fault handler, never the
                 // caller), nothing newer is acknowledged and the prior snapshot and
                 // projection survive intact.
+                var selectionCallbacksForNewNode = 0;
                 display.SelectionChanged += (_, e) =>
                 {
                     if (e.SelectedSong == newNode)
-                        throw new InvalidOperationException("selection callback failed");
+                    {
+                        selectionCallbacksForNewNode++;
+                        if (selectionCallbacksForNewNode == 1)
+                            throw new InvalidOperationException("selection callback failed");
+                    }
                 };
                 rootSongs.Clear();
                 rootSongs.Add(newNode);
@@ -1069,30 +1114,15 @@ namespace DTXMania.Test.Stage
                 PublishLibrarySnapshot(songManager, 12, "/library/new", newNode);
                 scope.Drain();
 
-                // The scope contains the fault. The reflection-based subscription wraps
-                // it in a TargetInvocationException — a test-harness artifact; unwrap
-                // it to prove the ORIGINAL reconciliation fault is what was reported.
-                var reported = Assert.Single(faults);
-                var fault = reported is TargetInvocationException wrapped
-                    ? wrapped.InnerException
-                    : reported;
-                Assert.IsType<InvalidOperationException>(fault);
-                Assert.Same(appliedPrior, intake.AppliedSnapshot);
-                Assert.Equal(11L, intake.CommittedVersion);
-                Assert.Same(priorSong, display.SelectedSong);
-
-                // Recovery arrives as the next real delivery through the same scope.
-                rootSongs.Clear();
-                rootSongs.Add(recoveredSong);
-                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/recovered" });
-                SetPrivateField(songManager, "_publicationVersion", 13L);
-                PublishLibrarySnapshot(songManager, 13, "/library/recovered", recoveredSong);
+                // No newer delivery arrives: the failed publication itself must be
+                // retried through the same scope. The extra drain covers a retry posted
+                // for the next drain; an immediate same-drain retry has already applied.
                 scope.Drain();
 
-                Assert.Equal(13L, intake.CommittedVersion);
+                Assert.Equal(2, selectionCallbacksForNewNode);
+                Assert.Equal(12L, intake.CommittedVersion);
                 Assert.Equal(2, display.CurrentList.Count);
-                Assert.Same(recoveredSong, display.CurrentList[0]);
-                Assert.DoesNotContain(newNode, display.CurrentList);
+                Assert.Same(newNode, display.CurrentList[0]);
 
                 scope.Retire();
             }

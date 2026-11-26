@@ -22,7 +22,7 @@ namespace DTXMania.Test.Stage
     public class SongSelectionStageBookmarkTests
     {
         [Fact]
-        public void RefreshSongListForActiveTab_OnBookmarksTab_AssignsTabOwnerRowsToDisplay()
+        public void RefreshSongListForActiveTab_OnBookmarksTab_ShouldAssignTabOwnerRowsToDisplay()
         {
             // A real row loaded through the constructor seam: the display assignment is
             // only meaningfully wired when it projects a non-empty owner cache.

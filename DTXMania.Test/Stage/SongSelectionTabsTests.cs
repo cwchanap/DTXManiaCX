@@ -495,7 +495,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void BuildBookmarksRows_WhenCacheNeverLoaded_ShouldShowEmpty()
+        public void BuildBookmarksRows_WhenCacheNeverLoaded_ShouldNotShowEmptyMessage()
         {
             using var library = CreateLibrary();
             var scope = new StageBackgroundWorkScope();
@@ -504,7 +504,7 @@ namespace DTXMania.Test.Stage
             var rows = tabs.BuildBookmarksRows();
 
             Assert.Empty(rows);
-            Assert.True(tabs.ShowEmptyBookmarksMessage);
+            Assert.False(tabs.ShowEmptyBookmarksMessage);
             scope.Retire();
         }
 
@@ -715,7 +715,14 @@ namespace DTXMania.Test.Stage
             using var library = CreateLibrary();
             var scope = new StageBackgroundWorkScope();
             var writer = new ControlledWriter();
-            var tabs = CreateTabs(library, scope, setBookmarkAsync: writer.Writer());
+            var bookmarksLoader = new ControlledLoader();
+            var submissions = new SubmissionRecorder();
+            var tabs = CreateTabs(
+                library,
+                scope,
+                loadBookmarkedNodesAsync: bookmarksLoader.Loader(),
+                setBookmarkAsync: writer.Writer(),
+                submitTabLoadQuery: submissions.Seam());
 
             tabs.SwitchToTab(SongSelectionTab.RecentPlays); // sets ActiveTab + refresh flag
             tabs.RequestAsyncTabListRefresh();
@@ -732,9 +739,23 @@ namespace DTXMania.Test.Stage
             Assert.False(tabs.RecentPlaysLoadFailed);
             Assert.False(tabs.ShowEmptyBookmarksMessage);
             Assert.False(tabs.BookmarksLoadFailed);
-            // Durable write state is stage-instance lifetime: the pending write
-            // registered above must still be awaited by the disposal drain.
-            writer.AwaitWriteInvoked(1);
+
+            // The durable pending write survives activation reset and still gates the
+            // owed Bookmarks query: no query is submitted while its gate is closed.
+            var submissionsBeforeRefresh = submissions.Submissions;
+            tabs.RequestBookmarksRefresh();
+            scope.Drain();
+            Assert.Equal(submissionsBeforeRefresh, submissions.Submissions);
+
+            var write = writer.AwaitWriteRegistered(0);
+            write.Gate.SetResult(true);
+            DrainUntil(scope, () => submissions.Submissions == submissionsBeforeRefresh + 1,
+                "the owed Bookmarks query was not submitted after the pending write settled");
+            bookmarksLoader.LoadWhenRegistered(0).Result.SetResult(
+                new List<SongListNode> { Score("Song", 11, bookmarked: true) });
+            DrainUntil(scope, () => tabs.BookmarkNodes is { Count: 1 },
+                "the owed Bookmarks query result was never applied");
+            Assert.Equal(submissionsBeforeRefresh + 1, submissions.Submissions);
             scope.Retire();
         }
 
@@ -895,6 +916,53 @@ namespace DTXMania.Test.Stage
 
             Assert.False(tabs.RecentPlaysLoadFailed);
             scope.Retire();
+        }
+
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenToggleOccursDuringQuery_ShouldPreserveNewerBookmarkState()
+        {
+            using var library = CreateLibrary();
+            var scope = new StageBackgroundWorkScope();
+            var intake = new SongSelectionLibraryIntake(() => library);
+            var loader = new ControlledLoader();
+            var writer = new ControlledWriter();
+            var tabs = CreateTabs(
+                () => library,
+                intake,
+                () => scope,
+                loadRecentPlaysAsync: loader.Loader(),
+                setBookmarkAsync: writer.Writer());
+
+            var selectedNode = Score("Selected", 42, bookmarked: false);
+
+            try
+            {
+                // The newer bookmark exists only on the currently applied Recent row:
+                // the detached row returned by the newer query must not overwrite it.
+                tabs.BeginRecentPlaysLoad();
+                var initialLoad = loader.LoadWhenRegistered(0);
+                await initialLoad.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                initialLoad.Result.SetResult(new List<SongListNode> { selectedNode });
+                DrainUntil(scope, () => tabs.RecentPlayNodes is { Count: 1 });
+
+                tabs.BeginRecentPlaysLoad();
+                var load = loader.LoadWhenRegistered(1);
+                await load.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+                Assert.True(tabs.ToggleBookmark(selectedNode));
+                Assert.True(selectedNode.DatabaseSong!.IsBookmarked);
+
+                var queryNode = Score("Recent", 42, bookmarked: false);
+                load.Result.SetResult(new List<SongListNode> { queryNode });
+                DrainUntil(scope, () => ReferenceEquals(tabs.RecentPlayNodes?.FirstOrDefault(), queryNode));
+
+                Assert.Same(queryNode, tabs.RecentPlayNodes![0]);
+                Assert.True(tabs.RecentPlayNodes[0].DatabaseSong!.IsBookmarked);
+            }
+            finally
+            {
+                scope.Retire();
+            }
         }
 
         // STALE RECENT CORRECTION (HPA-802): each flat tab owns its own query generation.
@@ -1568,10 +1636,12 @@ namespace DTXMania.Test.Stage
                 return Task.FromResult(new List<SongListNode>());
             };
 
+            var submissions = new SubmissionRecorder();
             var tabs = CreateTabs(
                 library, scope,
                 loadBookmarkedNodesAsync: loader,
-                setBookmarkAsync: writer.Writer());
+                setBookmarkAsync: writer.Writer(),
+                submitTabLoadQuery: submissions.Seam());
 
             var node = Score("A", 11);
             tabs.ToggleBookmark(node);
@@ -1581,6 +1651,7 @@ namespace DTXMania.Test.Stage
             // gate is still held), so the wait branch — not an immediate launch — is
             // entered; the returned task is that wait step's completion barrier.
             var waitTask = tabs.RequestBookmarksRefresh(); // active tab stays AllSongs
+            Assert.Equal(0, submissions.Submissions);
 
             // Release the fault: the write settles and releases the wait.
             faultGate.SetResult(true);
@@ -1593,6 +1664,7 @@ namespace DTXMania.Test.Stage
             await AwaitEnqueuedThenProcessAsync(
                 waitTask, scope,
                 "the deferred refresh issued no wait step for the pending write");
+            Assert.Equal(1, submissions.Submissions);
             Assert.True(
                 SpinWait.SpinUntil(
                     () => { lock (recordGate) return settledAtInvocation.Count >= 1; },
@@ -1646,22 +1718,26 @@ namespace DTXMania.Test.Stage
                 return Task.FromResult(new List<SongListNode>());
             };
 
+            var submissions = new SubmissionRecorder();
             var tabs = CreateTabs(
                 library, scope,
                 loadBookmarkedNodesAsync: loader,
-                setBookmarkAsync: writer.Writer());
+                setBookmarkAsync: writer.Writer(),
+                submitTabLoadQuery: submissions.Seam());
 
             var node = Score("A", 11);
             tabs.ToggleBookmark(node);
 
             // Snapshot sees the INCOMPLETE write (gate held) → wait branch.
             var waitTask = tabs.RequestBookmarksRefresh(); // active tab stays AllSongs
+            Assert.Equal(0, submissions.Submissions);
 
             cancelGate.SetResult(true); // the write's OWN cancellation releases the wait
 
             await AwaitEnqueuedThenProcessAsync(
                 waitTask, scope,
                 "the deferred refresh issued no wait step for the pending write");
+            Assert.Equal(1, submissions.Submissions);
             Assert.True(
                 SpinWait.SpinUntil(
                     () => { lock (recordGate) return settledAtInvocation.Count >= 1; },
@@ -2243,11 +2319,16 @@ namespace DTXMania.Test.Stage
                 // order, because the per-song chain starts write N+1 only after write N).
                 var writeTasks = new List<(bool State, Task Task)>();
                 var writeTasksGate = new object();
+                var firstWriteCompletedWhenSecondEntered = false;
                 Func<SongLibrary, int, bool, Task> observingRealWriter = (lib, id, state) =>
                 {
                     var write = lib.Queries.SetBookmarkAsync(id, state);
                     lock (writeTasksGate)
+                    {
+                        if (writeTasks.Count == 1)
+                            firstWriteCompletedWhenSecondEntered = writeTasks[0].Task.IsCompleted;
                         writeTasks.Add((state, write));
+                    }
                     return write;
                 };
 
@@ -2274,6 +2355,9 @@ namespace DTXMania.Test.Stage
                     firstWrite = writeTasks[0].Task;
                     secondWrite = writeTasks[1].Task;
                 }
+
+                Assert.True(firstWriteCompletedWhenSecondEntered,
+                    "the second serialized writer entered before the first real write completed");
 
                 // Both REAL writes must have completed successfully (a faulting write
                 // fails here, before any persisted-state assertion).
@@ -2386,6 +2470,7 @@ namespace DTXMania.Test.Stage
                     Assert.Equal(songId, reloaded.DatabaseSongId);
                     Assert.False(string.IsNullOrEmpty(reloaded.DifficultyLabels[0]));
                     Assert.False(string.IsNullOrEmpty(reloaded.DifficultyLabels[1]));
+                    Assert.Equal(55, reloaded.Scores[1]?.DifficultyLevel);
                     scopeB!.Retire();
                 }
                 finally
@@ -2398,6 +2483,47 @@ namespace DTXMania.Test.Stage
                 manager.Dispose();
                 SqliteTestPools.ClearForFile(dbPath);
                 try { File.Delete(dbPath); } catch { /* ignore */ }
+            }
+        }
+
+        [Fact]
+        public async Task ToggleBookmark_WhenQueuedTogglesBothFail_ShouldRevertToLastPersistedState()
+        {
+            using var library = CreateLibrary();
+            var scope = new StageBackgroundWorkScope();
+            var logger = new CapturingLogger();
+            var firstWrite = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondWrite = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var writeInvocations = 0;
+            Func<SongLibrary, int, bool, Task> writer = (_, _, _) =>
+                Interlocked.Increment(ref writeInvocations) == 1
+                    ? firstWrite.Task
+                    : secondWrite.Task;
+            var intake = new SongSelectionLibraryIntake(() => library);
+            var tabs = CreateTabs(() => library, intake, () => scope, setBookmarkAsync: writer, logger: logger);
+            var node = Score("Song", 42, bookmarked: false);
+            intake.Install(Snapshot(101, new[] { node }, new[] { "/library/active" }));
+
+            try
+            {
+                tabs.ToggleBookmark(node); // ON, held by the first write
+                Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref writeInvocations) == 1, TimeSpan.FromSeconds(10)));
+                tabs.ToggleBookmark(node); // OFF, chained behind the first write
+                Assert.False(node.DatabaseSong!.IsBookmarked);
+
+                firstWrite.SetException(new InvalidOperationException("first write failed"));
+                Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref writeInvocations) == 2, TimeSpan.FromSeconds(10)));
+                secondWrite.SetException(new InvalidOperationException("second write failed"));
+
+                AwaitRollbackHandoff(logger, 2,
+                    "both fault rollback handoffs never completed (warnings missing)");
+                scope.Drain();
+
+                Assert.False(node.DatabaseSong!.IsBookmarked);
+            }
+            finally
+            {
+                scope.Retire();
             }
         }
 
@@ -3014,11 +3140,12 @@ namespace DTXMania.Test.Stage
                     Assert.False(disposeWait.Wait(TimeSpan.FromMilliseconds(200)),
                         "the disposal drain must not finish while a write is gated");
                     releaseFirst.SetResult(true);
-                    disposeWait.Wait(TimeSpan.FromSeconds(10));
+                    Assert.True(disposeWait.Wait(TimeSpan.FromSeconds(10)),
+                        "the disposal drain did not finish after the gated write was released");
 
                     lock (receivedGate)
                     {
-                        Assert.NotEmpty(received);
+                        Assert.Equal(3, received.Count);
                         Assert.All(received, lib => Assert.Same(manager, lib));
                     }
 

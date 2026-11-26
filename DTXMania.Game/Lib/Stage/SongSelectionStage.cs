@@ -138,6 +138,7 @@ namespace DTXMania.Game.Lib.Stage
         // eligibility and the library-empty classification. The library is resolved
         // lazily and the stage drives reconciliation linearly.
         private readonly SongSelectionLibraryIntake _intake;
+        private bool _libraryPublicationReconcileFailed;
 
         // Tabs and bookmark writes (HPA-802): owns the active tab, the Recent/Bookmarks
         // caches with their distinct empty/error states, the refresh request/consumption
@@ -881,13 +882,29 @@ namespace DTXMania.Game.Lib.Stage
         /// snapshot is fetched HERE; the acknowledgment tracks the newer of the signal and the
         /// fetched snapshot so an older fetch can never reapply over a newer publication.
         /// </summary>
-        private void ApplyPendingLibraryPublication(long publishedVersion)
+        private void ApplyPendingLibraryPublication(long publishedVersion) =>
+            ApplyPendingLibraryPublicationCore(publishedVersion, queueRetryOnFailure: true);
+
+        private void ApplyPendingLibraryPublicationRetry(long publishedVersion) =>
+            ApplyPendingLibraryPublicationCore(publishedVersion, queueRetryOnFailure: false);
+
+        private void ApplyPendingLibraryPublicationCore(long publishedVersion, bool queueRetryOnFailure)
         {
             var snapshot = _intake.TryGetNewer(publishedVersion);
             if (snapshot == null)
                 return;
 
-            ReconcileLibrarySnapshot(snapshot);
+            try
+            {
+                ReconcileLibrarySnapshot(snapshot);
+            }
+            catch
+            {
+                if (queueRetryOnFailure)
+                    BackgroundWork?.Post(() => ApplyPendingLibraryPublicationRetry(publishedVersion));
+                throw;
+            }
+
             _intake.Commit(publishedVersion);
         }
 
@@ -906,9 +923,11 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 ReconcileLibrarySnapshotCore(snapshot, navigationPaths, previousSelectionIdentity);
+                _libraryPublicationReconcileFailed = false;
             }
             catch (Exception reconciliationFailure)
             {
+                _libraryPublicationReconcileFailed = true;
                 // A failed reconciliation must not leave the failed snapshot installed:
                 // restore the last valid snapshot — or, when none was ever applied, the
                 // pending-library placeholder — so readiness falls back and the next
@@ -1953,7 +1972,15 @@ namespace DTXMania.Game.Lib.Stage
 
         private void RebuildFilteredView()
         {
-            var snapshot = _intake.AppliedSnapshot ?? Library.GetLibrarySnapshot();
+            var snapshot = _intake.AppliedSnapshot
+                ?? (_libraryPublicationReconcileFailed ? null : Library.GetLibrarySnapshot());
+            if (snapshot == null)
+            {
+                _filteredView = null;
+                _showEmptyFilterMessage = false;
+                return;
+            }
+
             RebuildFilteredViewForSnapshot(snapshot);
         }
 
