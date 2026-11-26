@@ -551,11 +551,13 @@ namespace DTXMania.Game.Lib.Stage
                 HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Left
             };
 
-            // Create breadcrumb label
+            // Create breadcrumb label. Without the UI font UILabel.OnDraw skips the label,
+            // leaving the breadcrumb invisible.
             _breadcrumbLabel = new UILabel("")
             {
                 Position = SongSelectionUILayout.UILabels.Breadcrumb.Position,
                 Size = SongSelectionUILayout.UILabels.Breadcrumb.Size,
+                Font = uiFont?.SpriteFont,
                 TextColor = Color.Yellow,
                 HasShadow = true,
                 HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Left
@@ -666,10 +668,11 @@ namespace DTXMania.Game.Lib.Stage
             _songListDisplay.SongActivated += OnSongActivated;
             _songListDisplay.DifficultyChanged += OnDifficultyChanged;
 
-            // Add components to panel
+            // Add components to panel. The breadcrumb goes after the full-screen song-list
+            // display so its text is not covered by the list's 70%-black background wash.
             _mainPanel.AddChild(_titleLabel);
-            _mainPanel.AddChild(_breadcrumbLabel);
             _mainPanel.AddChild(_songListDisplay);
+            _mainPanel.AddChild(_breadcrumbLabel);
             _mainPanel.AddChild(_statusPanel);
             _mainPanel.AddChild(_playHistoryPanel);
             _mainPanel.AddChild(_previewImagePanel);
