@@ -3099,6 +3099,110 @@ namespace DTXMania.Test.Stage
             }
         }
 
+        // A persist fault from activation A can also land after re-entry while activation B
+        // is on the Bookmarks tab: RevertDroppedBookmarkRollback forwards ApplyBookmarkRevertCore
+        // to B, which reconciles the shared/intake state and calls RequestBookmarksRefresh so
+        // an un-bookmarked row reloads as bookmarked.
+        [Fact]
+        public async Task ToggleBookmark_WhenUnbookmarkFaultLandsAfterScopeSwapOnBookmarksTab_ShouldReloadBookmarks()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"tabs_revert_react_bm_{Guid.NewGuid():N}.db");
+            var manager = new SongLibrary(new SongDatabase(dbPath));
+            try
+            {
+                await manager.InitializeAsync(purgeDatabaseFirst: true);
+                var db = manager.Database;
+                var seed = new SongEntity { Title = "Song", Artist = "A", IsBookmarked = true };
+                var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
+                await db.SeedSongAsync(seed, chart);
+                var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
+                await db.PurgeDatabaseAsync(); // make the bookmark write fault once it runs
+
+                var bookmarkLoader = new ControlledLoader();
+                var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var writerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                Func<SongLibrary, int, bool, Task> gatedRealWriter = (lib, id, state) =>
+                {
+                    writerStarted.TrySetResult(true);
+                    return gate.Task.ContinueWith(
+                        _ => lib.Queries.SetBookmarkAsync(id, state),
+                        TaskScheduler.Default).Unwrap();
+                };
+
+                StageBackgroundWorkScope? currentScope = new StageBackgroundWorkScope();
+                var logger = new CapturingLogger();
+                var tabs = CreateTabs(
+                    () => manager,
+                    new SongSelectionLibraryIntake(() => manager),
+                    () => currentScope,
+                    loadBookmarkedNodesAsync: bookmarkLoader.Loader(),
+                    setBookmarkAsync: gatedRealWriter,
+                    logger: logger);
+                var sharedEntity = new SongEntity { Id = songId, Title = "Song", IsBookmarked = true };
+                var sharedNode = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = sharedEntity };
+                var savedRoots = TakeLibraryRoots(manager);
+                var roots = GetPrivateField<List<SongListNode>>(manager, "_rootSongs")!;
+                roots.Clear();
+                roots.Add(sharedNode);
+                try
+                {
+                    tabs.ToggleBookmark(sharedNode); // optimistic OFF in activation A
+                    Assert.False(sharedEntity.IsBookmarked);
+                    await writerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+                    // Navigate away and re-enter on the Bookmarks tab before the write fails.
+                    var scopeA = currentScope!;
+                    scopeA.Retire();
+                    currentScope = new StageBackgroundWorkScope();
+                    var scopeB = currentScope;
+                    tabs.ResetForActivation();
+                    tabs.SwitchToTab(SongSelectionTab.Bookmarks);
+                    Assert.Equal(SongSelectionTab.Bookmarks, tabs.ActiveTab);
+                    Assert.Equal(0, bookmarkLoader.InvokedCount);
+
+                    // Release the real write; it faults against the purged database. The
+                    // rollback handoff runs before the warning, reverting the shared entity
+                    // and posting ApplyBookmarkRevertCore into scope B.
+                    gate.SetResult(true);
+                    AwaitRollbackHandoff(logger, 1,
+                        "the rollback handoff never completed (no warning logged)");
+                    Assert.True(
+                        SpinWait.SpinUntil(() => sharedEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
+                        "the shared entity was not reverted after the failed un-bookmark");
+
+                    int nextLoad = 0;
+                    DrainUntil(scopeB!, () =>
+                    {
+                        while (nextLoad < bookmarkLoader.InvokedCount)
+                        {
+                            bookmarkLoader.LoadAt(nextLoad).Result.TrySetResult(
+                                new List<SongListNode> { Score("Song", songId, bookmarked: true) });
+                            nextLoad++;
+                        }
+                        return tabs.BookmarkNodes is { Count: 1 };
+                    }, "the re-entry Bookmarks tab did not reload the persisted bookmark after the failed un-bookmark");
+
+                    Assert.True(bookmarkLoader.InvokedCount >= 1);
+                    Assert.False(tabs.BookmarksLoadFailed);
+                    var rows = tabs.BuildBookmarksRows();
+                    Assert.Single(rows);
+                    Assert.True(rows[0].DatabaseSong!.IsBookmarked);
+                    Assert.False(tabs.ShowEmptyBookmarksMessage);
+                    scopeB!.Retire();
+                }
+                finally
+                {
+                    RestoreLibraryRoots(manager, savedRoots);
+                }
+            }
+            finally
+            {
+                manager.Dispose();
+                SqliteTestPools.ClearForFile(dbPath);
+                try { File.Delete(dbPath); } catch { /* ignore */ }
+            }
+        }
+
         // MIGRATED SQLITE #3 (stage-level 1120–1237) + CAPTURED-LIBRARY WRITE REGRESSION
         // (HPA-802 review): writes queued while the accessor is REPLACED by another
         // library still land in the ORIGINAL database, because the queued write executes
