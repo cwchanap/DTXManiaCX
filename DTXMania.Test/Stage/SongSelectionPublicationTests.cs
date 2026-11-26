@@ -526,7 +526,7 @@ namespace DTXMania.Test.Stage
             // write and the open modal's readiness) after the initializer's snapshot
             // application faults mid-projection? The spec requires initialization
             // failure to unblock readiness and leave an EMPTY placeholder even then.
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
@@ -569,7 +569,6 @@ namespace DTXMania.Test.Stage
                 // Activation head: projects the empty pending-library placeholder (silent
                 // on a fresh display) and posts the initializer terminal onto the scope.
                 InvokePrivateMethod(stage, "InitializeSongList");
-                var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
                 intake.Subscribe(scope, signal =>
                     InvokePrivateMethod(stage, "ApplyPendingLibraryPublication", signal));
 
@@ -716,7 +715,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ReconcileLibrarySnapshot_WhenProjectionFailsAfterInstall_WithPriorSnapshot_ShouldRestoreThePriorSnapshotAndProjection()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var priorNode = Score("Prior", 1, "/library/prior/prior.dtx");
             var newNode = Score("New", 2, "/library/new/new.dtx");
             var thirdNode = Score("Third", 3, "/library/third/third.dtx");
@@ -732,7 +731,6 @@ namespace DTXMania.Test.Stage
             // A selection callback raised during the failed snapshot's list refresh
             // (the real SongListDisplay.SelectionChanged event) faults the
             // reconciliation after Install already replaced the applied snapshot.
-            var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
             display.SelectionChanged += (_, e) =>
             {
                 if (e.SelectedSong == newNode)
@@ -765,7 +763,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyInitializedLibrarySnapshot_WhenReconciliationFailsWithoutPriorSnapshot_ShouldClearThePlaceholder()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
@@ -784,7 +782,6 @@ namespace DTXMania.Test.Stage
 
                 // A selection callback raised while the first snapshot's list is
                 // projected faults the initializer reconciliation after Install.
-                var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
                 display.SelectionChanged += (_, e) =>
                 {
                     if (e.SelectedSong == firstNode)
@@ -857,7 +854,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ReconcileLibrarySnapshot_WhenFailedSnapshotRemovesTheOpenFolder_ShouldRestoreThePreAttemptFolderAndSelection()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var priorSong = Score("Prior", 1, "/library/prior/BOX/prior.dtx");
             var priorBox = Box("BOX", "/library/prior/BOX", priorSong);
             var priorSnapshot = Snapshot(11, new[] { priorBox }, new[] { "/library/prior" });
@@ -883,7 +880,6 @@ namespace DTXMania.Test.Stage
             };
             display.SelectedIndex = 1;
             InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", priorSnapshot);
-            var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
             Assert.Same(priorSnapshot, intake.AppliedSnapshot);
 
             // The failed snapshot removes the open folder entirely; the selection
@@ -924,7 +920,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ReconcileLibrarySnapshot_WhenTheRestorationProjectionFailsToo_ShouldKeepTheRestoredBrowseStateAndRethrowTheOriginalFault()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var priorSong = Score("Prior", 1, "/library/prior/BOX/prior.dtx");
             var priorBox = Box("BOX", "/library/prior/BOX", priorSong);
             var priorSnapshot = Snapshot(11, new[] { priorBox }, new[] { "/library/prior" });
@@ -944,7 +940,6 @@ namespace DTXMania.Test.Stage
             };
             display.SelectedIndex = 1;
             InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", priorSnapshot);
-            var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
 
             // The callback faults BOTH projections: the failed snapshot's replacement
             // row and the restoration projection of the prior snapshot's own row.
@@ -981,7 +976,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ReconcileLibrarySnapshot_WhenTheFirstSnapshotFails_ShouldClearFilterViewAndPreviewRootsSoStaleRowsCannotReappear()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var newNode = Score("New", 2, "/library/new/new.dtx");
             var failedSnapshot = Snapshot(12, new[] { newNode }, new[] { "/library/new" });
             var display = new SongListDisplay();
@@ -993,7 +988,6 @@ namespace DTXMania.Test.Stage
             // before its projection faults.
             SetPrivateField(stage, "_filterCriteria",
                 new SongFilterCriteria("New", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
-            var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
             display.SelectionChanged += (_, e) =>
             {
                 if (e.SelectedSong == newNode)
@@ -1027,7 +1021,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyPendingLibraryPublication_WhenAProjectionFailsBetweenDeliveries_ShouldRetryThroughTheRealScopeDrain()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
@@ -1042,7 +1036,6 @@ namespace DTXMania.Test.Stage
             try
             {
                 AttachCoreUi(stage, display: display);
-                var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
                 var scope = new StageBackgroundWorkScope(faults.Add);
                 rootSongs.Clear();
                 rootSongs.Add(priorSong);
@@ -1115,7 +1108,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ReconcileLibrarySnapshot_WhenARollbackSelectionNotificationFaults_ShouldStillRestoreTheFinalRowAndPresentation()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var priorSong = Score("Prior", 1, "/library/prior/BOX/prior.dtx");
             var priorBox = Box("BOX", "/library/prior/BOX", priorSong);
             var priorSnapshot = Snapshot(11, new[] { priorBox }, new[] { "/library/prior" });
@@ -1137,7 +1130,6 @@ namespace DTXMania.Test.Stage
             };
             display.SelectedIndex = 1;
             InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", priorSnapshot);
-            var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
 
             // Production subscriber order: the stage's real selection handler runs
             // first (it overwrites _selectedSong with every notified row and drives
@@ -1173,7 +1165,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ApplyPendingLibraryPublication_WhenTheSameVersionIsRedeliveredAfterAFailure_ShouldReconcileThroughTheRealScopeDrain()
         {
-            var stage = CreateStage();
+            var (stage, intake) = CreateStageWithIntake();
             var songManager = LibraryOf(stage);
             var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
             var originalRoots = rootSongs.ToList();
@@ -1187,7 +1179,6 @@ namespace DTXMania.Test.Stage
             try
             {
                 AttachCoreUi(stage, display: display);
-                var intake = GetPrivateField<SongSelectionLibraryIntake>(stage, "_intake")!;
                 var scope = new StageBackgroundWorkScope(faults.Add);
                 rootSongs.Clear();
                 rootSongs.Add(priorSong);

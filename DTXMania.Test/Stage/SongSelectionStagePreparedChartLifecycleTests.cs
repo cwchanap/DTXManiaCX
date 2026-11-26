@@ -52,17 +52,17 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             SetPrivateField(stage, "_currentDifficulty", 0);
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
 
             InvokePrivateMethod(stage, "CycleDifficulty", -1);
 
             Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
             sound.Verify(x => x.RemoveReference(), Times.Once);
 
             // The ordinary delayed preview of the (still selected) song is restored.
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             sound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
@@ -110,11 +110,11 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
             sound.Verify(x => x.RemoveReference(), Times.Never);
 
             // The armed ordinary delay survived the difficulty change.
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             sound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
@@ -246,7 +246,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             preparedInstance.SetupGet(x => x.State).Returns(SoundState.Stopped);
             InvokePrivateMethod(stage, "OnUpdate", 0.016);
 
-            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Failed", PreviewStateOf(stage));
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
             var telemetry = new GameTelemetrySnapshot();
             stage.PopulateTelemetry(telemetry);
@@ -290,7 +290,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
             Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
-            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Playing", PreviewStateOf(stage));
 
             // A publication replaces the tree without the prepared chart.
             var replacement = Score("Replacement", 902, Path.Combine(root, "replacement.dtx"));
@@ -304,8 +304,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", snapshot);
 
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
-            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
+            Assert.Equal("None", PreviewStateOf(stage));
+            Assert.Equal(0d, PreviewElapsedMsOf(stage));
             preparedSound.Verify(x => x.RemoveReference(), Times.Once);
             preparedInstance.Verify(x => x.Stop(), Times.Once);
             preparedInstance.Verify(x => x.Dispose(), Times.Once);
@@ -355,7 +355,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 discoveredScoreCount: 1);
             InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", snapshot);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
 
             // The next ordinary selection loads and starts its delayed preview.
             var ordinaryPreviewPath = Path.Combine(root, "ordinary.wav");
@@ -385,9 +385,9 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 x => x.TryLoadSound(ordinaryPreviewPath, out It.Ref<ISound>.IsAny),
                 Times.Once);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
 
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             ordinarySound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
@@ -440,10 +440,11 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             Assert.True(result.Success);
             resourceManager.Verify(x => x.TryLoadSound(preparedPreview, out It.Ref<ISound>.IsAny), Times.Once);
             resourceManager.Verify(x => x.TryLoadSound(primaryPreview, out It.Ref<ISound>.IsAny), Times.Never);
-            Assert.True(PreviewControllerOf(stage).HasLoadedSound);
+            // A held sound is implied by the Prepared state: LoadStopped publishes it
+            // only after a successful load.
             Assert.Equal(0, createCalls);
-            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal(0d, PreviewElapsedMsOf(stage));
+            Assert.Equal("Prepared", PreviewStateOf(stage));
         }
         finally
         {
@@ -502,7 +503,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 new SongSelectionChangedEventArgs(interactiveNode, 0, true));
 
             // The interactive delayed preview starts and plays.
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             interactiveInstance.Verify(x => x.Play(), Times.Once);
 
             var result = InvokeCommand(stage, "PrepareVideoChart", chartPath);
@@ -513,7 +514,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             interactiveSound.Verify(x => x.RemoveReference(), Times.Once);
             preparedSound.Verify(x => x.RemoveReference(), Times.Never);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
         }
         finally
         {
@@ -550,7 +551,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
             Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
-            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Playing", PreviewStateOf(stage));
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
 
@@ -558,8 +559,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             preparedInstance.Verify(x => x.Dispose(), Times.Once);
             preparedSound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
-            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
+            Assert.Equal("Prepared", PreviewStateOf(stage));
+            Assert.Equal(0d, PreviewElapsedMsOf(stage));
         }
         finally
         {
@@ -600,9 +601,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             Assert.False(noDeclarationResult.Success);
             Assert.False(missingFileResult.Success);
             Assert.False(loadFailureResult.Success);
-            Assert.Equal("None", PreviewControllerOf(loadFailureStage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(loadFailureStage));
             Assert.Null(GetPrivateField<object>(loadFailureStage, "_preparedChartSelection"));
-            Assert.False(PreviewControllerOf(loadFailureStage).HasLoadedSound);
         }
         finally
         {
@@ -654,11 +654,11 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             resourceManager.Verify(x => x.TryLoadSound(requestedPreviewPath, out It.Ref<ISound>.IsAny), Times.Once);
             resourceManager.Verify(x => x.TryLoadSound(primaryPreviewPath, out It.Ref<ISound>.IsAny), Times.Once);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
-            Assert.True(PreviewControllerOf(stage).HasLoadedSound);
+            Assert.Equal("None", PreviewStateOf(stage));
 
-            // The restored primary preview arms its ordinary delayed start.
-            PreviewControllerOf(stage).Update(1.5d);
+            // The restored primary preview arms its ordinary delayed start (the armed
+            // delay can only fire while the loaded primary sound is still held).
+            UpdateStage(stage, 1.5d);
             primarySound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
@@ -695,10 +695,10 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 });
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
-            PreviewControllerOf(stage).Update(10d);
+            UpdateStage(stage, 10d);
 
             Assert.Equal(0, createCalls);
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
         }
         finally
         {
@@ -716,7 +716,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
         try
         {
-            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Playing", PreviewStateOf(stage));
 
             var result = InvokeCommand(stage, "StartPreparedPreview");
 
@@ -755,7 +755,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             var result = InvokeCommand(stage, "StartPreparedPreview");
 
             Assert.False(result.Success);
-            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Failed", PreviewStateOf(stage));
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
         }
         finally
@@ -774,14 +774,14 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
         try
         {
-            PreviewControllerOf(stage).Update(0.5d);
-            Assert.Equal(500d, PreviewControllerOf(stage).PlayedMs);
+            UpdateStage(stage, 0.5d);
+            Assert.Equal(500d, PreviewElapsedMsOf(stage));
 
             instance.SetupGet(x => x.State).Returns(SoundState.Stopped);
-            PreviewControllerOf(stage).Update(1d);
+            UpdateStage(stage, 1d);
 
-            Assert.Equal(500d, PreviewControllerOf(stage).PlayedMs);
-            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal(500d, PreviewElapsedMsOf(stage));
+            Assert.Equal("Failed", PreviewStateOf(stage));
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
         }
         finally
@@ -819,7 +819,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 loadedSound => ReferenceEquals(loadedSound, sound.Object) ? preparedInstance.Object : null);
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
             Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
-            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Playing", PreviewStateOf(stage));
 
             Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
             Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
@@ -828,8 +828,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             preparedInstance.Verify(x => x.Dispose(), Times.Once);
             sound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
-            Assert.Equal(0d, PreviewControllerOf(stage).PlayedMs);
+            Assert.Equal("None", PreviewStateOf(stage));
+            Assert.Equal(0d, PreviewElapsedMsOf(stage));
         }
         finally
         {
@@ -863,7 +863,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 loadedSound => ReferenceEquals(loadedSound, sound.Object) ? playingInstance.Object : null);
 
             // The armed ordinary delay actually starts the preview first.
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             playingInstance.Verify(x => x.Play(), Times.Once);
 
             Assert.True(InvokeCommand(stage, "CancelPreparedChart").Success);
@@ -900,7 +900,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.False(result.Success);
             sound.Verify(x => x.RemoveReference(), Times.Never);
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             sound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
@@ -935,14 +935,14 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 sound => ReferenceEquals(sound, preparedSound.Object) ? preparedInstance.Object : null);
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
             Assert.True(InvokeCommand(stage, "StartPreparedPreview").Success);
-            PreviewControllerOf(stage).Update(0.25d);
+            UpdateStage(stage, 0.25d);
 
             var result = InvokeCommand(stage, "PrepareVideoChart", " ");
 
             Assert.False(result.Success);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Playing", PreviewControllerOf(stage).PreparedState.ToString());
-            Assert.Equal(250d, PreviewControllerOf(stage).PlayedMs);
+            Assert.Equal("Playing", PreviewStateOf(stage));
+            Assert.Equal(250d, PreviewElapsedMsOf(stage));
             preparedSound.Verify(x => x.RemoveReference(), Times.Never);
             preparedInstance.Verify(x => x.Stop(), Times.Never);
         }
@@ -966,7 +966,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             stage.Deactivate();
 
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
             instance.Verify(x => x.Stop(), Times.Once);
             instance.Verify(x => x.Dispose(), Times.Once);
         }
@@ -1006,7 +1006,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             preparedSound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
         }
         finally
         {
@@ -1044,7 +1044,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             preparedSound.Verify(x => x.RemoveReference(), Times.Never);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
         }
         finally
         {
@@ -1078,10 +1078,10 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             preparedSound.Verify(x => x.RemoveReference(), Times.Once);
             resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Exactly(2));
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("None", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("None", PreviewStateOf(stage));
 
             // The ordinary delayed preview for the song is restored.
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             preparedSound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
@@ -1127,7 +1127,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.False(result.Success);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
             stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
         }
         finally
@@ -1183,7 +1183,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.False(result.Success);
             Assert.Equal("The prepared preview stopped unexpectedly.", result.Error);
-            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Failed", PreviewStateOf(stage));
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
         }
         finally
@@ -1216,7 +1216,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 _ => throw new InvalidOperationException("device lost"));
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
             Assert.False(InvokeCommand(stage, "StartPreparedPreview").Success);
-            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Failed", PreviewStateOf(stage));
 
             var result = InvokeCommand(stage, "StartPreparedPreview");
 
@@ -1269,7 +1269,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
             Assert.False(result.Success);
             Assert.Equal("The prepared chart preview could not be started.", result.Error);
-            Assert.Equal("Failed", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Failed", PreviewStateOf(stage));
         }
         finally
         {
@@ -1557,7 +1557,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 Times.Never);
             preparedSound.Verify(x => x.RemoveReference(), Times.Never);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
         }
         finally
         {
@@ -1593,7 +1593,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny),
                 Times.Once);
             Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-            Assert.Equal("Prepared", PreviewControllerOf(stage).PreparedState.ToString());
+            Assert.Equal("Prepared", PreviewStateOf(stage));
         }
         finally
         {
@@ -1692,7 +1692,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
         try
         {
-            PreviewControllerOf(stage).Update(1.2345d);
+            UpdateStage(stage, 1.2345d);
             var telemetry = new GameTelemetrySnapshot();
 
             stage.PopulateTelemetry(telemetry);
@@ -1847,8 +1847,31 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         return Activator.CreateInstance(selectionType, node, chart, difficulty, $"chart:{chart.Id}")!;
     }
 
-    private static SongSelectionPreviewController PreviewControllerOf(SongSelectionStage stage) =>
-        GetPrivateField<SongSelectionPreviewController>(stage, "_previewController")!;
+    // HPA-802 final review: stage preview facts are observed through the stage's
+    // PUBLIC telemetry surface and its REAL update loop instead of owner-field
+    // reflection — OnUpdate forwards the same delta to the preview controller, and
+    // PopulateTelemetry reports the controller's state and elapsed playback time.
+    private static string PreviewStateOf(SongSelectionStage stage)
+    {
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        return telemetry.PreparedPreviewState ?? nameof(SongSelectionPreviewState.None);
+    }
+
+    private static double PreviewElapsedMsOf(SongSelectionStage stage)
+    {
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+        return telemetry.PreparedPreviewElapsedMs ?? 0d;
+    }
+
+    // Drive the stage's real update loop: the BaseStage phase gate requires a
+    // live (non-Inactive) stage before OnUpdate reaches the controller.
+    private static void UpdateStage(SongSelectionStage stage, double deltaTime)
+    {
+        SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+        stage.Update(deltaTime);
+    }
 
     private static (bool Success, string? Error) InvokeCommand(SongSelectionStage stage, string methodName, params object[] args)
     {
