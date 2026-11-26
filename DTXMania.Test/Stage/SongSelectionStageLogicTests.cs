@@ -1597,6 +1597,26 @@ namespace DTXMania.Test.Stage
             Assert.Same(footer, GetPrivateField<ITexture>(stage, "_footerPanelTexture"));
         }
 
+        /// <summary>
+        /// A real SpriteFont whose MeasureString works headless: real ASCII glyph metrics over a
+        /// null texture (MeasureString never uploads the atlas, so no GraphicsDevice is needed).
+        /// </summary>
+        private static SpriteFont CreateHeadlessSpriteFont()
+        {
+            var characters = new List<char>();
+            var glyphBounds = new List<Rectangle>();
+            var cropping = new List<Rectangle>();
+            var kerning = new List<Vector3>();
+            for (var c = ' '; c <= '~'; c++)
+            {
+                characters.Add(c);
+                glyphBounds.Add(new Rectangle(0, 0, 1, 1));
+                cropping.Add(new Rectangle(0, 0, 1, 1));
+                kerning.Add(new Vector3(0f, 1f, 1f));
+            }
+            return new SpriteFont(null!, glyphBounds, cropping, characters, 16, 0f, kerning, '?');
+        }
+
         [Fact]
         public void InitializeUI_WhenDependenciesAreAvailable_ShouldCreateConfiguredUiHierarchy()
         {
@@ -1607,6 +1627,10 @@ namespace DTXMania.Test.Stage
             var resourceManager = new Mock<IResourceManager>();
             var configManager = new Mock<IConfigManager>();
             var uiFont = new Mock<IFont>();
+            // A real headless SpriteFont (glyph metrics only, no GPU atlas) proves the stage
+            // forwards the UI font, not just any non-null placeholder.
+            var uiFontSprite = CreateHeadlessSpriteFont();
+            uiFont.SetupGet(f => f.SpriteFont).Returns(uiFontSprite);
 
             var configData = new ConfigData
             {
@@ -1658,6 +1682,8 @@ namespace DTXMania.Test.Stage
             Assert.Equal(Color.Yellow, breadcrumbLabel.TextColor);
             Assert.True(breadcrumbLabel.HasShadow);
             Assert.Equal(DTXMania.Game.Lib.UI.Components.TextAlignment.Left, breadcrumbLabel.HorizontalAlignment);
+            // UILabel.OnDraw skips null-font labels, so a missing font makes the breadcrumb invisible.
+            Assert.Same(uiFontSprite, breadcrumbLabel.Font);
             Assert.Equal("PLAY 0.75x · PITCH +3 st", playbackProfileLabel!.Text);
             Assert.Equal(
                 SongSelectionUILayout.UILabels.PlaybackProfile.Position,
@@ -1683,9 +1709,10 @@ namespace DTXMania.Test.Stage
             Assert.Empty(previewImagePanel.ActiveSongRootPaths);
             Assert.Equal(8, mainPanel.Children.Count);
             Assert.Same(titleLabel, mainPanel.Children[0]);
-            Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
-            // Profile must draw above the full-screen song-list wash and neighbouring art.
-            Assert.Same(songListDisplay, mainPanel.Children[2]);
+            Assert.Same(songListDisplay, mainPanel.Children[1]);
+            // The breadcrumb must draw above the full-screen song-list wash; the profile
+            // label and breadcrumb both sit after the list for that reason.
+            Assert.Same(breadcrumbLabel, mainPanel.Children[2]);
             Assert.Same(statusPanel, mainPanel.Children[3]);
             Assert.Same(playHistoryPanel, mainPanel.Children[4]);
             Assert.Same(previewImagePanel, mainPanel.Children[5]);
