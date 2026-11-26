@@ -203,6 +203,61 @@ namespace DTXMania.Test.Stage
             }
         }
 
+        private sealed class GatedRealWriterHarness
+        {
+            private readonly TaskCompletionSource<bool> _gate =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> _started =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _skipDbWork;
+            private int _releasedRealWrite;
+            private Task? _writeTask;
+
+            public Task Started => _started.Task;
+
+            public Func<SongLibrary, int, bool, Task> Writer() => (lib, id, state) =>
+            {
+                _started.TrySetResult(true);
+                var task = _gate.Task.ContinueWith(
+                    _ => Volatile.Read(ref _skipDbWork) != 0
+                        ? Task.CompletedTask
+                        : lib.Queries.SetBookmarkAsync(id, state),
+                    TaskScheduler.Default).Unwrap();
+                Volatile.Write(ref _writeTask, task);
+                return task;
+            };
+
+            public void ReleaseRealWrite()
+            {
+                Volatile.Write(ref _releasedRealWrite, 1);
+                _gate.TrySetResult(true);
+            }
+
+            public void Cleanup(
+                SongSelectionTabs tabs,
+                CapturingLogger logger,
+                params StageBackgroundWorkScope?[] scopes)
+            {
+                if (Volatile.Read(ref _releasedRealWrite) == 0)
+                    Volatile.Write(ref _skipDbWork, 1);
+                _gate.TrySetResult(true);
+
+                var writeTask = Volatile.Read(ref _writeTask);
+                if (writeTask != null)
+                {
+                    try { writeTask.Wait(TimeSpan.FromSeconds(5)); }
+                    catch { /* ignore fault from purged db */ }
+                }
+                tabs.WaitForPendingWritesAtDisposal();
+
+                if (Volatile.Read(ref _releasedRealWrite) != 0 && writeTask is { IsFaulted: true } or { IsCanceled: true })
+                    SpinWait.SpinUntil(() => logger.Warnings >= 1, TimeSpan.FromSeconds(5));
+
+                foreach (var scope in scopes)
+                    scope?.Retire();
+            }
+        }
+
         // SUBMISSION-RECORDER SEAM FIXTURE (fix round 2 follow-up): the constructor
         // I/O-execution seam WRAPS the REAL StageBackgroundWorkScope.Run query
         // submission. Each submission ("ISSUE") is recorded synchronously on the
@@ -3022,24 +3077,18 @@ namespace DTXMania.Test.Stage
                 await db.PurgeDatabaseAsync(); // make the bookmark write fault once it runs
 
                 var recentLoader = new ControlledLoader();
-                var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                var writerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                Func<SongLibrary, int, bool, Task> gatedRealWriter = (lib, id, state) =>
-                {
-                    writerStarted.TrySetResult(true);
-                    return gate.Task.ContinueWith(
-                        _ => lib.Queries.SetBookmarkAsync(id, state),
-                        TaskScheduler.Default).Unwrap();
-                };
+                var writerHarness = new GatedRealWriterHarness();
 
                 StageBackgroundWorkScope? currentScope = new StageBackgroundWorkScope();
+                StageBackgroundWorkScope? scopeA = null;
+                StageBackgroundWorkScope? scopeB = null;
                 var logger = new CapturingLogger();
                 var tabs = CreateTabs(
                     () => manager,
                     new SongSelectionLibraryIntake(() => manager),
                     () => currentScope,
                     loadRecentPlaysAsync: recentLoader.Loader(),
-                    setBookmarkAsync: gatedRealWriter,
+                    setBookmarkAsync: writerHarness.Writer(),
                     logger: logger);
                 var sharedEntity = new SongEntity { Id = songId, Title = "Song", IsBookmarked = false };
                 var sharedNode = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = sharedEntity };
@@ -3051,16 +3100,16 @@ namespace DTXMania.Test.Stage
                 {
                     tabs.ToggleBookmark(sharedNode); // optimistic ON in activation A
                     Assert.True(sharedEntity.IsBookmarked);
-                    await writerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await writerHarness.Started.WaitAsync(TimeSpan.FromSeconds(5));
 
                     // Navigate away, then re-enter before the write fails. Activation B's
                     // warm Recent query reads the pre-write OFF state from the database,
                     // while the shared tree still carries the optimistic ON.
-                    var scopeA = currentScope!;
+                    scopeA = currentScope!;
                     scopeA.Retire();
                     currentScope = null;
                     currentScope = new StageBackgroundWorkScope();
-                    var scopeB = currentScope;
+                    scopeB = currentScope;
                     tabs.ResetForActivation();
                     tabs.BeginRecentPlaysLoad();
                     var reentryLoad = recentLoader.LoadWhenRegistered(0);
@@ -3074,7 +3123,7 @@ namespace DTXMania.Test.Stage
                     // Release the real write; it faults against the purged database. The
                     // rollback handoff runs before the warning, so the drain below is a
                     // deterministic application barrier for anything handed to scope B.
-                    gate.SetResult(true);
+                    writerHarness.ReleaseRealWrite();
                     AwaitRollbackHandoff(logger, 1,
                         "the rollback handoff never completed (no warning logged)");
                     Assert.True(
@@ -3084,10 +3133,10 @@ namespace DTXMania.Test.Stage
                     scopeB!.Drain();
                     Assert.False(reentryEntity.IsBookmarked,
                         "the current activation's Recent cache kept the stale optimistic bookmark");
-                    scopeB.Retire();
                 }
                 finally
                 {
+                    writerHarness.Cleanup(tabs, logger, currentScope, scopeA, scopeB);
                     RestoreLibraryRoots(manager, savedRoots);
                 }
             }
@@ -3102,7 +3151,9 @@ namespace DTXMania.Test.Stage
         // A persist fault from activation A can also land after re-entry while activation B
         // is on the Bookmarks tab: RevertDroppedBookmarkRollback forwards ApplyBookmarkRevertCore
         // to B, which reconciles the shared/intake state and calls RequestBookmarksRefresh so
-        // an un-bookmarked row reloads as bookmarked.
+        // an un-bookmarked row reloads as bookmarked. Uses SetActiveTabQuiet(Bookmarks) so
+        // setup does not queue its own refresh and the submission count isolates the reload
+        // triggered by the forwarded callback itself.
         [Fact]
         public async Task ToggleBookmark_WhenUnbookmarkFaultLandsAfterScopeSwapOnBookmarksTab_ShouldReloadBookmarks()
         {
@@ -3119,25 +3170,21 @@ namespace DTXMania.Test.Stage
                 await db.PurgeDatabaseAsync(); // make the bookmark write fault once it runs
 
                 var bookmarkLoader = new ControlledLoader();
-                var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                var writerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                Func<SongLibrary, int, bool, Task> gatedRealWriter = (lib, id, state) =>
-                {
-                    writerStarted.TrySetResult(true);
-                    return gate.Task.ContinueWith(
-                        _ => lib.Queries.SetBookmarkAsync(id, state),
-                        TaskScheduler.Default).Unwrap();
-                };
+                var submissions = new SubmissionRecorder();
+                var writerHarness = new GatedRealWriterHarness();
 
                 StageBackgroundWorkScope? currentScope = new StageBackgroundWorkScope();
+                StageBackgroundWorkScope? scopeA = null;
+                StageBackgroundWorkScope? scopeB = null;
                 var logger = new CapturingLogger();
                 var tabs = CreateTabs(
                     () => manager,
                     new SongSelectionLibraryIntake(() => manager),
                     () => currentScope,
                     loadBookmarkedNodesAsync: bookmarkLoader.Loader(),
-                    setBookmarkAsync: gatedRealWriter,
-                    logger: logger);
+                    setBookmarkAsync: writerHarness.Writer(),
+                    logger: logger,
+                    submitTabLoadQuery: submissions.Seam());
                 var sharedEntity = new SongEntity { Id = songId, Title = "Song", IsBookmarked = true };
                 var sharedNode = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = sharedEntity };
                 var savedRoots = TakeLibraryRoots(manager);
@@ -3148,30 +3195,38 @@ namespace DTXMania.Test.Stage
                 {
                     tabs.ToggleBookmark(sharedNode); // optimistic OFF in activation A
                     Assert.False(sharedEntity.IsBookmarked);
-                    await writerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await writerHarness.Started.WaitAsync(TimeSpan.FromSeconds(5));
 
-                    // Navigate away and re-enter on the Bookmarks tab before the write fails.
-                    var scopeA = currentScope!;
+                    // Navigate away and re-enter on the Bookmarks tab quietly (without
+                    // queueing a tab-switch refresh) before the write fails.
+                    scopeA = currentScope!;
                     scopeA.Retire();
                     currentScope = new StageBackgroundWorkScope();
-                    var scopeB = currentScope;
+                    scopeB = currentScope;
                     tabs.ResetForActivation();
-                    tabs.SwitchToTab(SongSelectionTab.Bookmarks);
+                    tabs.SetActiveTabQuiet(SongSelectionTab.Bookmarks);
                     Assert.Equal(SongSelectionTab.Bookmarks, tabs.ActiveTab);
+                    Assert.Equal(0, submissions.Submissions);
                     Assert.Equal(0, bookmarkLoader.InvokedCount);
 
                     // Release the real write; it faults against the purged database. The
                     // rollback handoff runs before the warning, reverting the shared entity
                     // and posting ApplyBookmarkRevertCore into scope B.
-                    gate.SetResult(true);
+                    writerHarness.ReleaseRealWrite();
                     AwaitRollbackHandoff(logger, 1,
                         "the rollback handoff never completed (no warning logged)");
                     Assert.True(
                         SpinWait.SpinUntil(() => sharedEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
                         "the shared entity was not reverted after the failed un-bookmark");
+                    Assert.Equal(0, submissions.Submissions);
+
+                    // Draining scope B executes the forwarded ApplyBookmarkRevertCore callback,
+                    // which must itself request and submit the Bookmarks reload.
+                    scopeB!.Drain();
+                    Assert.Equal(1, submissions.Submissions);
 
                     int nextLoad = 0;
-                    DrainUntil(scopeB!, () =>
+                    DrainUntil(scopeB, () =>
                     {
                         while (nextLoad < bookmarkLoader.InvokedCount)
                         {
@@ -3182,16 +3237,17 @@ namespace DTXMania.Test.Stage
                         return tabs.BookmarkNodes is { Count: 1 };
                     }, "the re-entry Bookmarks tab did not reload the persisted bookmark after the failed un-bookmark");
 
-                    Assert.True(bookmarkLoader.InvokedCount >= 1);
+                    Assert.Equal(1, submissions.Submissions);
+                    Assert.Equal(1, bookmarkLoader.InvokedCount);
                     Assert.False(tabs.BookmarksLoadFailed);
                     var rows = tabs.BuildBookmarksRows();
                     Assert.Single(rows);
                     Assert.True(rows[0].DatabaseSong!.IsBookmarked);
                     Assert.False(tabs.ShowEmptyBookmarksMessage);
-                    scopeB!.Retire();
                 }
                 finally
                 {
+                    writerHarness.Cleanup(tabs, logger, currentScope, scopeA, scopeB);
                     RestoreLibraryRoots(manager, savedRoots);
                 }
             }
