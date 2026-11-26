@@ -546,6 +546,11 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public const int Width = 600;
                 public const int Height = 30;
                 
+                // UILabel auto-sizes and never clips, so Width is not a render bound. The
+                // caption must stay inside the clear strip left of the preview panel
+                // (drawn later at this Y from x=250), which would cover any overflow.
+                public const int MaxTextWidth = PreviewImagePanel.WithStatusPanel.X - X - 10;
+                
                 public static Vector2 Position => new Vector2(X, Y);
                 public static Vector2 Size => new Vector2(Width, Height);
             }
