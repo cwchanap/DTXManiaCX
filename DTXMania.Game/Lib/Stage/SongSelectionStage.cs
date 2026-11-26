@@ -2005,6 +2005,11 @@ namespace DTXMania.Game.Lib.Stage
                 PopulateBookmarksList();
             else
                 PopulateSongListForCurrentMode();
+
+            // Same repopulate path as tab switches and load completions: the caption must
+            // follow the active tab (cleared on Recent/Bookmarks, restored on All Songs)
+            // even when those lists are empty and no selection callback fires.
+            UpdateBreadcrumb();
         }
 
         private void PopulateRecentPlaysList()
@@ -2029,13 +2034,27 @@ namespace DTXMania.Game.Lib.Stage
 
         private void UpdateBreadcrumb()
         {
+            // The breadcrumb describes All-Songs hierarchy/filter state only; Recent and
+            // Bookmarks project flat rows from a different scope, so the caption is cleared
+            // there (even when their empty lists fire no selection callback) and restored
+            // from retained state when All Songs becomes active again.
+            if (_tabs.ActiveTab != SongSelectionTab.AllSongs)
+            {
+                _breadcrumbLabel.Text = "";
+                return;
+            }
+
             string filterSummary = SummarizeFilter(_filterCriteria);
-            if (!string.IsNullOrEmpty(filterSummary))
-                _breadcrumbLabel.Text = filterSummary;
-            else
-                _breadcrumbLabel.Text = string.IsNullOrEmpty(_currentBreadcrumb)
-                    ? "Root"
-                    : _currentBreadcrumb;
+            string caption = !string.IsNullOrEmpty(filterSummary)
+                ? filterSummary
+                : string.IsNullOrEmpty(_currentBreadcrumb) ? "Root" : _currentBreadcrumb;
+            // UILabel auto-sizes and never clips; keep the visible caption inside the clear
+            // band left of the preview panel, which draws later at this Y and would cover
+            // overflow. A null font keeps the unmeasured failure path (label not drawn).
+            _breadcrumbLabel.Text = TextHelper.TruncateToWidth(
+                caption,
+                SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
+                _breadcrumbLabel.Font);
         }
 
         private void UpdateStatusPanelFolderHint()

@@ -67,6 +67,48 @@ namespace DTXMania.Test.UI
             Assert.True(maximumWidth > 200, "Real font metrics must be loaded, not a zero-width mock");
         }
 
+        [Fact]
+        public void Breadcrumb_MaxTextWidth_StaysClearOfPreviewPanelAndSongRows()
+        {
+            var maxWidth = SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth;
+            // The band must end before the preview panel, which draws later at the
+            // breadcrumb's Y (x=250) and would cover any overflow; song rows start even
+            // further right, so the preview bound is the strict one.
+            Assert.True(maxWidth > 0);
+            Assert.True(
+                SongSelectionUILayout.UILabels.Breadcrumb.X + maxWidth
+                    <= SongSelectionUILayout.PreviewImagePanel.WithStatusPanel.X);
+        }
+
+        [Fact]
+        public void Breadcrumb_LongText_TruncatesWithBundledFontMetrics()
+        {
+            var (assetName, _, _) = ManagedFont.GetBestSpriteFontAssetName(
+                SongSelectionUILayout.Background.DefaultFontName,
+                SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
+            var font = ReadSpriteFontMetrics(Path.Combine(AppContext.BaseDirectory, "Content", assetName + ".xnb"));
+            float band = SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth;
+
+            // What UpdateBreadcrumb does: short captions render verbatim; long nested
+            // paths and long filter summaries truncate to the clear band.
+            foreach (var caption in new[]
+            {
+                "Root",
+                "Practice song",
+                "Root > " + new string('n', 120),
+                "Filtered: \"" + new string('q', 120) + "\""
+            })
+            {
+                var displayed = DTXMania.Game.Lib.Utilities.TextHelper.TruncateToWidth(caption, band, font);
+                Assert.True(font.MeasureString(displayed).X <= band,
+                    $"'{caption}' displayed as '{displayed}' measures {font.MeasureString(displayed).X}px over the {band}px band");
+                if (font.MeasureString(caption).X <= band)
+                    Assert.Equal(caption, displayed);
+                else
+                    Assert.EndsWith("...", displayed);
+            }
+        }
+
         private static SpriteFont ReadSpriteFontMetrics(string path)
         {
             // shortcut: supports the project's uncompressed XNB v5 fonts; upgrade if compression changes.

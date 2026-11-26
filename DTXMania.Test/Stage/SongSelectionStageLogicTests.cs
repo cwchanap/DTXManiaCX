@@ -1600,6 +1600,8 @@ namespace DTXMania.Test.Stage
         /// <summary>
         /// A real SpriteFont whose MeasureString works headless: real ASCII glyph metrics over a
         /// null texture (MeasureString never uploads the atlas, so no GraphicsDevice is needed).
+        /// Includes a non-ASCII glyph and a combining mark so grapheme-integrity regressions
+        /// measure real bounds headless ('e' + combining acute = one grapheme element).
         /// </summary>
         private static SpriteFont CreateHeadlessSpriteFont()
         {
@@ -1608,6 +1610,13 @@ namespace DTXMania.Test.Stage
             var cropping = new List<Rectangle>();
             var kerning = new List<Vector3>();
             for (var c = ' '; c <= '~'; c++)
+            {
+                characters.Add(c);
+                glyphBounds.Add(new Rectangle(0, 0, 1, 1));
+                cropping.Add(new Rectangle(0, 0, 1, 1));
+                kerning.Add(new Vector3(0f, 1f, 1f));
+            }
+            foreach (var c in new[] { '\u00E9', '\u0301' })
             {
                 characters.Add(c);
                 glyphBounds.Add(new Rectangle(0, 0, 1, 1));
@@ -4118,6 +4127,196 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "UpdateBreadcrumb");
 
             Assert.Equal("Root > Folder > Sub", breadcrumb.Text);
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenPathExceedsBreadcrumbBand_ShouldTruncateToFitClearWidth()
+        {
+            var stage = CreateStage();
+            var font = CreateHeadlessSpriteFont();
+            var breadcrumb = new UILabel("") { Font = font };
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            // 200 chars measure ~400px in the 2px-per-char headless font, far past the
+            // preview panel's left edge (x=250) which draws over the breadcrumb row.
+            SetPrivateField(stage, "_currentBreadcrumb", new string('A', 200));
+            SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            Assert.EndsWith("...", breadcrumb.Text);
+            Assert.True(
+                font.MeasureString(breadcrumb.Text).X <= SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
+                $"truncated caption measured {font.MeasureString(breadcrumb.Text).X}px over the "
+                + $"{SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth}px band");
+            // UILabel auto-sizes from the same font, so the rendered label stays inside the band.
+            Assert.True(breadcrumb.Size.X <= SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth);
+            // Only the display truncates; the full path stays in state for BackBox restoration.
+            Assert.Equal(new string('A', 200), GetPrivateField<string>(stage, "_currentBreadcrumb"));
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenFilterSummaryExceedsBreadcrumbBand_ShouldTruncateToFitClearWidth()
+        {
+            var stage = CreateStage();
+            var font = CreateHeadlessSpriteFont();
+            var breadcrumb = new UILabel("") { Font = font };
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root");
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria(
+                new string('q', 200), null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            Assert.StartsWith("Filtered:", breadcrumb.Text);
+            Assert.EndsWith("...", breadcrumb.Text);
+            Assert.True(
+                font.MeasureString(breadcrumb.Text).X <= SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
+                $"truncated summary measured {font.MeasureString(breadcrumb.Text).X}px over the "
+                + $"{SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth}px band");
+            // The criteria are retained; only the displayed summary truncates.
+            Assert.False(GetPrivateField<SongFilterCriteria>(stage, "_filterCriteria").IsEmpty);
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenPathFitsBreadcrumbBand_ShouldKeepTextUntruncated()
+        {
+            var stage = CreateStage();
+            var font = CreateHeadlessSpriteFont();
+            var breadcrumb = new UILabel("") { Font = font };
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder > Sub");
+            SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            // Clear short texts render verbatim, no ellipsis.
+            Assert.Equal("Root > Folder > Sub", breadcrumb.Text);
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WithCombiningMarksAndLongPath_ShouldTruncateWithinBandWithoutSplittingGraphemes()
+        {
+            var stage = CreateStage();
+            var font = CreateHeadlessSpriteFont();
+            var breadcrumb = new UILabel("") { Font = font };
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            // Non-ASCII caption with combining marks: "a"+U+0301 and "X"+U+0301 are single
+            // grapheme elements. The long tail forces a truncation cut; a naive per-char cut
+            // would leave a bare 'X' (splitting the element) at this width budget.
+            string caption = "a\u0301" + new string('B', 89) + "X\u0301" + new string('B', 300);
+            SetPrivateField(stage, "_currentBreadcrumb", caption);
+            SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            var displayed = breadcrumb.Text;
+            Assert.EndsWith("...", displayed);
+            Assert.True(
+                font.MeasureString(displayed).X <= SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
+                $"truncated caption measured {font.MeasureString(displayed).X}px over the "
+                + $"{SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth}px band");
+            var displayedPrefix = displayed.Substring(0, displayed.Length - 3);
+            // The displayed text is a real element-boundary prefix of the caption ...
+            Assert.StartsWith(displayedPrefix, caption, StringComparison.Ordinal);
+            // ... and its trailing grapheme is complete: the caption's element at the last
+            // displayed start must have the same spelling in the displayed prefix (a naive
+            // per-char cut inside "X"+U+0301 would leave a bare 'X').
+            var captionStarts = StringInfo.ParseCombiningCharacters(caption);
+            var prefixStarts = StringInfo.ParseCombiningCharacters(displayedPrefix);
+            var lastStart = prefixStarts[^1];
+            var nextBoundary = Array.FindIndex(captionStarts, start => start > lastStart);
+            var elementEnd = nextBoundary < 0 ? caption.Length : captionStarts[nextBoundary];
+            Assert.Equal(caption.Substring(lastStart, elementEnd - lastStart), displayedPrefix.Substring(lastStart));
+            // No displayed grapheme element ever begins with a combining mark.
+            foreach (var start in prefixStarts.Skip(1))
+                Assert.NotEqual(UnicodeCategory.NonSpacingMark, CharUnicodeInfo.GetUnicodeCategory(displayedPrefix, start));
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenActiveTabIsRecentPlays_ShouldClearCaptionAndRetainBackingState()
+        {
+            var (stage, tabs) = CreateStageWithTabs();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder");
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria(
+                "hello", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            tabs.SetActiveTabQuiet(SongSelectionTab.RecentPlays);
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            // The caption describes All-Songs hierarchy/filter state only, so it clears on
+            // Recent/Bookmarks; the backing path and filter criteria survive untouched.
+            Assert.Equal(SongSelectionTab.RecentPlays, tabs.ActiveTab);
+            Assert.Equal(string.Empty, breadcrumb.Text);
+            Assert.Equal("Root > Folder", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.False(GetPrivateField<SongFilterCriteria>(stage, "_filterCriteria").IsEmpty);
+        }
+
+        [Fact]
+        public void SwitchToRecentTabWithEmptyList_ShouldClearBreadcrumbCaptionAndRestoreOnReturnToAllSongs()
+        {
+            var (stage, tabs) = CreateStageWithTabs();
+            var display = new SongListDisplay();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, display: display, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                new SongListNode { Type = NodeType.Score, Title = "A1" }
+            });
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder");
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+            Assert.Equal("Root > Folder", breadcrumb.Text);
+
+            // Real stage tab-switch path: SwitchToTab marks the refresh and the update-drain
+            // repopulates via RefreshSongListForActiveTab. The Recent list is EMPTY, so no
+            // selection-change callback fires — the caption must still clear.
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.RecentPlays);
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.Equal(SongSelectionTab.RecentPlays, tabs.ActiveTab);
+            Assert.Empty(display.CurrentList);
+            Assert.Equal(string.Empty, breadcrumb.Text);
+            Assert.Equal("Root > Folder", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+
+            // Returning to All Songs restores the saved caption and the browse rows without
+            // clearing navigation state.
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.AllSongs);
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.Equal("Root > Folder", breadcrumb.Text);
+            Assert.Equal(2, display.CurrentList.Count);
+            Assert.Equal("A1", display.CurrentList[0].Title);
+            Assert.Equal("Root > Folder", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+        }
+
+        [Fact]
+        public void SwitchToBookmarksTabWithEmptyList_ShouldClearFilteredCaptionAndRestoreOnReturnToAllSongs()
+        {
+            var (stage, tabs) = CreateStageWithTabs();
+            var display = new SongListDisplay();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, display: display, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder");
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria(
+                "", null, null, PlayedStatus.Played, SongSortCriteria.Title, false));
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+            Assert.Equal("Filtered: Played", breadcrumb.Text);
+
+            // Same real switch path with an EMPTY Bookmarks list and an active filter.
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.Bookmarks);
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.Equal(SongSelectionTab.Bookmarks, tabs.ActiveTab);
+            Assert.Empty(display.CurrentList);
+            Assert.Equal(string.Empty, breadcrumb.Text);
+
+            // Back to All Songs: the filter summary is restored because the criteria survive.
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.AllSongs);
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.Equal("Filtered: Played", breadcrumb.Text);
+            Assert.False(GetPrivateField<SongFilterCriteria>(stage, "_filterCriteria").IsEmpty);
         }
 
         [Fact]
