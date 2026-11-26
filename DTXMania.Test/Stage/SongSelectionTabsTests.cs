@@ -919,6 +919,51 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task BeginRecentPlaysLoad_WhenAppliedSnapshotDisagreesWithCachedRow_ShouldNotInheritCachedBookmarkState()
+        {
+            using var library = CreateLibrary();
+            var scope = new StageBackgroundWorkScope();
+            var intake = new SongSelectionLibraryIntake(() => library);
+            var loader = new ControlledLoader();
+            var tabs = CreateTabs(
+                () => library,
+                intake,
+                () => scope,
+                loadRecentPlaysAsync: loader.Loader());
+
+            try
+            {
+                tabs.BeginRecentPlaysLoad();
+                loader.LoadWhenRegistered(0).Result.SetResult(new List<SongListNode>
+                {
+                    Score("Cached", 42, bookmarked: true)
+                });
+                DrainUntil(scope, () => tabs.RecentPlayNodes is { Count: 1 });
+
+                // The applied library snapshot is the canonical browse-tree view. A fresh
+                // Recent row must take its state from that view (plus explicit toggle
+                // reconciliation), never by copying the previously cached Recent row.
+                intake.Install(Snapshot(
+                    101,
+                    new[] { Score("Library", 42, bookmarked: false) },
+                    new[] { "/library/active" }));
+
+                tabs.BeginRecentPlaysLoad();
+                var load = loader.LoadWhenRegistered(1);
+                await load.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var freshNode = Score("Fresh", 42, bookmarked: false);
+                load.Result.SetResult(new List<SongListNode> { freshNode });
+                DrainUntil(scope, () => ReferenceEquals(tabs.RecentPlayNodes?.FirstOrDefault(), freshNode));
+
+                Assert.False(freshNode.DatabaseSong!.IsBookmarked);
+            }
+            finally
+            {
+                scope.Retire();
+            }
+        }
+
+        [Fact]
         public async Task BeginRecentPlaysLoad_WhenToggleOccursDuringQuery_ShouldPreserveNewerBookmarkState()
         {
             using var library = CreateLibrary();
@@ -2582,10 +2627,11 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        // A committed bookmark persistence task may outlive navigation; only the stale UI
+        // A committed bookmark persistence task may outlive navigation; only the UI
         // rollback is dropped (the scope retired), never the write itself. On a FAILED
         // write there is no committed intent: the library entity must revert (worker-side,
-        // version-guarded) while the per-activation UI list keeps the optimistic value.
+        // version-guarded). With no newer activation current, the retired activation's UI
+        // list keeps the optimistic value until the next activation reset discards it.
         [Fact]
         public async Task ToggleBookmark_WhenScopeRetiresBeforeFault_ShouldRevertSharedEntityButDropUiRollback()
         {
@@ -2612,8 +2658,9 @@ namespace DTXMania.Test.Stage
                 roots.Add(node);
                 try
                 {
-                    // A distinct entity in a per-activation UI list: the dropped rollback
-                    // must never reach it (only the shared entity reverts on the worker).
+                    // A distinct entity in a per-activation UI list: with no newer
+                    // activation current, the dropped rollback never reaches it (only the
+                    // shared entity reverts on the worker).
                     var recentEntity = new SongEntity { Id = songId, Title = "Recent", IsBookmarked = false };
                     var recentNode = new SongListNode { Type = NodeType.Score, Title = "Recent", DatabaseSong = recentEntity };
                     tabs.BeginRecentPlaysLoad();
@@ -2636,8 +2683,8 @@ namespace DTXMania.Test.Stage
                     Assert.True(
                         SpinWait.SpinUntil(() => !node.DatabaseSong!.IsBookmarked, TimeSpan.FromSeconds(5)),
                         "the library entity was not reverted after the failed persist");
-                    // The per-activation UI list keeps its optimistic value: its rollback
-                    // was dropped with the retired scope.
+                    // The per-activation UI list keeps its optimistic value here because
+                    // no newer activation exists to receive the cache rollback.
                     Assert.True(recentEntity.IsBookmarked);
                 }
                 finally
@@ -2954,11 +3001,13 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        // A persist fault from activation A must post its rollback into A's (retired)
-        // scope — never into a later activation B. B's per-activation lists and its
-        // bookmark loads are untouched; the shared entity is reverted on the worker.
+        // A persist fault from activation A can land after the player has already
+        // re-entered Song Select in activation B. The shared entity still reverts on the
+        // worker, and the current activation's Recent cache must reconcile the same
+        // version-guarded rollback; otherwise a row loaded from the pre-write database
+        // keeps the optimistic star forever.
         [Fact]
-        public async Task ToggleBookmark_WhenFaultLandsAfterScopeSwap_ShouldNotMutateTheNewScope()
+        public async Task ToggleBookmark_WhenFaultLandsAfterScopeSwap_ShouldReconcileCurrentActivationRecentCache()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"tabs_revert_react_{Guid.NewGuid():N}.db");
             var manager = new SongLibrary(new SongDatabase(dbPath));
@@ -2972,80 +3021,70 @@ namespace DTXMania.Test.Stage
                 var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
                 await db.PurgeDatabaseAsync(); // make the bookmark write fault once it runs
 
-                var loader = new ControlledLoader();
                 var recentLoader = new ControlledLoader();
                 var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var writerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 Func<SongLibrary, int, bool, Task> gatedRealWriter = (lib, id, state) =>
-                    gate.Task.ContinueWith(
+                {
+                    writerStarted.TrySetResult(true);
+                    return gate.Task.ContinueWith(
                         _ => lib.Queries.SetBookmarkAsync(id, state),
                         TaskScheduler.Default).Unwrap();
+                };
 
                 StageBackgroundWorkScope? currentScope = new StageBackgroundWorkScope();
-                SongLibrary currentLibrary = manager;
                 var logger = new CapturingLogger();
                 var tabs = CreateTabs(
-                    () => currentLibrary,
-                    new SongSelectionLibraryIntake(() => currentLibrary),
+                    () => manager,
+                    new SongSelectionLibraryIntake(() => manager),
                     () => currentScope,
                     loadRecentPlaysAsync: recentLoader.Loader(),
-                    loadBookmarkedNodesAsync: loader.Loader(),
                     setBookmarkAsync: gatedRealWriter,
                     logger: logger);
-                var nodeEntity = new SongEntity { Id = songId, Title = "Song", IsBookmarked = false };
-                var node = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = nodeEntity };
+                var sharedEntity = new SongEntity { Id = songId, Title = "Song", IsBookmarked = false };
+                var sharedNode = new SongListNode { Type = NodeType.Score, Title = "Song", DatabaseSong = sharedEntity };
                 var savedRoots = TakeLibraryRoots(manager);
                 var roots = GetPrivateField<List<SongListNode>>(manager, "_rootSongs")!;
                 roots.Clear();
-                roots.Add(node);
-                var recentEntity = new SongEntity { Id = songId, Title = "Recent", IsBookmarked = false };
+                roots.Add(sharedNode);
                 try
                 {
-                    // A distinct entity in B's per-activation UI list: the stale rollback
-                    // must never reach it, while the shared entity itself is reverted on
-                    // the worker.
-                    var recentNode = new SongListNode { Type = NodeType.Score, Title = "Recent", DatabaseSong = recentEntity };
-                    tabs.BeginRecentPlaysLoad();
-                    recentLoader.LoadWhenRegistered(0).Result.SetResult(new List<SongListNode> { recentNode });
-                    DrainUntil(currentScope!, () => tabs.RecentPlayNodes is { Count: 1 });
+                    tabs.ToggleBookmark(sharedNode); // optimistic ON in activation A
+                    Assert.True(sharedEntity.IsBookmarked);
+                    await writerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-                    tabs.ToggleBookmark(node); // optimistic flip to true in activation A
-                    Assert.True(nodeEntity.IsBookmarked);
-                    Assert.True(recentEntity.IsBookmarked);
-                    tabs.SwitchToTab(SongSelectionTab.Bookmarks); // deferred wait on A's write
-
-                    // Navigate away and come back: activation B installs a fresh scope
-                    // while A's write is still queued.
+                    // Navigate away, then re-enter before the write fails. Activation B's
+                    // warm Recent query reads the pre-write OFF state from the database,
+                    // while the shared tree still carries the optimistic ON.
                     var scopeA = currentScope!;
                     scopeA.Retire();
+                    currentScope = null;
                     currentScope = new StageBackgroundWorkScope();
                     var scopeB = currentScope;
+                    tabs.ResetForActivation();
+                    tabs.BeginRecentPlaysLoad();
+                    var reentryLoad = recentLoader.LoadWhenRegistered(0);
+                    await reentryLoad.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    var reentryEntity = new SongEntity { Id = songId, Title = "Recent", IsBookmarked = false };
+                    var reentryNode = new SongListNode { Type = NodeType.Score, Title = "Recent", DatabaseSong = reentryEntity };
+                    reentryLoad.Result.SetResult(new List<SongListNode> { reentryNode });
+                    DrainUntil(scopeB!, () => tabs.RecentPlayNodes is { Count: 1 });
+                    Assert.True(reentryEntity.IsBookmarked);
 
-                    // Open the gate; the write runs against the purged DB and faults.
-                    gate.SetException(new InvalidOperationException("forced fault for the reactivation test"));
-                    // ROLLBACK HANDOFF SIGNAL (HPA-802 fix round 2): the continuation is
-                    // scheduled asynchronously, so completing the write does NOT prove it
-                    // ran. It attempts the Post into the captured origin scope A (retired
-                    // → the worker-side drop runs inline) BEFORE logging its warning —
-                    // after the signal every fault-path effect has landed and a later
-                    // post to any scope is impossible (the handoff already happened). No
-                    // inlining or enqueue-ordering assumption.
+                    // Release the real write; it faults against the purged database. The
+                    // rollback handoff runs before the warning, so the drain below is a
+                    // deterministic application barrier for anything handed to scope B.
+                    gate.SetResult(true);
                     AwaitRollbackHandoff(logger, 1,
-                        "the stale rollback handoff never completed (no warning logged)");
-                    tabs.WaitForPendingWritesAtDisposal();
+                        "the rollback handoff never completed (no warning logged)");
                     Assert.True(
-                        SpinWait.SpinUntil(() => !nodeEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
+                        SpinWait.SpinUntil(() => !sharedEntity.IsBookmarked, TimeSpan.FromSeconds(5)),
                         "the shared entity was not reverted after the failed persist");
 
-                    // Drain B exactly as the game loop would: the stale UI rollback must
-                    // never apply here (it was posted into A's retired scope and dropped
-                    // there — before the signal above), and no bookmarks reload may start
-                    // in B.
-                    scopeB.Drain();
-                    Assert.True(recentEntity.IsBookmarked,
-                        "the stale UI rollback leaked into the new activation's lists");
-                    Assert.Equal(0, loader.InvokedCount);
-                    Assert.Null(tabs.BookmarkNodes);
-                    scopeB!.Retire();
+                    scopeB!.Drain();
+                    Assert.False(reentryEntity.IsBookmarked,
+                        "the current activation's Recent cache kept the stale optimistic bookmark");
+                    scopeB.Retire();
                 }
                 finally
                 {
@@ -3136,7 +3175,13 @@ namespace DTXMania.Test.Stage
                     // captured library.
                     manager.Dispose();
 
-                    var disposeWait = Task.Run(() => tabs.WaitForPendingWritesAtDisposal());
+                    var drainStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var disposeWait = Task.Run(() =>
+                    {
+                        drainStarted.SetResult(true);
+                        tabs.WaitForPendingWritesAtDisposal();
+                    });
+                    await drainStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
                     Assert.False(disposeWait.Wait(TimeSpan.FromMilliseconds(200)),
                         "the disposal drain must not finish while a write is gated");
                     releaseFirst.SetResult(true);
