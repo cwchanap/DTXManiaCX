@@ -27,7 +27,8 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
     /// intake's applied snapshot and eligibility filter directly. Pending bookmark
     /// writes, per-song toggle generations and the revert gate are stage-instance
     /// lifetime: they survive activation resets so durable writes chain and persist
-    /// across navigation, and only the origin-scope UI rollback drops.
+    /// across navigation; a failed write whose origin-scope rollback drops still
+    /// reconciles the shared tree and any newer activation's flat-tab caches.
     /// </summary>
     internal sealed class SongSelectionTabs
     {
@@ -130,6 +131,12 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
         // thread, so dictionary access here is single-threaded.
         private readonly ConcurrentDictionary<int, Task> _pendingBookmarkWrites = new();
         private readonly ConcurrentDictionary<int, bool> _bookmarkPersistedStates = new();
+
+        // Latest reconciled in-memory bookmark state for each persisted song id. Unlike
+        // the flat-tab caches, this is stage-instance lifetime and is written inside
+        // _bookmarkRevertGate, so a fresh Recent query can preserve an optimistic toggle
+        // (or a committed rollback) without copying state from a previously cached row.
+        private readonly ConcurrentDictionary<int, bool> _bookmarkInMemoryStates = new();
 
         // Monotonic per-song toggle generation. Bumped on every toggle so a persist fault from
         // an older toggle can be detected and its rollback discarded when a newer toggle has
@@ -574,7 +581,8 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                 _intake.AppliedSnapshot?.RootSongs ?? _getLibrary().GetLibrarySnapshot().RootSongs,
                 states);
             CollectBookmarkStates(_bookmarkNodes, states);
-            CollectBookmarkStates(_recentPlayNodes, states);
+            foreach (var state in _bookmarkInMemoryStates)
+                states[state.Key] = state.Value;
 
             foreach (var node in nodes)
             {
@@ -663,6 +671,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             {
                 _bookmarkPersistedStates.TryAdd(songId, !newState);
                 toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
+                _bookmarkInMemoryStates[songId] = newState;
                 // Immediate, in-memory flip (the star refreshes next draw). It joins the
                 // gate with the version bump so a worker-side shared revert can never
                 // interleave between the two writes.
@@ -685,12 +694,11 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             // Each write chains after the previous in-flight write for the same song; without
             // this, two overlapping fire-and-forget calls could complete out of order and leave
             // the DB divergent from the in-memory flag.
-            // Capture THIS activation's scope now, when the toggle happens: the fault
-            // continuation below must post its rollback here, into the scope that owned the
-            // toggle. Reading the scope at fault time could land the rollback in a LATER
-            // activation's scope, where the generation check still matches (no intervening
-            // toggle) and the stale revert would mutate the new activation's lists and start
-            // another bookmark load. A retired scope drops the rollback.
+            // Capture THIS activation's scope now, when the toggle happens: while it
+            // stays live, the fault continuation posts its rollback here so cache entities
+            // are mutated only on the owning update thread. If navigation retires this
+            // scope first, the drop path still reverts the shared tree and forwards the
+            // same version-guarded rollback to the activation current at fault time.
             var originScope = _getScope();
             var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
             // CAPTURED-LIBRARY WRITE (HPA-802 review): the write executes against `library`
@@ -708,7 +716,8 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             // applies it on the update thread so it can't race the draw path. The captured
             // toggleVersion lets the rollback be skipped if a newer toggle has since superseded
             // this one. The write itself is never canceled: a committed persistence task may
-            // outlive navigation, and only the stale UI rollback is dropped on retirement.
+            // outlive navigation, while a failed write's cache reconciliation follows the
+            // activation that still holds visible rows.
             write.ContinueWith(task =>
             {
                 if (task.IsFaulted || task.IsCanceled)
@@ -718,10 +727,10 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                     // Bookmarks lists — is applied on the update thread, so no worker
                     // ever writes IsBookmarked while the player may be toggling.
                     // If navigation retired the origin scope first, the posted rollback
-                    // is dropped and the drop callback still reverts the SHARED library
-                    // entities (the snapshot backs the reentry browse tree), so reentry
-                    // starts DB-consistent; that path takes the same gate as the
-                    // update-thread toggle bump, so it cannot interleave with a toggle.
+                    // is dropped. The drop callback still reverts the SHARED library
+                    // entities (the snapshot backs the reentry browse tree) and forwards
+                    // the cache rollback to the current activation when one exists; both
+                    // paths carry the same generation guard, so a newer toggle still wins.
                     // Hand the revert off first, then log: the warning says
                     // "reverting", so it must describe a hand-off that already happened
                     // (do-then-log); this order also makes the warning the post-handoff
@@ -740,12 +749,13 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                         var revertTo = GetBookmarkPersistedState(songId, !newState);
                         originScope.Post(
                             () => ApplyBookmarkRevertCore(library, songId, revertTo, toggleVersion),
-                            onDropped: () => RevertSharedBookmark(library, songId, revertTo, toggleVersion));
+                            onDropped: () => RevertDroppedBookmarkRollback(library, originScope, songId, revertTo, toggleVersion));
                     }
                     else
                     {
-                        RevertSharedBookmark(
+                        RevertDroppedBookmarkRollback(
                             library,
+                            originScope: null,
                             songId,
                             GetBookmarkPersistedState(songId, !newState),
                             toggleVersion);
@@ -806,12 +816,37 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                 if (!_bookmarkToggleVersion.TryGetValue(songId, out var current)
                     || current == toggleVersion)
                 {
+                    _bookmarkInMemoryStates[songId] = revertTo;
                     BookmarkStateReconciler.Apply(
                         library.GetLibrarySnapshot().RootSongs,
                         songId,
                         revertTo);
                 }
             }
+        }
+
+        /// <summary>
+        /// Completes a rollback whose origin activation retired before it could drain.
+        /// The shared revert still runs immediately; when a newer activation is already
+        /// current, the same version-guarded rollback is posted there so its flat-tab
+        /// caches cannot keep the optimistic star. A superseded rollback remains inert
+        /// through the generation check in <see cref="ApplyBookmarkRevertCore"/>.
+        /// </summary>
+        private void RevertDroppedBookmarkRollback(
+            SongLibrary library,
+            StageBackgroundWorkScope? originScope,
+            int songId,
+            bool revertTo,
+            int toggleVersion)
+        {
+            RevertSharedBookmark(library, songId, revertTo, toggleVersion);
+
+            var currentScope = _getScope();
+            if (currentScope == null || ReferenceEquals(currentScope, originScope))
+                return;
+
+            currentScope.Post(
+                () => ApplyBookmarkRevertCore(library, songId, revertTo, toggleVersion));
         }
 
         /// <summary>
@@ -835,6 +870,10 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                 return;
             }
 
+            lock (_bookmarkRevertGate)
+            {
+                _bookmarkInMemoryStates[songId] = revertTo;
+            }
             BookmarkStateReconciler.Apply(
                 _intake.AppliedSnapshot?.RootSongs
                     ?? library.GetLibrarySnapshot().RootSongs,

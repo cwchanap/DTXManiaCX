@@ -433,7 +433,16 @@ public sealed class GameApiPreparedChartCommandTests
     private static BlockedActivationFixture CreateBlockedActivationFixture()
     {
         var tempRoot = new TemporaryTestDirectory("hpa510-api-blocked");
-        var stage = CreatePreparedStageForApi(tempRoot.Path, out _, totalGameTime: 0.1);
+        SongSelectionStage stage;
+        try
+        {
+            stage = CreatePreparedStageForApi(tempRoot.Path, out _, totalGameTime: 0.1);
+        }
+        catch
+        {
+            tempRoot.Dispose();
+            throw;
+        }
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
