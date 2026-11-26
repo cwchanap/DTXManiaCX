@@ -68,7 +68,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Breadcrumb_MaxTextWidth_StaysClearOfPreviewPanelAndSongRows()
+        public void Breadcrumb_MaxTextWidth_ShouldStayClearOfPreviewPanelAndSongRows()
         {
             var maxWidth = SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth;
             // The band must end before the preview panel, which draws later at the
@@ -81,7 +81,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Breadcrumb_LongText_TruncatesWithBundledFontMetrics()
+        public void Breadcrumb_LongText_ShouldTruncateWithBundledFontMetrics()
         {
             var (assetName, _, _) = ManagedFont.GetBestSpriteFontAssetName(
                 SongSelectionUILayout.Background.DefaultFontName,

@@ -243,7 +243,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnPadLaneHit_OnPadRelease_DoesNothing()
+        public void OnPadLaneHit_OnPadRelease_ShouldDoNothing()
         {
             var (stage, tabs) = CreateStageWithTabs();
             AttachCoreUi(stage);

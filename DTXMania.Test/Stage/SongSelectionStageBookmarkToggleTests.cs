@@ -147,7 +147,7 @@ namespace DTXMania.Test.Stage
                 // real SetBookmarkAsync against the library argument (the toggle-time
                 // capture) — no mock-only substitution.
                 var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                Task? gatedWrite = null;
+                var gatedWriteRegistration = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var (stage, tabs) = CreateStageWithTabs(
                     manager,
                     setBookmarkAsync: (lib, id, state) =>
@@ -155,7 +155,7 @@ namespace DTXMania.Test.Stage
                         var write = gate.Task.ContinueWith(
                             _ => lib.Queries.SetBookmarkAsync(id, state),
                             TaskScheduler.Default).Unwrap();
-                        gatedWrite = write;
+                        gatedWriteRegistration.TrySetResult(write);
                         return write;
                     });
 
@@ -196,10 +196,8 @@ namespace DTXMania.Test.Stage
                 Assert.True(nodeEntity.IsBookmarked);
                 // The writer seam runs inside a pool continuation chained behind the prior
                 // write; wait for its registration before asserting the gated state.
-                Assert.True(
-                    SpinWait.SpinUntil(() => gatedWrite != null, TimeSpan.FromSeconds(5)),
-                    "the writer seam was never invoked");
-                Assert.False(gatedWrite!.IsCompleted, "the write must still be pending before navigation");
+                var gatedWrite = await gatedWriteRegistration.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.False(gatedWrite.IsCompleted, "the write must still be pending before navigation");
 
                 // Retire/rearm while the write is provably pending: the committed write
                 // itself is never canceled across the deactivation.

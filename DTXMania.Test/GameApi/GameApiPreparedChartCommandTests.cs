@@ -51,7 +51,7 @@ public sealed class GameApiPreparedChartCommandTests
     [Fact]
     public async Task ActivatePreparedChartAsync_ShouldNotMutateOrCompleteBeforeQueuedActionRuns()
     {
-        var fixture = CreateBlockedActivationFixture();
+        using var fixture = CreateBlockedActivationFixture();
         var queuedActions = new List<Action>();
         fixture.Context
             .Setup(context => context.QueueMainThreadAction(It.IsAny<Action>()))
@@ -372,7 +372,8 @@ public sealed class GameApiPreparedChartCommandTests
         // succeeds but before the command finishes. The execution path must own
         // completion — the caller should see the command's real result, not
         // "canceled", and the stage transition must have happened.
-        var stage = CreatePreparedStageForApi(Path.Combine(Path.GetTempPath(), "hpa510-api-cancel"), out var node);
+        using var tempRoot = new TemporaryTestDirectory("hpa510-api-cancel");
+        var stage = CreatePreparedStageForApi(tempRoot.Path, out var node);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
@@ -431,14 +432,15 @@ public sealed class GameApiPreparedChartCommandTests
 
     private static BlockedActivationFixture CreateBlockedActivationFixture()
     {
-        var stage = CreatePreparedStageForApi(Path.Combine(Path.GetTempPath(), "hpa510-api-blocked"), out _, totalGameTime: 0.1);
+        var tempRoot = new TemporaryTestDirectory("hpa510-api-blocked");
+        var stage = CreatePreparedStageForApi(tempRoot.Path, out _, totalGameTime: 0.1);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
 
         var context = new Mock<IGameContext>();
         context.SetupGet(gameContext => gameContext.StageManager).Returns(stageManager.Object);
-        return new BlockedActivationFixture(stage, stageManager, context);
+        return new BlockedActivationFixture(stage, stageManager, context, tempRoot);
     }
 
     // HPA-802 review round 1: prepared state comes from the real PrepareVideoChart
@@ -492,8 +494,28 @@ public sealed class GameApiPreparedChartCommandTests
         return stage;
     }
 
+    private sealed class TemporaryTestDirectory : IDisposable
+    {
+        public TemporaryTestDirectory(string name)
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{name}-{Guid.NewGuid():N}");
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+                Directory.Delete(Path, recursive: true);
+        }
+    }
+
     private sealed record BlockedActivationFixture(
         SongSelectionStage Stage,
         Mock<IStageManager> StageManager,
-        Mock<IGameContext> Context);
+        Mock<IGameContext> Context,
+        TemporaryTestDirectory TempRoot) : IDisposable
+    {
+        public void Dispose() => TempRoot.Dispose();
+    }
 }

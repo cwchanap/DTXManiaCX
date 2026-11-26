@@ -235,11 +235,17 @@ public sealed class SongSelectionPreviewControllerTests
     {
         var resourceManager = new Mock<IResourceManager>();
         var sound = SetupSuccessfulLoad(resourceManager, "/songs/prepared.ogg");
-        var controller = CreateController(resourceManager);
+        var createCalls = 0;
+        var controller = CreateController(resourceManager, createInstance: _ =>
+        {
+            createCalls++;
+            return null;
+        });
         Assert.True(controller.LoadStopped("/songs/prepared.ogg"));
 
         controller.Update(SongSelectionUILayout.Audio.PreviewPlayDelaySeconds);
 
+        Assert.Equal(0, createCalls);
         sound.Verify(x => x.CreateInstance(), Times.Never);
         Assert.Equal(SongSelectionPreviewState.Prepared, controller.PreparedState);
         Assert.Equal(0d, controller.PlayedMs);
@@ -646,7 +652,12 @@ public sealed class SongSelectionPreviewControllerTests
     {
         var resourceManager = new Mock<IResourceManager>();
         var sound = SetupSuccessfulLoad(resourceManager, "/songs/preview.ogg");
-        var controller = CreateController(resourceManager);
+        var createCalls = 0;
+        var controller = CreateController(resourceManager, createInstance: _ =>
+        {
+            createCalls++;
+            return null;
+        });
         Assert.True(controller.LoadDelayed("/songs/preview.ogg"));
 
         controller.Stop();
@@ -658,6 +669,7 @@ public sealed class SongSelectionPreviewControllerTests
 
         // The armed delay was cleared: no delayed start fires afterwards.
         controller.Update(SongSelectionUILayout.Audio.PreviewPlayDelaySeconds);
+        Assert.Equal(0, createCalls);
         sound.Verify(x => x.CreateInstance(), Times.Never);
     }
 
@@ -689,15 +701,15 @@ public sealed class SongSelectionPreviewControllerTests
     [Fact]
     public void Stage_WithoutActivate_ShouldResolveSuppliedManagerLazilyForPreview()
     {
-        var root = Path.Combine(Path.GetTempPath(), "hpa802-headless-stage");
-        Directory.CreateDirectory(root);
+        var root = Path.Combine(Path.GetTempPath(), $"hpa802-headless-stage-{Guid.NewGuid():N}");
         var chartPath = Path.Combine(root, "chart.dtx");
         var previewPath = Path.Combine(root, "preview.wav");
-        File.WriteAllText(chartPath, "chart");
-        File.WriteAllText(previewPath, "preview");
 
         try
         {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(chartPath, "chart");
+            File.WriteAllText(previewPath, "preview");
             var stage = CreateStage();
             var resourceManager = new Mock<IResourceManager>();
             var sound = new Mock<ISound>();
@@ -725,7 +737,8 @@ public sealed class SongSelectionPreviewControllerTests
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 
