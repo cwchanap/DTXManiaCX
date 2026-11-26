@@ -558,7 +558,7 @@ namespace DTXMania.Test.Stage
             Assert.False(statusPanel.Visible);
             Assert.Null(GetPrivateField<SongListNode>(previewPanel, "_currentSong"));
             // The armed ordinary delay was cleared by the stop: nothing starts.
-            PreviewControllerOf(stage).Update(1.5d);
+            UpdateStage(stage, 1.5d);
             existingPreviewSound.Verify(x => x.CreateInstance(), Times.Never);
             Assert.Equal("Folder A", breadcrumbLabel.Text);
             Assert.NotEmpty(GetTextureQueue(display));
@@ -1423,11 +1423,10 @@ namespace DTXMania.Test.Stage
 
                 previousSound.Verify(x => x.RemoveReference(), Times.Once);
                 resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
-                Assert.True(PreviewControllerOf(stage).HasLoadedSound);
 
                 // The replacement armed a fresh ordinary delay for the new sound;
                 // the released previous sound no longer starts.
-                PreviewControllerOf(stage).Update(1.5d);
+                UpdateStage(stage, 1.5d);
                 loadedSound.Verify(x => x.CreateInstance(), Times.Once);
                 previousSound.Verify(x => x.CreateInstance(), Times.Never);
             }
@@ -1953,11 +1952,10 @@ namespace DTXMania.Test.Stage
 
                 // Only the initial armed load called the resource manager.
                 resourceManager.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Once);
-                Assert.True(PreviewControllerOf(stage).HasLoadedSound);
                 existingPreviewSound.Verify(x => x.RemoveReference(), Times.Never);
 
                 // The armed delay survived both no-op loads.
-                PreviewControllerOf(stage).Update(1.5d);
+                UpdateStage(stage, 1.5d);
                 existingPreviewSound.Verify(x => x.CreateInstance(), Times.Once);
             }
             finally
@@ -2103,11 +2101,10 @@ namespace DTXMania.Test.Stage
             var ex = Record.Exception(() => InvokePrivateMethod(stage, "LoadPreviewSound", node));
 
             Assert.Null(ex);
-            Assert.False(PreviewControllerOf(stage).HasLoadedSound);
             previewSound.Verify(x => x.RemoveReference(), Times.Once);
 
-            // The armed delay was cleared: nothing starts afterwards.
-            PreviewControllerOf(stage).Update(1.5d);
+            // The armed delay was cleared: nothing starts afterwards (no sound held).
+            UpdateStage(stage, 1.5d);
             previewSound.Verify(x => x.CreateInstance(), Times.Never);
         }
 
@@ -2506,8 +2503,15 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        private static SongSelectionPreviewController PreviewControllerOf(SongSelectionStage stage) =>
-            GetPrivateField<SongSelectionPreviewController>(stage, "_previewController")!;
+        // HPA-802 final review: drive the stage's REAL update loop instead of the
+        // preview controller directly — OnUpdate forwards the same delta to the
+        // controller, so the stage→controller wiring under test actually executes.
+        // The BaseStage phase gate requires a live (non-Inactive) stage.
+        private static void UpdateStage(SongSelectionStage stage, double deltaTime)
+        {
+            SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            stage.Update(deltaTime);
+        }
 
         private static void AttachResourceManager(SongSelectionStage stage, IResourceManager resourceManager)
         {

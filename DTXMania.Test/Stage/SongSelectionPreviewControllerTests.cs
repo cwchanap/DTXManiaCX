@@ -715,7 +715,13 @@ public sealed class SongSelectionPreviewControllerTests
                     CreateNode("song", chartPath, previewFile: "preview.wav"), 0, true));
 
             resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
-            Assert.True(GetPrivateField<SongSelectionPreviewController>(stage, "_previewController")!.HasLoadedSound);
+
+            // Drive the stage's REAL update loop (OnUpdate forwards the delta to the
+            // preview controller): the armed ordinary delay can only fire — creating the
+            // instance — while the loaded sound is still held by the stage's controller.
+            SetPrivateField(stage, "_currentPhase", DTXMania.Game.Lib.Stage.StagePhase.Normal);
+            stage.Update(DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.Audio.PreviewPlayDelaySeconds + 0.1);
+            sound.Verify(x => x.CreateInstance(), Times.Once);
         }
         finally
         {

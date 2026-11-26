@@ -69,6 +69,30 @@ namespace DTXMania.Test.Stage
                 setBookmarkAsync: setBookmarkAsync);
         }
 
+        // HPA-802 final review: stage whose intake owner is captured through the
+        // constructor createTabs factory — the stage hands its OWN intake instance to
+        // the factory, so publication tests can assert owner facts (applied snapshot,
+        // committed version, subscriptions) without owner-field reflection. Same
+        // construction and default query functions as CreateStage().
+        public static (SongSelectionStage Stage, SongSelectionLibraryIntake Intake) CreateStageWithIntake()
+        {
+            var game = CreateGame();
+            var library = new SongLibrary(new SongDatabase(Path.Combine(
+                Path.GetTempPath(), "DTXManiaCX_Tests", "SongSelectionStageTestFactory",
+                $"{System.Guid.NewGuid():N}.db")));
+            SetPrivateField(game, "_songLibrary", library);
+            SongSelectionLibraryIntake? intake = null;
+            var stage = new SongSelectionStage(
+                game,
+                createPreviewInstance: null,
+                createTabs: (capturedIntake, getScope, logger) =>
+                {
+                    intake = capturedIntake;
+                    return new SongSelectionTabs(() => library, capturedIntake, getScope, logger);
+                });
+            return (stage, intake!);
+        }
+
         // HPA-802 review: stage whose tabs owner is built through the constructor factory
         // seam — the test keeps the owner instance (no owner-field reflection) and
         // controls its loader/writer seams directly. Optional arguments keep the simple

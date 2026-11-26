@@ -172,6 +172,15 @@ namespace DTXMania.Test.Stage
                 tabs.SetActiveTabQuiet(SongSelectionTab.AllSongs);
                 stage.InstallTestBackgroundScope();
 
+                // Wire the stage's REAL selection handler exactly as production OnLoad does
+                // (SongSelectionStage wires _songListDisplay.SelectionChanged +=
+                // OnSongSelectionChanged): the update-driven Bookmarks reload below raises
+                // the display's SelectionChanged event, so the reloaded row must actually
+                // reach OnSongSelectionChanged — the stage's selection state is then the
+                // callback's product, not stale pre-navigation state.
+                display.SelectionChanged += (sender, e) =>
+                    InvokePrivateMethod(stage, "OnSongSelectionChanged", sender, e);
+
                 // Explicitly select the NON-DEFAULT difficulty (ADVANCED) through the
                 // status-panel difficulty path (the real input route): slots [0,1] wrap
                 // 0 -> 1. The write below must not disturb this selection and the
@@ -231,12 +240,18 @@ namespace DTXMania.Test.Stage
                 Assert.False(string.IsNullOrEmpty(reloaded.DifficultyLabels[0]));
                 Assert.False(string.IsNullOrEmpty(reloaded.DifficultyLabels[1]));
 
-                // Selection preserved: still the reloaded row, still the non-default
-                // difficulty, and that difficulty still resolves to the ADVANCED chart
-                // (identity by FilePath).
+                // Selection preserved through the REAL callback: the stage itself selects
+                // the reloaded row (its _selectedSong is the callback's product, not the
+                // pre-navigation node), still at the non-default difficulty, and that
+                // difficulty still resolves to the ADVANCED chart (identity by FilePath).
+                // SelectedDifficulty is read from the stage's public telemetry surface
+                // instead of a private field the reload path never has to touch.
                 Assert.Same(reloaded, display.CurrentList[0]);
+                Assert.Same(reloaded, GetPrivateField<SongListNode>(stage, "_selectedSong"));
                 Assert.Equal(1, display.CurrentDifficulty);
-                Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+                var telemetry = new DTXMania.Game.Lib.GameTelemetrySnapshot();
+                stage.PopulateTelemetry(telemetry);
+                Assert.Equal(1, telemetry.SelectedDifficulty);
                 Assert.Equal(advanced.FilePath, display.SelectedSong!.GetCurrentDifficultyChart(1)?.FilePath);
             }
             finally

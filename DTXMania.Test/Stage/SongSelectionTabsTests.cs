@@ -155,13 +155,14 @@ namespace DTXMania.Test.Stage
                     return _override(library, songId, state);
 
                 var write = new ControlledWrite { SongId = songId, State = state };
+                // Recording-only write: completes exactly when the gate releases. The
+                // REAL gated task is assigned BEFORE the write is published under the
+                // lock, so a test that retrieves the write can never await the default
+                // CompletedTask placeholder instead of its settlement barrier.
+                write.Task = write.Gate.Task.ContinueWith(_ => true, TaskScheduler.Default);
                 lock (_gate)
                     _writes.Add(write);
-
-                // Recording-only write: completes exactly when the gate releases.
-                var inner = write.Gate.Task.ContinueWith(_ => true, TaskScheduler.Default);
-                write.Task = inner;
-                return inner;
+                return write.Task;
             };
         }
 
@@ -217,7 +218,6 @@ namespace DTXMania.Test.Stage
         // same terminals. Test/I-O seam only; no production telemetry.
         private sealed class SubmissionRecorder
         {
-            private readonly object _gate = new();
             private int _submitted;
             private TaskCompletionSource<bool>? _release;
             private volatile bool _workersHeld;
@@ -234,8 +234,11 @@ namespace DTXMania.Test.Stage
                     {
                         // Gate the ACTUAL worker; the scope's real Run schedules and
                         // executes it exactly as production would once the gate opens.
+                        // Fail closed: a mutant whose worker can never run must fail the
+                        // test, not hang silently until the timeout passes.
                         var release = _release;
-                        release?.Task.Wait(TimeSpan.FromSeconds(10));
+                        if (release != null && !release.Task.Wait(TimeSpan.FromSeconds(10)))
+                            throw new TimeoutException("held tab-load worker was never released");
                         return held(token);
                     };
                 }
@@ -2226,24 +2229,64 @@ namespace DTXMania.Test.Stage
             {
                 await manager.InitializeAsync(purgeDatabaseFirst: true);
                 var db = manager.Database;
-                var seed = new SongEntity { Title = "Song", Artist = "A" };
+                // Initially BOOKMARKED: the expected final state (OFF) differs from the
+                // stored value, so an untouched database or a no-op/faulting writer
+                // cannot pass — the final un-bookmarked read is only reachable through
+                // a successful real write.
+                var seed = new SongEntity { Title = "Song", Artist = "A", IsBookmarked = true };
                 var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
                 await db.SeedSongAsync(seed, chart);
                 var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
 
+                // Observer over the REAL write: SetBookmarkAsync runs unmodified; the test
+                // only records the returned task per invocation (invocation order = chain
+                // order, because the per-song chain starts write N+1 only after write N).
+                var writeTasks = new List<(bool State, Task Task)>();
+                var writeTasksGate = new object();
+                Func<SongLibrary, int, bool, Task> observingRealWriter = (lib, id, state) =>
+                {
+                    var write = lib.Queries.SetBookmarkAsync(id, state);
+                    lock (writeTasksGate)
+                        writeTasks.Add((state, write));
+                    return write;
+                };
+
                 var scope = new StageBackgroundWorkScope();
-                var tabs = CreateTabs(manager, scope); // real query functions, real writer
+                var tabs = CreateTabs(manager, scope, setBookmarkAsync: observingRealWriter);
                 var node = Score("Song", songId);
 
                 tabs.ToggleBookmark(node); // ON
-                tabs.ToggleBookmark(node); // OFF
+                tabs.ToggleBookmark(node); // OFF — chained behind the first per-song write
+
+                // Barrier: BOTH serialized invocations registered. The second one can only
+                // register after the first write completed (per-song chain), so reaching
+                // two registrations already proves the serialized ordering ran.
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => { lock (writeTasksGate) return writeTasks.Count >= 2; },
+                        TimeSpan.FromSeconds(10)),
+                    "the serialized write chain never issued both toggles (a no-op writer cannot pass)");
+                Task firstWrite, secondWrite;
+                lock (writeTasksGate)
+                {
+                    Assert.True(writeTasks[0].State, "the first chained write must carry the ON intent");
+                    Assert.False(writeTasks[1].State, "the second chained write must carry the OFF intent");
+                    firstWrite = writeTasks[0].Task;
+                    secondWrite = writeTasks[1].Task;
+                }
+
+                // Both REAL writes must have completed successfully (a faulting write
+                // fails here, before any persisted-state assertion).
+                await Task.WhenAll(firstWrite, secondWrite).WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.True(firstWrite.IsCompletedSuccessfully, "the ON write did not complete successfully");
+                Assert.True(secondWrite.IsCompletedSuccessfully, "the OFF write did not complete successfully");
 
                 // The serialized per-song chain settles before the DB read: the disposal
                 // drain is the production bounded wait over the pending writes.
                 tabs.WaitForPendingWritesAtDisposal();
 
                 var persisted = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Id == songId);
-                Assert.False(persisted.IsBookmarked); // last intent (OFF) won
+                Assert.False(persisted.IsBookmarked); // last intent (OFF) won over the seeded ON
                 scope.Retire();
             }
             finally
@@ -2527,7 +2570,11 @@ namespace DTXMania.Test.Stage
                     tabs.BeginRecentPlaysLoad();
                     recentLoader.LoadWhenRegistered(0).Result.SetResult(new List<SongListNode> { recentNode });
                     DrainUntil(scope, () => tabs.RecentPlayNodes is { Count: 1 });
-                    tabs.SwitchToTab(SongSelectionTab.RecentPlays);
+                    // Quiet tab set: the Recent rows are already loaded, and SwitchToTab
+                    // would launch a SECOND Recent query whose result the test never
+                    // supplies — its worker would block forever if it started before the
+                    // retirement below.
+                    tabs.SetActiveTabQuiet(SongSelectionTab.RecentPlays);
 
                     tabs.ToggleBookmark(recentNode); // optimistic flip to true
                     Assert.True(recentEntity.IsBookmarked);
@@ -3051,7 +3098,14 @@ namespace DTXMania.Test.Stage
                 await manager.InitializeAsync(purgeDatabaseFirst: true);
                 await decoy.InitializeAsync(purgeDatabaseFirst: true);
                 var db = manager.Database;
-                var seed = new SongEntity { Title = "Song", Artist = "A", IsBookmarked = false };
+                // Initially BOOKMARKED in the CAPTURED database: the expected final value
+                // (un-bookmarked) DIFFERS from the stored value, so an entirely failed or
+                // no-op write chain leaves the row bookmarked and fails the assertions
+                // below — the test cannot pass without a successful real write landing in
+                // this database. Any stray write to the decoy is caught by the decoy
+                // assertions further down (its seeded row is bookmarked too; an OFF write
+                // would flip it).
+                var seed = new SongEntity { Title = "Song", Artist = "A", IsBookmarked = true };
                 var chart = new SongChart { FilePath = $"/c/{Guid.NewGuid():N}.dtx", HasDrumChart = true, DrumLevel = 30 };
                 await db.SeedSongAsync(seed, chart);
                 var songId = (await new SongCatalogStore(db).GetSongsAsync()).Single(s => s.Title == "Song").Id;
