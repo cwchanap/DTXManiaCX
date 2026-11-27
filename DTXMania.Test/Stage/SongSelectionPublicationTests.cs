@@ -1031,11 +1031,12 @@ namespace DTXMania.Test.Stage
             var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
             var initializerNode = Score("New", 2, "/library/new/new.dtx");
             var display = new SongListDisplay();
+            var preview = new PreviewImagePanel();
             var scope = stage.InstallTestBackgroundScope();
 
             try
             {
-                AttachCoreUi(stage, display: display);
+                AttachCoreUi(stage, display: display, previewPanel: preview);
                 rootSongs.Clear();
                 rootSongs.Add(initializerNode);
                 SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/new" });
@@ -1055,7 +1056,12 @@ namespace DTXMania.Test.Stage
                 // The initializer projection faults once when the failed snapshot's active
                 // roots filter the Recent row out. The initializer's own failure fallback must
                 // not then clear the flat-tab rows that rollback already restored.
+                // Production subscriber order: the stage's real selection handler runs
+                // first (restoring the preview presentation), then a subscriber that
+                // faults on its first notification.
                 var selectionCallbacks = 0;
+                display.SelectionChanged += (sender, e) =>
+                    InvokePrivateMethod(stage, "OnSongSelectionChanged", sender, e);
                 display.SelectionChanged += (_, _) =>
                 {
                     selectionCallbacks++;
@@ -1066,6 +1072,7 @@ namespace DTXMania.Test.Stage
                 InvokePrivateMethod(stage, "ApplyInitializedLibrarySnapshot");
 
                 Assert.Same(row, display.CurrentList[0]);
+                Assert.Same(row, GetPrivateField<SongListNode>(preview, "_currentSong"));
                 Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
             }
             finally
