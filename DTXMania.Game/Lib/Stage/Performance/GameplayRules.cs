@@ -194,10 +194,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// The note whose chip sound a player hit plays: the same note the hit will judge.
+        /// The note whose chip sound a player hit plays: the note the hit judged, or for an
+        /// empty hit the lane's nearest note, hit or not (DTXManiaNX parity).
         /// </summary>
-        internal Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs) =>
-            JudgementManager?.FindNearestPendingNote(laneIndex, currentSongTimeMs)?.Note;
+        internal Note? FindChipNoteForHit(PlayerHitResolvedEventArgs hit) =>
+            hit.JudgedNote ?? ChartManager?.FindNearestNoteInLane(hit.Lane, hit.JudgementTimeMs);
 
         internal void InitializeJudgement(IInputManagerCompat inputManager)
         {

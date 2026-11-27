@@ -2835,8 +2835,8 @@ public class PerformanceStageDeterministicTests
             input.ModularInputManager.KeyBindings.BindButton("Test.Manual", 1);
             Assert.True(input.ModularInputManager.InjectButton("Test.Manual", true));
             input.ModularInputManager.Update();
-            Assert.Single(sound.Instances);
             stage.Update(0);
+            Assert.Single(sound.Instances);
             Assert.Equal(JudgementType.Perfect, judgement.GetNoteRuntimeData(manual.Id)!.JudgementEvent!.Type);
             stage.Update(0.201);
             Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(missed.Id)!.Status);
@@ -2893,12 +2893,12 @@ public class PerformanceStageDeterministicTests
 
     [AudioTheory]
     [InlineData("manual", 990, 1000, 0, true)]
-    [InlineData("far", 1000, 3000, 0, false)]
+    [InlineData("far", 1000, 3000, 0, true)]
     [InlineData("latency", 1200, 1000, 200, true)]
     [InlineData("auto", 990, 1000, 0, false)]
     [InlineData("countdown", 0, 0, 0, false)]
     [InlineData("paused", 1000, 1000, 0, false)]
-    public async Task ManualInput_ShouldUseRealChipPlaybackOnlyForPlayingManualLaneAndCompensatedWindow(
+    public async Task ManualInput_ShouldPlayJudgedOrNearestChipOnlyForPlayingManualLane(
         string scenario, int rawMs, int noteMs, int latencyMs, bool expectedChip)
     {
         var directory = CreateTempDirectory();
@@ -2940,15 +2940,22 @@ public class PerformanceStageDeterministicTests
             Assert.True(input.ModularInputManager.InjectButton("Test.Chip", true));
             input.ModularInputManager.Update();
 
+            // The pad lights on input; the chip plays once judgement resolves the hit.
+            Assert.Equal(scenario == "auto" ? Array.Empty<string>() : new[] { "pad" }, order);
+            Assert.Empty(sound.Instances);
+            stage.Update(0);
             Assert.Equal(expectedChip ? 1 : 0, sound.Instances.Count);
             Assert.Empty(observed[Path.GetFullPath(fartherWav)].Instances);
-            Assert.Equal(scenario == "auto" ? Array.Empty<string>() :
-                expectedChip ? new[] { "pad", "chip" } : new[] { "pad" }, order);
-            stage.Update(0);
-            if (expectedChip)
+            if (scenario is "manual" or "latency")
             {
-                Assert.Equal("judgement", order[^1]);
+                Assert.Equal(new[] { "pad", "chip", "judgement" }, order);
                 Assert.Equal(NoteStatus.Hit, stage.Rules.JudgementManager.GetNoteRuntimeData(note.Id)!.Status);
+            }
+            else if (scenario == "far")
+            {
+                // An empty hit judges nothing but still sounds the lane's nearest note.
+                Assert.Equal(new[] { "pad", "chip" }, order);
+                Assert.Equal(NoteStatus.Pending, stage.Rules.JudgementManager.GetNoteRuntimeData(note.Id)!.Status);
             }
             else if (scenario == "auto")
             {
@@ -3221,6 +3228,7 @@ public class PerformanceStageDeterministicTests
             var bgmInstance = Assert.Single(session.ActiveBgmInstances);
             Assert.True(input.ModularInputManager.InjectButton("Test.BackChip", true));
             input.ModularInputManager.Update();
+            stage.Update(0);
             var chipInstance = Assert.Single(sounds[Path.GetFullPath(chipPath)].Instances);
             Assert.Equal(SoundState.Playing, bgmInstance.State);
             Assert.Equal(SoundState.Playing, chipInstance.State);

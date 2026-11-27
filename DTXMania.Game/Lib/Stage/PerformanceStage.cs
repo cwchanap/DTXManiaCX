@@ -631,7 +631,10 @@ namespace DTXMania.Game.Lib.Stage
             if (_inputManager?.ModularInputManager != null)
                 _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
             if (rules?.JudgementManager is { } judgementManager)
+            {
                 judgementManager.JudgementMade -= OnJudgementMade;
+                judgementManager.PlayerHitResolved -= OnPlayerHitResolved;
+            }
             if (rules?.GaugeManager is { } gaugeManager)
             {
                 gaugeManager.GaugeChanged -= OnGaugeChanged;
@@ -1525,6 +1528,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Rules subscribe first; the stage handles visual feedback afterwards.
             judgementManager.JudgementMade += OnJudgementMade;
+            judgementManager.PlayerHitResolved += OnPlayerHitResolved;
 
             gaugeManager.GaugeChanged += OnGaugeChanged;
             gaugeManager.Failed += OnPlayerFailed;
@@ -1579,15 +1583,22 @@ namespace DTXMania.Game.Lib.Stage
                 e.Button.Id,
                 logicalSongTimeMs);
 
-            // Use the same compensated clock that JudgementManager.Update receives
-            // so chip sound lookup mirrors the judgement window. Without this, a hit
-            // judged Perfect at the compensated time can fall outside the chip lookup
-            // window (PoorWindow < AudioLatencyOffsetMs) and fail to play its chip.
-            var chipLookupTimeMs =
-                GetPlayerJudgementTimeMs(logicalSongTimeMs);
-            var nearest = Rules?.FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
-            if (nearest != null)
-                _audioSession?.PlayChip(nearest);
+            // The chip sound plays from OnPlayerHitResolved once the hit is judged, so each
+            // hit of a chord sounds the note it judged.
+        }
+
+        /// <summary>
+        /// Plays a player hit's chip sound: the note it judged, or the lane's nearest note for
+        /// an empty hit. Runs in the same frame as the hit, when judgement drains the queue.
+        /// </summary>
+        private void OnPlayerHitResolved(object? sender, PlayerHitResolvedEventArgs e)
+        {
+            if (_audioSession?.IsPlaying != true)
+                return;
+
+            var note = Rules?.FindChipNoteForHit(e);
+            if (note != null)
+                _audioSession.PlayChip(note);
         }
 
         /// <summary>
