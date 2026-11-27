@@ -1019,35 +1019,121 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ReconcileLibrarySnapshot_WhenTheFirstSnapshotFailsOnRecentTab_ShouldRestoreRecentRows()
+        public void ApplyInitializedLibrarySnapshot_WhenTheFirstSnapshotFailsOnRecentTab_ShouldRestoreRecentRows()
         {
             var row = Score("Recent", 42, "/library/recent/recent.dtx");
             var (stage, tabs) = CreateStageWithTabs(
                 loadRecentPlaysAsync: () => Task.FromResult(new List<SongListNode> { row }));
+            var songManager = LibraryOf(stage);
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var initializerNode = Score("New", 2, "/library/new/new.dtx");
+            var display = new SongListDisplay();
+            var scope = stage.InstallTestBackgroundScope();
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(initializerNode);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/new" });
+                SetPrivateField(songManager, "_publicationVersion", 12L);
+
+                InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.RecentPlays);
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => { scope.Drain(); return tabs.RecentPlayNodes is { Count: 1 }; },
+                        TimeSpan.FromSeconds(5)),
+                    "the Recent load was never applied");
+                int refreshVersion = tabs.BeginTabListRefreshConsumption();
+                InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+                tabs.CompleteTabListRefreshConsumption(refreshVersion);
+                Assert.Same(row, display.CurrentList[0]);
+
+                // The initializer projection faults once when the failed snapshot's active
+                // roots filter the Recent row out. The initializer's own failure fallback must
+                // not then clear the flat-tab rows that rollback already restored.
+                var selectionCallbacks = 0;
+                display.SelectionChanged += (_, _) =>
+                {
+                    selectionCallbacks++;
+                    if (selectionCallbacks == 1)
+                        throw new InvalidOperationException("selection callback failed");
+                };
+
+                InvokePrivateMethod(stage, "ApplyInitializedLibrarySnapshot");
+
+                Assert.Same(row, display.CurrentList[0]);
+                Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+                scope.Retire();
+            }
+        }
+
+        [Fact]
+        public void ReconcileLibrarySnapshot_WhenTheFirstSnapshotFailsOnRecentTab_ShouldNotClearRowsBeforeRestoringSelection()
+        {
+            var rowA = Score("Recent A", 42, "/library/recent/a.dtx");
+            var rowB = Score("Recent B", 43, "/library/recent/b.dtx");
+            var (stage, tabs) = CreateStageWithTabs(
+                loadRecentPlaysAsync: () => Task.FromResult(new List<SongListNode> { rowA, rowB }));
             var display = new SongListDisplay();
             AttachCoreUi(stage, display: display);
             var scope = stage.InstallTestBackgroundScope();
 
-            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.RecentPlays);
-            Assert.True(
-                SpinWait.SpinUntil(
-                    () => { scope.Drain(); return tabs.RecentPlayNodes is { Count: 1 }; },
-                    TimeSpan.FromSeconds(5)),
-                "the Recent load was never applied");
-            int refreshVersion = tabs.BeginTabListRefreshConsumption();
-            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
-            tabs.CompleteTabListRefreshConsumption(refreshVersion);
-            Assert.Same(row, display.CurrentList[0]);
+            try
+            {
+                InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.RecentPlays);
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => { scope.Drain(); return tabs.RecentPlayNodes is { Count: 2 }; },
+                        TimeSpan.FromSeconds(5)),
+                    "the Recent load was never applied");
+                int refreshVersion = tabs.BeginTabListRefreshConsumption();
+                InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+                tabs.CompleteTabListRefreshConsumption(refreshVersion);
+                display.SelectedIndex = 1;
+                Assert.Same(rowB, display.SelectedSong);
 
-            display.SelectionChanged += (_, _) =>
-                throw new InvalidOperationException("selection callback failed");
-            var failedSnapshot = Snapshot(12, new[] { Score("New", 2, "/library/new/new.dtx") }, new[] { "/library/new" });
+                // The failed publication projects only row A, so selection moves B -> A and
+                // faults. Rollback must not first assign the empty All-Songs placeholder to
+                // the flat tab (A -> null); it must project the intact cache and restore B.
+                var attemptFault = new InvalidOperationException("failed-attempt selection fault");
+                var emptyRollbackFault = new InvalidOperationException("empty rollback selection fault");
+                var sawNullSelection = false;
+                display.SelectionChanged += (_, e) =>
+                {
+                    if (e.SelectedSong == rowA)
+                        throw attemptFault;
+                    if (e.SelectedSong == null)
+                    {
+                        sawNullSelection = true;
+                        throw emptyRollbackFault;
+                    }
+                };
+                var failedSnapshot = Snapshot(12, new[] { rowA }, new[] { "/library/recent" });
 
-            Assert.Throws<TargetInvocationException>(() =>
-                InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", failedSnapshot));
+                var thrown = Assert.Throws<TargetInvocationException>(() =>
+                    InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", failedSnapshot));
 
-            Assert.Same(row, display.CurrentList[0]);
-            scope.Retire();
+                Assert.Same(attemptFault, thrown.InnerException);
+                Assert.False(sawNullSelection);
+                Assert.Equal(new[] { rowA, rowB }, display.CurrentList);
+                Assert.Same(rowB, display.SelectedSong);
+                Assert.Same(rowB, GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            }
+            finally
+            {
+                scope.Retire();
+            }
         }
 
         [Fact]

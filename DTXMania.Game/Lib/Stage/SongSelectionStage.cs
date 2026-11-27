@@ -800,6 +800,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PopulateSongList()
         {
+            _songListDisplay.ShowEmptyListMessage = true;
             var displayList = new List<SongListNode>();
 
             if (_currentSongList == null || _currentSongList.Count == 0)
@@ -862,7 +863,10 @@ namespace DTXMania.Game.Lib.Stage
         private void ApplyLibraryInitializationFailure()
         {
             if (_intake.AppliedSnapshot == null)
-                ShowPendingLibraryPlaceholder();
+            {
+                RestorePendingLibraryProjection(GetStableSelectionIdentity(
+                    _selectedSong ?? _songListDisplay?.SelectedSong));
+            }
 
             _libraryInitializationCompleted = true;
             if (_searchFilterModal != null && _searchFilterModal.IsOpen)
@@ -877,13 +881,65 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ShowPendingLibraryPlaceholder()
         {
+            ClearPendingLibraryState();
+            PopulateSongList();
+        }
+
+        private void ClearPendingLibraryState()
+        {
             ClearNavigationForPendingLibrary();
             _filteredView = null;
             _showEmptyFilterMessage = false;
             if (_previewImagePanel != null)
                 _previewImagePanel.ActiveSongRootPaths = Array.Empty<string>();
             _currentSongList = new List<SongListNode>();
-            PopulateSongList();
+        }
+
+        /// <summary>
+        /// Projects the no-library state for the active tab. All Songs keeps the empty
+        /// placeholder list; Recent/Bookmarks never receive that placeholder because
+        /// assigning it can fault selection callbacks before their intact caches are
+        /// projected. Flat rows are restored first and the pre-failure selection is then
+        /// re-applied as a separate contained step, so restore faults never mask the
+        /// original reconciliation failure.
+        /// </summary>
+        private void RestorePendingLibraryProjection(string? previousSelectionIdentity)
+        {
+            if (_tabs.ActiveTab == SongSelectionTab.AllSongs)
+            {
+                ShowPendingLibraryPlaceholder();
+                UpdateBreadcrumb();
+                return;
+            }
+
+            ClearPendingLibraryState();
+            var restoredSelection = FindVisibleSongByIdentity(previousSelectionIdentity);
+            if (restoredSelection != null)
+                _selectedSong = restoredSelection;
+
+            if (_songListDisplay == null)
+                return;
+
+            try
+            {
+                RefreshSongListForActiveTab();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Restoring the song list projection failed");
+            }
+
+            try
+            {
+                if (restoredSelection != null)
+                    RestoreSelectedSong(restoredSelection);
+                else
+                    _selectedSong = _songListDisplay.SelectedSong;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Restoring the selected song failed");
+            }
         }
 
         /// <summary>
@@ -959,8 +1015,7 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     else
                     {
-                        ShowPendingLibraryPlaceholder();
-                        RefreshSongListForActiveTab();
+                        RestorePendingLibraryProjection(previousSelectionIdentity);
                     }
                 }
                 catch (Exception restoreFailure)
@@ -2040,6 +2095,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void RefreshSongListForActiveTab()
         {
+            _songListDisplay.ShowEmptyListMessage = _tabs.ActiveTab == SongSelectionTab.AllSongs;
             if (_tabs.ActiveTab == SongSelectionTab.RecentPlays)
                 PopulateRecentPlaysList();
             else if (_tabs.ActiveTab == SongSelectionTab.Bookmarks)

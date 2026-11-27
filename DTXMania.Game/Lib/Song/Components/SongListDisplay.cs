@@ -181,6 +181,12 @@ namespace DTXMania.Game.Lib.Song.Components
         public SongListNode SelectedSong { get; private set; }
 
         /// <summary>
+        /// Whether an empty list draws the generic "No songs found" fallback. Flat song-select
+        /// tabs disable it because the stage owns their pending/empty/error status copy.
+        /// </summary>
+        public bool ShowEmptyListMessage { get; set; } = true;
+
+        /// <summary>
         /// Current difficulty level (0-4)
         /// </summary>
         public int CurrentDifficulty
@@ -935,6 +941,9 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_currentList.Count == 0)
             {
+                if (!ShowEmptyListMessage)
+                    return;
+
                 // Draw "No songs" message
                 var message = "No songs found";
 
