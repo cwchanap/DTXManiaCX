@@ -4201,9 +4201,10 @@ namespace DTXMania.Test.Stage
             var breadcrumb = new UILabel("") { Font = font };
             AttachCoreUi(stage, breadcrumb: breadcrumb);
             // Non-ASCII caption with combining marks: "a"+U+0301 and "X"+U+0301 are single
-            // grapheme elements. The long tail forces a truncation cut; a naive per-char cut
-            // would leave a bare 'X' (splitting the element) at this width budget.
-            string caption = "a\u0301" + new string('B', 89) + "X\u0301" + new string('B', 300);
+            // grapheme elements. The 91-B tail exactly fills the band after "...", so a
+            // per-UTF-16 cut can still add the bare combining mark while the whole X+mark
+            // element no longer fits.
+            string caption = "a\u0301" + new string('B', 89) + "X\u0301" + new string('B', 91);
             SetPrivateField(stage, "_currentBreadcrumb", caption);
             SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
 
@@ -4219,7 +4220,13 @@ namespace DTXMania.Test.Stage
             // The displayed text is a real suffix of the caption, so the current end of the
             // hierarchy is never truncated away.
             Assert.EndsWith(displayedSuffix, caption, StringComparison.Ordinal);
-            // No displayed grapheme element ever begins with a combining mark.
+            Assert.NotEmpty(displayedSuffix);
+            // The suffix begins at a text-element boundary in the ORIGINAL caption. A
+            // per-UTF-16 cut can otherwise start on the combining mark after X; parsing the
+            // detached suffix would hide that by merging the mark into its first element.
+            int suffixStartInCaption = caption.Length - displayedSuffix.Length;
+            Assert.Contains(suffixStartInCaption, StringInfo.ParseCombiningCharacters(caption));
+            // No displayed grapheme element after the first ever begins with a combining mark.
             var suffixStarts = StringInfo.ParseCombiningCharacters(displayedSuffix);
             foreach (var start in suffixStarts.Skip(1))
                 Assert.NotEqual(UnicodeCategory.NonSpacingMark, CharUnicodeInfo.GetUnicodeCategory(displayedSuffix, start));

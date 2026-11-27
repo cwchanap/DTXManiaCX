@@ -1067,7 +1067,7 @@ namespace DTXMania.Test.Stage
                 tabs.BeginRecentPlaysLoad();
                 var load = recentLoader.LoadWhenRegistered(0);
                 await load.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                var freshNode = Score("Fresh", 42, bookmarked: false);
+                var freshNode = Score("Fresh", 42, bookmarked: true);
                 load.Result.SetResult(new List<SongListNode> { freshNode });
                 DrainUntil(scope, () => ReferenceEquals(tabs.RecentPlayNodes?.FirstOrDefault(), freshNode));
 

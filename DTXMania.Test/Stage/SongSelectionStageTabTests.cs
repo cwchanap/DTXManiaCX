@@ -56,6 +56,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void RefreshSongListForActiveTab_OnFlatTab_SuppressesGenericEmptyListMessage()
+        {
+            var (stage, tabs) = CreateStageWithTabs();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.RecentPlays);
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.False(display.ShowEmptyListMessage);
+
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.AllSongs);
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.True(display.ShowEmptyListMessage);
+        }
+
+        [Fact]
         public void SwitchToNextTab_TogglesActiveTabAndRequestsRepopulate()
         {
             var (stage, tabs) = CreateStageWithTabs();
