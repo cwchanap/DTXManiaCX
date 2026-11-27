@@ -688,17 +688,19 @@ public class GameplayRulesTests
         var ride = new Note { LaneIndex = 9, TimeMs = 1000 };
         chart.Notes.AddRange(new[] { crash, ride });
         var rules = CreatePlayingRules(new ConfigData { ShareCymbalLanes = true }, chart, input);
-        var chips = new List<Note?>();
-        rules.JudgementManager!.PlayerHitResolved += (_, e) => chips.Add(rules.FindChipNoteForHit(e));
+        var resolved = new List<PlayerHitResolvedEventArgs>();
+        rules.JudgementManager!.PlayerHitResolved += (_, e) => resolved.Add(e);
 
         // Both hits wait in the queue until the frame's judgement update.
         input.TriggerLaneHit(8);
         input.TriggerLaneHit(9);
         rules.UpdateJudgement(1000);
 
-        Assert.Equal(2, chips.Count);
-        Assert.Contains(crash, chips);
-        Assert.Contains(ride, chips);
+        // Each hit judges its own note (not an empty hit), and its sound is that note's.
+        Assert.Equal(2, resolved.Count);
+        Assert.All(resolved, hit => Assert.Same(hit.JudgedNote, rules.FindChipNoteForHit(hit)));
+        Assert.Contains(resolved, hit => ReferenceEquals(hit.JudgedNote, crash));
+        Assert.Contains(resolved, hit => ReferenceEquals(hit.JudgedNote, ride));
         rules.ClearJudgement();
         rules.ClearScoreAndCombo();
         rules.ClearGaugeAndSkill();

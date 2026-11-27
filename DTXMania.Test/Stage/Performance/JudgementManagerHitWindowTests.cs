@@ -15,6 +15,7 @@ namespace DTXMania.Test.Stage.Performance
     /// Unit tests for JudgementManager hit window boundaries.
     /// Tests that the JudgementManager correctly processes hits at the boundaries of timing windows.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class JudgementManagerHitWindowTests
     {
         [Theory]

@@ -126,7 +126,8 @@ internal sealed class MidiDrummer : IDisposable
         var strikes = _strikes.OrderBy(strike => strike.TimeMs).ToList();
         var lastNoteMs = Chart.Notes.Count > 0 ? Chart.Notes.Max(note => note.TimeMs) : 0.0;
         var lastStrikeMs = strikes.Count > 0 ? strikes[^1].TimeMs : 0.0;
-        var endMs = Math.Max(lastNoteMs, lastStrikeMs)
+        var lastStallEndMs = _stalls.Count > 0 ? _stalls.Max(stall => stall.ToMs) : 0.0;
+        var endMs = Math.Max(Math.Max(lastNoteMs, lastStrikeMs), lastStallEndMs)
             + Math.Abs(_config.AudioLatencyOffsetMs)
             + JudgementManager.MissTimeoutMs
             + 2 * FrameMs;
@@ -137,9 +138,8 @@ internal sealed class MidiDrummer : IDisposable
         for (var frame = 1; timeMs <= endMs; frame++)
         {
             timeMs = frame * FrameMs;
-            if (_stalls.Any(stall => timeMs > stall.FromMs && timeMs < stall.ToMs))
-                continue;
 
+            // MIDI keeps arriving while the game loop is frozen; it waits in the input queue.
             for (; next < strikes.Count && strikes[next].TimeMs <= timeMs; next++)
             {
                 var strike = strikes[next];
@@ -147,6 +147,9 @@ internal sealed class MidiDrummer : IDisposable
                 if (sendNoteOff)
                     Assert.True(_midi.TryInjectNote(strike.Pad, 0, isPressed: false));
             }
+
+            if (_stalls.Any(stall => timeMs > stall.FromMs && timeMs < stall.ToMs))
+                continue;
 
             _input.Update(FrameMs / 1000.0);
             Rules.UpdateJudgement(
