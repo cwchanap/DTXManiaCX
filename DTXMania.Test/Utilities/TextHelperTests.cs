@@ -111,6 +111,31 @@ namespace DTXMania.Test.Utilities
         }
 
         [Fact]
+        public void TruncateToWidth_WhenStartIsTruncated_ShouldReturnLongestSuffixThatFits()
+        {
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * 5f, 14f));
+
+            var result = TextHelper.TruncateToWidth("abcdefghij", 40f, font.Object, truncateStart: true);
+
+            Assert.Equal("...fghij", result);
+            Assert.True(font.Object.MeasureString(result).X <= 40f + 0.01f);
+        }
+
+        [Fact]
+        public void TruncateToWidth_WhenStartTruncationWouldDetachCombiningMark_ShouldBackOffToEllipsis()
+        {
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * 10f, 14f));
+
+            var result = TextHelper.TruncateToWidth("AAAAX́", 45f, font.Object, truncateStart: true);
+
+            Assert.Equal("...", result);
+        }
+
+        [Fact]
         public void TruncateToWidth_WhenTextContainsSurrogatePair_ShouldNotSplitSurrogate()
         {
             // "abc" + U+1F600 (grinning face, a surrogate pair) + "XYZZZ" => 10 raw chars, 9 text elements.

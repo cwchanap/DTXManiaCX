@@ -268,11 +268,12 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "OnUpdate", 0.016);
 
-            // The owner projects an empty-but-successful list and the consumption
-            // clears the flag exactly once.
+            // The owner projects an empty list and the consumption clears the flag exactly
+            // once. No Recent load completed (there is no scope in this synthetic setup), so
+            // the empty-results message stays hidden rather than masquerading as a successful load.
             Assert.False(tabs.TabListNeedsRefresh);
             Assert.Empty(display.CurrentList);
-            Assert.True(tabs.ShowEmptyRecentMessage);
+            Assert.False(tabs.ShowEmptyRecentMessage);
         }
 
         [Fact]

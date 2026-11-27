@@ -6,8 +6,10 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using Moq;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 
@@ -27,6 +29,18 @@ namespace DTXMania.Test.Stage
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new SongSelectionStage(null));
+        }
+
+        [Fact]
+        public void Constructor_WhenCreateTabsAndTabIoSeamsAreBothSupplied_ShouldThrowArgumentException()
+        {
+            var exception = Assert.Throws<ArgumentException>(() => new SongSelectionStage(
+                CreateUninitializedGame(),
+                createPreviewInstance: null,
+                createTabs: (intake, getScope, logger) => null!,
+                loadRecentPlaysAsync: () => Task.FromResult(new List<DTXMania.Game.Lib.Song.SongListNode>())));
+
+            Assert.Contains("createTabs", exception.Message, StringComparison.Ordinal);
         }
 
         [Fact]

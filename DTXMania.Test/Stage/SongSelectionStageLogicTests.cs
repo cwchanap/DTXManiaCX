@@ -4143,7 +4143,7 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "UpdateBreadcrumb");
 
-            Assert.EndsWith("...", breadcrumb.Text);
+            Assert.StartsWith("...", breadcrumb.Text);
             Assert.True(
                 font.MeasureString(breadcrumb.Text).X <= SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
                 $"truncated caption measured {font.MeasureString(breadcrumb.Text).X}px over the "
@@ -4210,26 +4210,19 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "UpdateBreadcrumb");
 
             var displayed = breadcrumb.Text;
-            Assert.EndsWith("...", displayed);
+            Assert.StartsWith("...", displayed);
             Assert.True(
                 font.MeasureString(displayed).X <= SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
                 $"truncated caption measured {font.MeasureString(displayed).X}px over the "
                 + $"{SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth}px band");
-            var displayedPrefix = displayed.Substring(0, displayed.Length - 3);
-            // The displayed text is a real element-boundary prefix of the caption ...
-            Assert.StartsWith(displayedPrefix, caption, StringComparison.Ordinal);
-            // ... and its trailing grapheme is complete: the caption's element at the last
-            // displayed start must have the same spelling in the displayed prefix (a naive
-            // per-char cut inside "X"+U+0301 would leave a bare 'X').
-            var captionStarts = StringInfo.ParseCombiningCharacters(caption);
-            var prefixStarts = StringInfo.ParseCombiningCharacters(displayedPrefix);
-            var lastStart = prefixStarts[^1];
-            var nextBoundary = Array.FindIndex(captionStarts, start => start > lastStart);
-            var elementEnd = nextBoundary < 0 ? caption.Length : captionStarts[nextBoundary];
-            Assert.Equal(caption.Substring(lastStart, elementEnd - lastStart), displayedPrefix.Substring(lastStart));
+            var displayedSuffix = displayed.Substring(3);
+            // The displayed text is a real suffix of the caption, so the current end of the
+            // hierarchy is never truncated away.
+            Assert.EndsWith(displayedSuffix, caption, StringComparison.Ordinal);
             // No displayed grapheme element ever begins with a combining mark.
-            foreach (var start in prefixStarts.Skip(1))
-                Assert.NotEqual(UnicodeCategory.NonSpacingMark, CharUnicodeInfo.GetUnicodeCategory(displayedPrefix, start));
+            var suffixStarts = StringInfo.ParseCombiningCharacters(displayedSuffix);
+            foreach (var start in suffixStarts.Skip(1))
+                Assert.NotEqual(UnicodeCategory.NonSpacingMark, CharUnicodeInfo.GetUnicodeCategory(displayedSuffix, start));
         }
 
         [Fact]

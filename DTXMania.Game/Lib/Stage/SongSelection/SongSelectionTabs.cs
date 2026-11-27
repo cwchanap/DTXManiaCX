@@ -433,9 +433,9 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
                         () => Volatile.Read(ref _recentPlaysLoadVersion),
                         applySuccess: nodes =>
                         {
-                            _recentPlaysLoadFailed = false;
                             var recentNodes = nodes.ToList();
                             ApplyCurrentBookmarkStates(recentNodes);
+                            _recentPlaysLoadFailed = false;
                             _recentPlayNodes = recentNodes;
                             if (_activeTab == SongSelectionTab.RecentPlays)
                                 RequestAsyncTabListRefresh();
@@ -577,10 +577,33 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
         private void ApplyCurrentBookmarkStates(List<SongListNode> nodes)
         {
             var states = new Dictionary<int, bool>();
-            CollectBookmarkStates(
-                _intake.AppliedSnapshot?.RootSongs ?? _getLibrary().GetLibrarySnapshot().RootSongs,
-                states);
-            CollectBookmarkStates(_bookmarkNodes, states);
+            var neededSongIds = new HashSet<int>();
+            foreach (var node in nodes)
+            {
+                int? effectiveId = node.DatabaseSongId ?? node.DatabaseSong?.Id;
+                if (node.DatabaseSong != null && effectiveId is int id && id > 0)
+                    neededSongIds.Add(id);
+            }
+
+            if (neededSongIds.Count > 0)
+            {
+                if (_intake.AppliedSnapshot != null)
+                {
+                    foreach (int songId in neededSongIds)
+                    {
+                        if (_intake.TryGetAppliedBookmarkState(songId, out bool isBookmarked))
+                            states[songId] = isBookmarked;
+                    }
+                }
+                else
+                {
+                    CollectBookmarkStates(
+                        _getLibrary().GetLibrarySnapshot().RootSongs,
+                        states,
+                        neededSongIds);
+                }
+            }
+
             foreach (var state in _bookmarkInMemoryStates)
                 states[state.Key] = state.Value;
 
@@ -598,19 +621,27 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
 
         private static void CollectBookmarkStates(
             IEnumerable<SongListNode>? nodes,
-            Dictionary<int, bool> states)
+            Dictionary<int, bool> states,
+            HashSet<int> neededSongIds)
         {
             if (nodes == null)
                 return;
 
             foreach (var node in nodes)
             {
+                if (states.Count >= neededSongIds.Count)
+                    return;
+
                 int? effectiveId = node.DatabaseSongId ?? node.DatabaseSong?.Id;
-                if (node.DatabaseSong != null && effectiveId is int songId && songId > 0)
+                if (node.DatabaseSong != null
+                    && effectiveId is int songId
+                    && neededSongIds.Contains(songId))
+                {
                     states[songId] = node.DatabaseSong.IsBookmarked;
+                }
 
                 if (node.Children.Count > 0)
-                    CollectBookmarkStates(node.Children, states);
+                    CollectBookmarkStates(node.Children, states, neededSongIds);
             }
         }
 
@@ -906,7 +937,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             LabelRecentPlayNodes(nodes);
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
-            _showEmptyRecentMessage = !_recentPlaysLoadFailed && nodes.Count == 0;
+            _showEmptyRecentMessage = !_recentPlaysLoadFailed && _recentPlayNodes != null && nodes.Count == 0;
             return nodes;
         }
 

@@ -523,7 +523,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void BuildRecentPlaysRows_WhenCacheNeverLoaded_ShouldShowEmpty()
+        public void BuildRecentPlaysRows_WhenCacheNeverLoaded_ShouldNotShowEmpty()
         {
             using var library = CreateLibrary();
             var scope = new StageBackgroundWorkScope();
@@ -532,7 +532,7 @@ namespace DTXMania.Test.Stage
             var rows = tabs.BuildRecentPlaysRows();
 
             Assert.Empty(rows);
-            Assert.True(tabs.ShowEmptyRecentMessage);
+            Assert.False(tabs.ShowEmptyRecentMessage);
             scope.Retire();
         }
 
@@ -1001,6 +1001,82 @@ namespace DTXMania.Test.Stage
 
             Assert.False(tabs.RecentPlaysLoadFailed);
             scope.Retire();
+        }
+
+        [Fact]
+        public void BeginRecentPlaysLoad_WhenSuccessApplicationThrows_ShouldKeepLoadFailedFlagAndPreviousCache()
+        {
+            using var library = CreateLibrary();
+            var faults = new List<Exception>();
+            var scope = new StageBackgroundWorkScope(faults.Add);
+            var loader = new ControlledLoader();
+            var controlled = loader.Loader();
+            var faultingLibraryAccess = false;
+            var faultsRemaining = 1;
+            var tabs = CreateTabs(
+                () => faultingLibraryAccess ? throw new InvalidOperationException("library snapshot unavailable") : library,
+                new SongSelectionLibraryIntake(() => library),
+                () => scope,
+                loadRecentPlaysAsync: () =>
+                    Interlocked.Decrement(ref faultsRemaining) >= 0
+                        ? Task.FromException<List<SongListNode>>(new InvalidOperationException("database unavailable"))
+                        : controlled());
+
+            tabs.BeginRecentPlaysLoad(); // faults
+            DrainUntil(scope, () => tabs.RecentPlaysLoadFailed);
+
+            faultingLibraryAccess = true;
+            tabs.BeginRecentPlaysLoad(); // rows load, but applying bookmark state throws
+            loader.LoadWhenRegistered(0).Result.SetResult(new List<SongListNode> { Score("Fresh", 9) });
+            DrainUntil(scope, () => faults.Count == 1, "the success application's fault was never drained");
+
+            Assert.Single(faults);
+            Assert.True(tabs.RecentPlaysLoadFailed);
+            Assert.Null(tabs.RecentPlayNodes);
+            scope.Retire();
+        }
+
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenBookmarksCacheDisagreesWithAppliedSnapshot_ShouldUseAppliedSnapshot()
+        {
+            using var library = CreateLibrary();
+            var scope = new StageBackgroundWorkScope();
+            var intake = new SongSelectionLibraryIntake(() => library);
+            var recentLoader = new ControlledLoader();
+            var bookmarksLoader = new ControlledLoader();
+            var tabs = CreateTabs(
+                () => library,
+                intake,
+                () => scope,
+                loadRecentPlaysAsync: recentLoader.Loader(),
+                loadBookmarkedNodesAsync: bookmarksLoader.Loader());
+
+            try
+            {
+                intake.Install(Snapshot(
+                    101,
+                    new[] { Score("Library", 42, bookmarked: false) },
+                    new[] { "/library/active" }));
+                tabs.RequestBookmarksRefresh();
+                bookmarksLoader.LoadWhenRegistered(0).Result.SetResult(new List<SongListNode>
+                {
+                    Score("Bookmark cache", 42, bookmarked: true)
+                });
+                DrainUntil(scope, () => tabs.BookmarkNodes is { Count: 1 });
+
+                tabs.BeginRecentPlaysLoad();
+                var load = recentLoader.LoadWhenRegistered(0);
+                await load.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var freshNode = Score("Fresh", 42, bookmarked: false);
+                load.Result.SetResult(new List<SongListNode> { freshNode });
+                DrainUntil(scope, () => ReferenceEquals(tabs.RecentPlayNodes?.FirstOrDefault(), freshNode));
+
+                Assert.False(freshNode.DatabaseSong!.IsBookmarked);
+            }
+            finally
+            {
+                scope.Retire();
+            }
         }
 
         [Fact]

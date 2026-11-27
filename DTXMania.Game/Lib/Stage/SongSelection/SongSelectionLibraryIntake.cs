@@ -39,6 +39,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
         private readonly Func<SongLibrary> _getLibrary;
         private SongLibrarySnapshot? _appliedSnapshot;
         private HashSet<string>? _appliedScoreIdentities;
+        private Dictionary<int, bool>? _appliedBookmarkStates;
         private long _committedVersion;
         private SongSelectionLibraryEmptyState _emptyState = SongSelectionLibraryEmptyState.HasSongs;
         private EventHandler<SongLibraryPublishedEventArgs>? _publicationHandler;
@@ -118,6 +119,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             Unsubscribe();
             _appliedSnapshot = null;
             _appliedScoreIdentities = null;
+            _appliedBookmarkStates = null;
             _emptyState = SongSelectionLibraryEmptyState.HasSongs;
             Interlocked.Exchange(ref _committedVersion, 0);
         }
@@ -156,8 +158,28 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             ArgumentNullException.ThrowIfNull(snapshot);
 
             _appliedSnapshot = snapshot;
-            _appliedScoreIdentities = GetPublishedScoreIdentities(snapshot.RootSongs);
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            var bookmarkStates = new Dictionary<int, bool>();
+            AddPublishedScoreIdentities(snapshot.RootSongs, identities, bookmarkStates);
+            _appliedScoreIdentities = identities;
+            _appliedBookmarkStates = bookmarkStates;
             _emptyState = ResolveLibraryEmptyState(snapshot);
+        }
+
+        /// <summary>
+        /// Looks up the bookmark state indexed from the applied snapshot. Missing ids
+        /// simply have no canonical tree state; callers keep the row's own state.
+        /// </summary>
+        internal bool TryGetAppliedBookmarkState(int songId, out bool isBookmarked)
+        {
+            if (_appliedBookmarkStates != null
+                && _appliedBookmarkStates.TryGetValue(songId, out isBookmarked))
+            {
+                return true;
+            }
+
+            isBookmarked = false;
+            return false;
         }
 
         /// <summary>
@@ -186,6 +208,7 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
             {
                 _appliedSnapshot = null;
                 _appliedScoreIdentities = null;
+                _appliedBookmarkStates = null;
                 _emptyState = SongSelectionLibraryEmptyState.HasSongs;
                 return;
             }
@@ -283,15 +306,24 @@ namespace DTXMania.Game.Lib.Stage.SongSelection
 
         private static void AddPublishedScoreIdentities(
             IEnumerable<SongListNode> nodes,
-            ISet<string> identities)
+            ISet<string> identities,
+            Dictionary<int, bool>? bookmarkStates = null)
         {
             foreach (var node in nodes)
             {
                 foreach (var identity in GetScoreIdentityCandidates(node))
                     identities.Add(identity);
 
+                int songId = node.DatabaseSongId ?? node.DatabaseSong?.Id ?? 0;
+                if (bookmarkStates != null
+                    && node.DatabaseSong != null
+                    && songId > 0)
+                {
+                    bookmarkStates[songId] = node.DatabaseSong.IsBookmarked;
+                }
+
                 if (node.Children.Count > 0)
-                    AddPublishedScoreIdentities(node.Children, identities);
+                    AddPublishedScoreIdentities(node.Children, identities, bookmarkStates);
             }
         }
 

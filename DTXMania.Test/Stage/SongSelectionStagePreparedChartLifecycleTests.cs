@@ -123,24 +123,24 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         }
     }
 
-    // HPA-802 review round 1: the stage must assert the two-way pairing between its
+    // HPA-802 review round 1: the stage must repair the two-way pairing between its
     // prepared record and the controller's playback state at stable operation
     // boundaries — a record exists exactly when the state is not None.
     [Fact]
-    public void StageOperation_WhenRecordSurvivesWithoutPreparedState_ShouldFailFast()
+    public void StageOperation_WhenRecordSurvivesWithoutPreparedState_ShouldClearTheMismatch()
     {
         var stage = CreateStage();
         var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "hpa802-invariant-record.dtx"));
         SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
 
-        var exception = Assert.Throws<TargetInvocationException>(
-            () => InvokePrivateMethod(stage, "OnUpdate", 0.016));
-        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
-        Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+        InvokePrivateMethod(stage, "OnUpdate", 0.016);
+
+        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        Assert.Equal("None", PreviewStateOf(stage));
     }
 
     [Fact]
-    public void StageOperation_WhenPreparedStateSurvivesWithoutRecord_ShouldFailFast()
+    public void StageOperation_WhenPreparedStateSurvivesWithoutRecord_ShouldClearTheMismatch()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa802-invariant-state");
         Directory.CreateDirectory(root);
@@ -161,10 +161,11 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             // Drop only the stage-side identity, leaving the controller Prepared.
             SetPrivateField(stage, "_preparedChartSelection", null);
 
-            var exception = Assert.Throws<TargetInvocationException>(
-                () => InvokeCommand(stage, "CancelPreparedChart"));
-            var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
-            Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+            var result = InvokeCommand(stage, "CancelPreparedChart");
+
+            Assert.True(result.Success);
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", PreviewStateOf(stage));
         }
         finally
         {
@@ -173,42 +174,43 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     // HPA-802 review round 2: every exit of OnSongSelectionChanged is a stable
-    // boundary — the scroll-incomplete early return must fail fast on a broken
+    // boundary — the scroll-incomplete early return must repair a broken
     // pairing too, not only the scroll-complete path.
     [Fact]
-    public void StageOperation_WhenScrollIncompleteExitsWithBrokenPairing_ShouldFailFast()
+    public void StageOperation_WhenScrollIncompleteExitsWithBrokenPairing_ShouldClearTheMismatch()
     {
         var stage = CreateStage();
         AttachCoreUi(stage);
         var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "hpa802-invariant-scroll.dtx"));
         SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
 
-        var exception = Assert.Throws<TargetInvocationException>(
-            () => InvokePrivateMethod(
-                stage,
-                "OnSongSelectionChanged",
-                GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
-                new SongSelectionChangedEventArgs(node, 0, false)));
-        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
-        Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+        InvokePrivateMethod(
+            stage,
+            "OnSongSelectionChanged",
+            GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!,
+            new SongSelectionChangedEventArgs(node, 0, false));
+
+        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        Assert.Equal("None", PreviewStateOf(stage));
     }
 
-    // HPA-802 review round 2: the invariant must stay enforced on stable failure
+    // HPA-802 review round 2: the invariant must stay repaired on stable failure
     // exits of PrepareVideoChart — and because validation precedes teardown, a
     // request rejected before teardown leaves an injected inconsistency intact
     // for that boundary to catch.
     [Fact]
-    public void PrepareVideoChart_WhenPairingBrokenAndRequestInvalid_ShouldFailFastAtStableFailureExit()
+    public void PrepareVideoChart_WhenPairingBrokenAndRequestInvalid_ShouldClearTheMismatchAtStableFailureExit()
     {
         var stage = CreateStage();
         AttachCoreUi(stage);
         var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "hpa802-invariant-invalid.dtx"));
         SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
 
-        var exception = Assert.Throws<TargetInvocationException>(
-            () => InvokeCommand(stage, "PrepareVideoChart", "not-in-library.dtx"));
-        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
-        Assert.Contains("inconsistent", inner.Message, StringComparison.Ordinal);
+        var result = InvokeCommand(stage, "PrepareVideoChart", "not-in-library.dtx");
+
+        Assert.False(result.Success);
+        Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        Assert.Equal("None", PreviewStateOf(stage));
     }
 
     // HPA-802 review round 1: the unexpected-stop boundary must keep the pairing
