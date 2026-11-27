@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.Helpers;
 using Xunit;
 
@@ -142,6 +143,28 @@ public sealed class MidiPlaythroughTests : IDisposable
 
         Assert.Equal(QuarterSnareNoteCount, result.StatusPerfectCount);
         Assert.Equal(0, result.StatusMissCount);
+    }
+
+    [Theory]
+    [InlineData(-170)]
+    [InlineData(170)]
+    public async Task QuarterSnare_OnlyHitOutsidePoorWindow_ShouldMissAtTimeoutNotOnTheHit(int offsetMs)
+    {
+        using var drummer = new MidiDrummer(await ParseAsync(QuarterSnareChart));
+        var emptyHits = 0;
+        drummer.Rules.JudgementManager!.PlayerHitResolved += (_, hit) =>
+        {
+            Assert.Null(hit.JudgedNote);
+            emptyHits++;
+        };
+
+        var result = drummer.PlayChart(offsetMs).Run();
+
+        Assert.Equal(QuarterSnareNoteCount, emptyHits);
+        Assert.Equal(QuarterSnareNoteCount, result.StatusMissCount);
+        // A hit that used the note up would judge it at the hit, about offsetMs away.
+        Assert.All(drummer.Chart.Notes, note =>
+            Assert.True(drummer.JudgementOf(note)!.DeltaMs > JudgementManager.MissTimeoutMs));
     }
 
     [Theory]
