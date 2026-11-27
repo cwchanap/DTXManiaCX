@@ -162,9 +162,15 @@ public sealed class MidiPlaythroughTests : IDisposable
 
         Assert.Equal(QuarterSnareNoteCount, emptyHits);
         Assert.Equal(QuarterSnareNoteCount, result.StatusMissCount);
-        // A hit that used the note up would judge it at the hit, about offsetMs away.
+        // Each note misses on the first frame past the timeout. A hit that used the note up
+        // would judge it at the hit, about offsetMs away.
         Assert.All(drummer.Chart.Notes, note =>
-            Assert.True(drummer.JudgementOf(note)!.DeltaMs > JudgementManager.MissTimeoutMs));
+        {
+            var deltaMs = drummer.JudgementOf(note)!.DeltaMs;
+            Assert.True(deltaMs > JudgementManager.MissTimeoutMs, $"Missed early, {deltaMs} ms after the note.");
+            Assert.True(deltaMs <= JudgementManager.MissTimeoutMs + MidiDrummer.FrameMs + 1e-6,
+                $"Missed late, {deltaMs} ms after the note.");
+        });
     }
 
     [Theory]
