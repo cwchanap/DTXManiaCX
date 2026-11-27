@@ -195,10 +195,26 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// The note whose chip sound a player hit plays: the note the hit judged, or for an
-        /// empty hit the lane's nearest note, hit or not (DTXManiaNX parity).
+        /// empty hit the lane's nearest note, hit or not (DTXManiaNX parity). With shared
+        /// cymbals, a cymbal lane with no notes falls back to the other cymbal, like NX CYGroup.
         /// </summary>
-        internal Note? FindChipNoteForHit(PlayerHitResolvedEventArgs hit) =>
-            hit.JudgedNote ?? ChartManager?.FindNearestNoteInLane(hit.Lane, hit.JudgementTimeMs);
+        internal Note? FindChipNoteForHit(PlayerHitResolvedEventArgs hit)
+        {
+            if (hit.JudgedNote != null || ChartManager == null)
+                return hit.JudgedNote;
+
+            var note = ChartManager.FindNearestNoteInLane(hit.Lane, hit.JudgementTimeMs);
+            if (note == null && ShareCymbalLanes && OtherCymbalLane(hit.Lane) is int otherLane)
+                note = ChartManager.FindNearestNoteInLane(otherLane, hit.JudgementTimeMs);
+            return note;
+        }
+
+        private static int? OtherCymbalLane(int lane) => lane switch
+        {
+            (int)PerformanceUILayout.LaneType.CY => (int)PerformanceUILayout.LaneType.RD,
+            (int)PerformanceUILayout.LaneType.RD => (int)PerformanceUILayout.LaneType.CY,
+            _ => null,
+        };
 
         internal void InitializeJudgement(IInputManagerCompat inputManager)
         {

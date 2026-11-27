@@ -679,6 +679,35 @@ public class GameplayRulesTests
         rules.ClearGaugeAndSkill();
     }
 
+    [Theory]
+    [InlineData(8, 9, true, true)]
+    [InlineData(9, 8, true, true)]
+    [InlineData(8, 9, false, false)]
+    [InlineData(9, 8, false, false)]
+    public void CymbalEmptyHit_WithNoNotesOnItsLane_ShouldSoundOtherCymbalOnlyWhenShared(
+        int hitLane, int noteLane, bool shared, bool expectSound)
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("one-cymbal.dtx");
+        var note = new Note { LaneIndex = noteLane, TimeMs = 1000 };
+        chart.Notes.Add(note);
+        var rules = CreatePlayingRules(new ConfigData { ShareCymbalLanes = shared }, chart, input);
+        var resolved = new List<PlayerHitResolvedEventArgs>();
+        rules.JudgementManager!.PlayerHitResolved += (_, e) => resolved.Add(e);
+
+        // 500 ms early: outside the Poor window, so an empty hit.
+        input.TriggerLaneHit(hitLane);
+        rules.UpdateJudgement(500);
+
+        var hit = Assert.Single(resolved);
+        Assert.Null(hit.JudgedNote);
+        Assert.Equal(expectSound ? note : null, rules.FindChipNoteForHit(hit));
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(note.Id)!.Status);
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
     [Fact]
     public void SharedCymbalChord_ShouldGiveEachQueuedHitItsOwnNoteAndSound()
     {
