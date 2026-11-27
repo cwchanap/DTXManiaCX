@@ -627,7 +627,7 @@ namespace DTXMania.Game.Lib.Stage
                 maxValue: 500,
                 step: 10,
                 valueFormatter: v => $"{v} ms")
-            { Description = "Shifts audio timing to compensate for output latency." };
+            { Description = "Judges hits this many ms later, for music you hear late. Keep 0 unless hits read slow." };
 
             // BaseGame guarantees ResourceManager after LoadContent, before any stage activates,
             // so at runtime this branch always runs. Headless reflection tests may build the
@@ -888,6 +888,13 @@ namespace DTXMania.Game.Lib.Stage
                 value => _configManager.SetNoFail(value))
             { Description = "Continue playing without entering a failed gauge state." };
 
+            var cymbalGroupItem = new ToggleConfigItem(
+                "Cymbal Group",
+                () => _configManager.Config.ShareCymbalLanes,
+                value => _configManager.SetShareCymbalLanes(value),
+                shared => shared ? "Shared" : "Separate")
+            { Description = "Shared lets CY and RD pads hit each other's notes, like NX's CY Group." };
+
             var drumKeyItem = new NavigationConfigItem("Drum Key Mapping",
                 () => NavigateToDrumConfig())
             { Description = "Assign keys for each drum lane." };
@@ -916,6 +923,7 @@ namespace DTXMania.Game.Lib.Stage
             drumItems.Add(noFailItem);
             drumItems.Add(riskyItem);
             drumItems.Add(damageLevelItem);
+            drumItems.Add(cymbalGroupItem);
             drumItems.Add(drumKeyItem);
 
             _categories = new List<ConfigCategory>

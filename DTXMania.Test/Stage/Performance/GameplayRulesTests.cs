@@ -16,7 +16,7 @@ namespace DTXMania.Test.Stage.Performance;
 public class GameplayRulesTests
 {
     [Fact]
-    public void FrameState_ShouldUseManagersAndPreserveBothMissMeanings()
+    public void FrameState_ShouldUseManagersAndTimeOutNotesAfterEmptyHits()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("hud.dtx") { DurationMs = 10000 };
@@ -63,18 +63,19 @@ public class GameplayRulesTests
         Assert.Equal(judgement.GetJudgementCount(JudgementType.Great), frame.GreatCount);
         Assert.Equal(judgement.GetJudgementCount(JudgementType.Good), frame.GoodCount);
         Assert.Equal(judgement.GetJudgementCount(JudgementType.Poor), frame.PoorCount);
-        Assert.Equal(1, judgement.GetJudgementCount(JudgementType.Miss));
+        Assert.Equal(2, judgement.GetJudgementCount(JudgementType.Miss));
         Assert.Equal(1, frame.StatusPerfectCount);
         Assert.Equal(1, frame.StatusGreatCount);
         Assert.Equal(1, frame.StatusGoodCount);
         Assert.Equal(1, frame.StatusPoorCount);
-        Assert.Equal(1, frame.StatusMissCount);
+        Assert.Equal(2, frame.StatusMissCount);
         Assert.Equal(0, beforeTimeout.StatusMissCount);
         var summary = rules.BuildSummary(CompletionReason.SongComplete, new PlaybackModifiers(100, 0), 78, 33);
-        Assert.Equal(1, summary.MissCount);
-        Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
+        Assert.Equal(2, summary.MissCount);
+        // The +160 ms hit on lane 4 is outside the Poor window: it judges nothing and the note times out.
+        Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
         Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[5].Id)!.Status);
-        Assert.Equal(1, beforeTimeout.MissCount);
+        Assert.Equal(0, beforeTimeout.MissCount);
         Assert.Equal(0.25f, frame.Progress);
         Assert.Equal(2500, frame.ElapsedMs);
         Assert.Equal(10000, frame.TotalMs);
@@ -157,7 +158,9 @@ public class GameplayRulesTests
         Assert.Equal(3, frame.FastCount);
         Assert.Equal(3, frame.SlowCount);
         Assert.Equal(2, frame.PoorCount);
-        Assert.Equal(2, frame.MissCount);
+        Assert.Equal(0, frame.MissCount);
+        Assert.Equal(NoteStatus.Pending, judgement.GetNoteRuntimeData(chart.Notes[0].Id)!.Status);
+        Assert.Equal(NoteStatus.Pending, judgement.GetNoteRuntimeData(chart.Notes[deltas.Length - 1].Id)!.Status);
         Assert.Equal(1f, frame.Progress);
         Assert.Equal(20000, frame.ElapsedMs);
         rules.ClearJudgement();
@@ -360,7 +363,7 @@ public class GameplayRulesTests
         Assert.Equal(1, summary.GreatCount);
         Assert.Equal(1, summary.GoodCount);
         Assert.Equal(1, summary.PoorCount);
-        Assert.Equal(1, summary.MissCount);
+        Assert.Equal(2, summary.MissCount);
         Assert.Equal(2, rules.SkillManager!.MissCount);
         Assert.Equal(6, summary.TotalNotes);
         Assert.Equal(rules.GaugeManager!.CurrentLife, summary.FinalLife);
@@ -399,7 +402,6 @@ public class GameplayRulesTests
     [Theory]
     [InlineData(1120, 0, 1, 0)]
     [InlineData(0, 1201, 0, 1)]
-    [InlineData(1160, 0, 0, 0)]
     public void SummaryGaugeFailure_ShouldSeeFailingNoteStatusBeforeSkillFanout(
         int hitTime, int missTime, int poorCount, int missCount)
     {
@@ -731,37 +733,92 @@ public class GameplayRulesTests
         rules.ClearGaugeAndSkill();
     }
 
-    [Fact]
-    public void JudgementFanoutLateManualMiss_ShouldFailBeforeSkillButKeepNoteStatusCounts()
+    [Theory]
+    [InlineData(1160)]
+    [InlineData(840)]
+    public void HitOutsidePoorWindow_ShouldNotJudgeScoreOrDamageAndLeaveNoteForLaterHit(int hitTime)
     {
         using var input = new MockInputManagerCompat();
-        var chart = new ParsedChart("late-miss.dtx");
+        var chart = new ParsedChart("empty-hit.dtx");
         chart.Notes.Add(new Note { LaneIndex = 0, TimeMs = 1000 });
         var rules = CreatePlayingRules(new ConfigData { Risky = 1 }, chart, input);
-        var order = new List<string>();
-        rules.ScoreManager!.ScoreChanged += (_, _) => order.Add("score");
-        rules.GaugeManager!.Failed += (_, _) =>
-        {
-            order.Add("failure");
-            Assert.Equal(0, rules.SkillManager!.MissCount);
-            Assert.Equal(0, rules.JudgementManager!.GetJudgementCount(JudgementType.Miss));
-            Assert.Equal(NoteStatus.Hit, rules.JudgementManager.GetNoteRuntimeData(chart.Notes[0].Id)!.Status);
-        };
-        rules.GaugeManager.GaugeChanged += (_, _) => order.Add("gauge");
-        rules.JudgementManager!.JudgementMade += (_, _) =>
-        {
-            order.Add("observer");
-            Assert.Equal(1, rules.SkillManager!.MissCount);
-        };
+        var judgements = new List<JudgementEvent>();
+        rules.JudgementManager!.JudgementMade += (_, e) => judgements.Add(e);
 
         input.TriggerLaneHit(0);
-        rules.JudgementManager.Update(1160);
+        rules.JudgementManager.Update(hitTime);
 
-        Assert.Equal(new[] { "score", "failure", "gauge", "observer" }, order);
-        Assert.True(rules.GaugeManager.HasFailed);
-        Assert.Equal(47f, rules.GaugeManager.CurrentLife);
-        Assert.Equal(0, rules.JudgementManager.GetStatistics().MissCount);
-        Assert.Equal(1, rules.SkillManager!.MissCount);
+        Assert.Empty(judgements);
+        Assert.False(rules.GaugeManager!.HasFailed);
+        Assert.Equal(0, rules.ScoreManager!.CurrentScore);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(chart.Notes[0].Id)!.Status);
+
+        if (hitTime < 1000)
+        {
+            input.TriggerLaneHit(0);
+            rules.JudgementManager.Update(1000);
+            Assert.Equal(JudgementType.Perfect, Assert.Single(judgements).Type);
+        }
+
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Theory]
+    [InlineData(true, 9, JudgementType.Perfect)]
+    [InlineData(false, -1, null)]
+    public void ShareCymbalLanes_ShouldLetCymbalHitJudgeRideNoteAndChipOnlyWhenShared(
+        bool share, int expectedLane, JudgementType? expectedType)
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("cymbal-group.dtx");
+        var ride = new Note { LaneIndex = 9, TimeMs = 1000 };
+        chart.Notes.Add(ride);
+        var rules = CreatePlayingRules(new ConfigData { ShareCymbalLanes = share }, chart, input);
+        var judgements = new List<JudgementEvent>();
+        rules.JudgementManager!.JudgementMade += (_, e) => judgements.Add(e);
+
+        Assert.Equal(share, rules.ShareCymbalLanes);
+        Assert.Equal(share ? ride : null, rules.FindNearestNoteForChip(8, 1000));
+        input.TriggerLaneHit(8);
+        rules.JudgementManager.Update(1000);
+
+        if (expectedType is { } type)
+        {
+            var judgement = Assert.Single(judgements);
+            Assert.Equal(type, judgement.Type);
+            Assert.Equal(expectedLane, judgement.Lane);
+        }
+        else
+        {
+            Assert.Empty(judgements);
+        }
+        rules.ClearJudgement();
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void ShareCymbalLanes_ShouldPreferNearestNoteAndNeverTakeAutoplayOrOtherLanes()
+    {
+        var config = new ConfigData { ShareCymbalLanes = true };
+        config.AutoPlayLanes.Add(9);
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("cymbal-group-autoplay.dtx");
+        var autoRide = new Note { LaneIndex = 9, TimeMs = 1000 };
+        var leftCymbal = new Note { LaneIndex = 0, TimeMs = 1000 };
+        var crash = new Note { LaneIndex = 8, TimeMs = 1100 };
+        chart.Notes.AddRange(new[] { autoRide, leftCymbal, crash });
+        var rules = CreatePlayingRules(config, chart, input);
+
+        Assert.Same(crash, rules.FindNearestNoteForChip(8, 1000));
+        input.TriggerLaneHit(8);
+        rules.JudgementManager!.Update(1000);
+
+        Assert.Equal(NoteStatus.Hit, rules.JudgementManager.GetNoteRuntimeData(crash.Id)!.Status);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(autoRide.Id)!.Status);
+        Assert.Equal(NoteStatus.Pending, rules.JudgementManager.GetNoteRuntimeData(leftCymbal.Id)!.Status);
         rules.ClearJudgement();
         rules.ClearScoreAndCombo();
         rules.ClearGaugeAndSkill();

@@ -610,6 +610,10 @@ namespace DTXMania.Game.Lib.Config
                     if (TryParseBool(value, out var showHitTimingFeedback))
                         Config.ShowHitTimingFeedback = showHitTimingFeedback;
                     break;
+                case "ShareCymbalLanes":
+                    if (TryParseBool(value, out var shareCymbalLanes))
+                        Config.ShareCymbalLanes = shareCymbalLanes;
+                    break;
                 case "AutoAddGauge":
                     if (TryParseBool(value, out var autoAddGauge))
                         Config.AutoAddGauge = autoAddGauge;
@@ -813,6 +817,7 @@ namespace DTXMania.Game.Lib.Config
             entries["EnableLaneFlush"] = Config.EnableLaneFlush.ToString();
             entries["ShowCombo"] = Config.ShowCombo.ToString();
             entries["ShowHitTimingFeedback"] = Config.ShowHitTimingFeedback.ToString();
+            entries["ShareCymbalLanes"] = Config.ShareCymbalLanes.ToString();
             entries["AudioLatencyOffsetMs"] = Config.AudioLatencyOffsetMs.ToString(CultureInfo.InvariantCulture);
 
             entries["EnableGameApi"] = Config.EnableGameApi.ToString();
@@ -1124,6 +1129,16 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.ShowHitTimingFeedback = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets CY/RD lane sharing and marks a deferred save when changed.</summary>
+        public void SetShareCymbalLanes(bool value)
+        {
+            if (value == Config.ShareCymbalLanes)
+                return;
+
+            Config.ShareCymbalLanes = value;
             MarkDirty();
         }
 

@@ -1380,6 +1380,7 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("No Fail", i.Name),
                 i => Assert.Equal("Risky", i.Name),
                 i => Assert.Equal("Damage Level", i.Name),
+                i => Assert.Equal("Cymbal Group", i.Name),
                 i => Assert.Equal("Drum Key Mapping", i.Name));
 
             Assert.DoesNotContain(
@@ -1567,6 +1568,24 @@ public class ConfigStageLogicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
         mockConfig.Verify(manager => manager.SetShowHitTimingFeedback(true), Times.Once);
+    }
+
+    [Fact]
+    public void CymbalGroupItem_WhenActivated_ShouldDispatchToSetterAndShowSeparate()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Cymbal Group");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+        var item = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!
+            .SelectMany(category => category.Items)
+            .Single(configItem => configItem.Name == "Cymbal Group");
+
+        Assert.Equal("Cymbal Group: Separate", item.GetDisplayText());
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(manager => manager.SetShareCymbalLanes(true), Times.Once);
     }
 
     [Fact]
