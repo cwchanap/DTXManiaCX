@@ -1022,6 +1022,7 @@ namespace DTXMania.Test.Stage
         public void ApplyInitializedLibrarySnapshot_WhenTheFirstSnapshotFailsOnRecentTab_ShouldRestoreRecentRows()
         {
             var row = Score("Recent", 42, "/library/recent/recent.dtx");
+            row.Scores[0] = new SongScore { PlayHistoryLines = ["1.26/6/13 Cleared (S: 90.00)"] };
             var (stage, tabs) = CreateStageWithTabs(
                 loadRecentPlaysAsync: () => Task.FromResult(new List<SongListNode> { row }));
             var songManager = LibraryOf(stage);
@@ -1032,11 +1033,14 @@ namespace DTXMania.Test.Stage
             var initializerNode = Score("New", 2, "/library/new/new.dtx");
             var display = new SongListDisplay();
             var preview = new PreviewImagePanel();
+            var statusPanel = new SongStatusPanel();
+            var playHistoryPanel = new PlayHistoryPanel();
             var scope = stage.InstallTestBackgroundScope();
 
             try
             {
-                AttachCoreUi(stage, display: display, previewPanel: preview);
+                AttachCoreUi(stage, display: display, statusPanel: statusPanel, previewPanel: preview);
+                SetPrivateField(stage, "_playHistoryPanel", playHistoryPanel);
                 rootSongs.Clear();
                 rootSongs.Add(initializerNode);
                 SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/new" });
@@ -1073,6 +1077,12 @@ namespace DTXMania.Test.Stage
 
                 Assert.Same(row, display.CurrentList[0]);
                 Assert.Same(row, GetPrivateField<SongListNode>(preview, "_currentSong"));
+                Assert.True(statusPanel.Visible);
+                Assert.Same(row, GetPrivateField<SongListNode>(statusPanel, "_currentSong"));
+                Assert.True(playHistoryPanel.Visible);
+                Assert.Equal(
+                    new[] { "1.26/6/13 Cleared (S: 90.00)" },
+                    GetPrivateField<string[]>(playHistoryPanel, "_historyLines"));
                 Assert.True(GetPrivateField<bool>(stage, "_libraryInitializationCompleted"));
             }
             finally

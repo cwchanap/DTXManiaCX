@@ -934,12 +934,17 @@ namespace DTXMania.Game.Lib.Stage
                 if (restoredSelection != null)
                 {
                     RestoreSelectedSong(restoredSelection);
-                    // The fallback cleared the preview presentation before projecting.
-                    // When the restored row was already the display's selection the
-                    // refresh above raises no selection event, so re-apply the preview
-                    // explicitly (UpdateSelectedSong is a no-op if already current).
-                    _previewImagePanel?.UpdateSelectedSong(restoredSelection);
-                    LoadPreviewSound(restoredSelection);
+                    // The fallback cleared the whole selection presentation before
+                    // projecting. When the restored row was already the display's
+                    // selection the refresh above raises no selection event, so drive
+                    // the stage's normal presentation path explicitly: status and
+                    // play-history panels, preview image and preview sound.
+                    OnSongSelectionChanged(
+                        _songListDisplay,
+                        new SongSelectionChangedEventArgs(
+                            restoredSelection,
+                            _currentDifficulty,
+                            isScrollComplete: true));
                 }
                 else
                 {
