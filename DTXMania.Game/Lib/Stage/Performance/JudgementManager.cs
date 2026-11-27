@@ -50,6 +50,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public event EventHandler<JudgementEvent>? JudgementMade;
 
+        /// <summary>
+        /// Raised for every processed player lane hit, including empty hits, with the note the
+        /// hit judged. Drives hit sounds, so each hit of a chord plays its own note.
+        /// </summary>
+        public event EventHandler<PlayerHitResolvedEventArgs>? PlayerHitResolved;
+
         #endregion
 
         #region Properties
@@ -353,7 +359,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             var nearestNote = FindNearestPendingNote(laneHitEvent.Lane, currentSongTimeMs);
             if (nearestNote == null)
+            {
+                PlayerHitResolved?.Invoke(
+                    this, new PlayerHitResolvedEventArgs(laneHitEvent.Lane, null, currentSongTimeMs));
                 return;
+            }
 
             var deltaMs = currentSongTimeMs - nearestNote.Note.TimeMs;
             var judgementType = TimingConstants.GetJudgementType(deltaMs);
@@ -373,13 +383,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
             nearestNote.JudgementEvent = judgementEvent;
             _statusCounts[(int)judgementType]++;
 
+            PlayerHitResolved?.Invoke(
+                this, new PlayerHitResolvedEventArgs(laneHitEvent.Lane, nearestNote.Note, currentSongTimeMs));
+            if (_disposed)
+                return;
+
             JudgementMade?.Invoke(this, judgementEvent);
         }
 
         /// <summary>
         /// Finds the nearest pending note that a hit on <paramref name="hitLane"/> may judge
-        /// within the Poor window. Also used for the hit's chip sound so the sound always
-        /// matches the note the hit will judge.
+        /// within the Poor window.
         /// </summary>
         /// <param name="hitLane">Lane the player hit</param>
         /// <param name="currentSongTimeMs">Judgement clock time of the hit</param>

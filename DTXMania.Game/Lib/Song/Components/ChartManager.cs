@@ -190,6 +190,38 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Gets the note in a lane nearest to the given time, hit or not and at any distance
+        /// (the earlier note wins a tie). Like DTXManiaNX, an empty hit plays this note's sound.
+        /// </summary>
+        /// <param name="laneIndex">Lane index (0-9)</param>
+        /// <param name="songTimeMs">Song time in milliseconds</param>
+        /// <returns>The nearest note in the lane, or null if the lane has no notes</returns>
+        public Note FindNearestNoteInLane(int laneIndex, double songTimeMs)
+        {
+            var startIndex = BinarySearchStartIndex(songTimeMs);
+
+            Note before = null;
+            for (int i = startIndex - 1; i >= 0 && before == null; i--)
+            {
+                if (_notes[i].LaneIndex == laneIndex)
+                    before = _notes[i];
+            }
+
+            Note after = null;
+            for (int i = startIndex; i < _notes.Count && after == null; i++)
+            {
+                if (_notes[i].LaneIndex == laneIndex)
+                    after = _notes[i];
+            }
+
+            if (before == null)
+                return after;
+            if (after == null)
+                return before;
+            return after.TimeMs - songTimeMs < songTimeMs - before.TimeMs ? after : before;
+        }
+
+        /// <summary>
         /// Gets notes that have passed the judgement line (for cleanup)
         /// </summary>
         /// <param name="songTimeMs">Current song time in milliseconds</param>

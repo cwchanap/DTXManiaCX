@@ -188,6 +188,31 @@ namespace DTXMania.Test.Song
             }
         }
 
+        [Theory]
+        [InlineData(0.0, 1000.0)]
+        [InlineData(1499.0, 1000.0)]
+        [InlineData(1500.0, 1000.0)]
+        [InlineData(1501.0, 2000.0)]
+        [InlineData(9000.0, 2000.0)]
+        public void FindNearestNoteInLane_ShouldPickClosestLaneNoteAndPreferEarlierOnTie(
+            double timeMs, double expectedNoteMs)
+        {
+            var parsedChart = new ParsedChart();
+            parsedChart.Notes.AddRange(new[]
+            {
+                new Note { LaneIndex = 3, TimeMs = 1000.0 },
+                new Note { LaneIndex = 4, TimeMs = 1500.0 },
+                new Note { LaneIndex = 3, TimeMs = 2000.0 },
+            });
+            var chartManager = new ChartManager(parsedChart);
+
+            var note = chartManager.FindNearestNoteInLane(3, timeMs);
+
+            Assert.Equal(3, note.LaneIndex);
+            Assert.Equal(expectedNoteMs, note.TimeMs);
+            Assert.Null(chartManager.FindNearestNoteInLane(5, timeMs));
+        }
+
         [Fact]
         public void GetStatistics_ReturnsCorrectStatistics()
         {

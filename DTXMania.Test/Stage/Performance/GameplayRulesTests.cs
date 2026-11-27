@@ -640,29 +640,66 @@ public class GameplayRulesTests
     }
 
     [Fact]
-    public void ChipLookup_ShouldUseNearestPendingNoteInLaneWithinInclusivePoorWindow()
+    public void ChipForHit_ShouldPlayJudgedNoteOrLaneNearestNoteForEmptyHit()
     {
         using var input = new MockInputManagerCompat();
         var chart = new ParsedChart("chips.dtx");
-        var early = new Note { LaneIndex = 3, TimeMs = 850 };
+        var early = new Note { LaneIndex = 3, TimeMs = 500 };
         var otherLane = new Note { LaneIndex = 4, TimeMs = 1000 };
         var hit = new Note { LaneIndex = 3, TimeMs = 1000 };
-        var late = new Note { LaneIndex = 3, TimeMs = 1150 };
+        var late = new Note { LaneIndex = 3, TimeMs = 1400 };
         chart.Notes.AddRange(new[] { early, otherLane, hit, late });
         var rules = CreatePlayingRules(null, chart, input);
-        Assert.True(rules.JudgementManager!.ResolveAutoHit(hit.Id));
-        Assert.Same(early, rules.FindNearestNoteForChip(3, 1000));
-        Assert.Same(late, rules.FindNearestNoteForChip(3, 1150));
-        Assert.Same(otherLane, rules.FindNearestNoteForChip(4, 1000));
-        Assert.Null(rules.FindNearestNoteForChip(5, 1000));
-        Assert.Null(rules.FindNearestNoteForChip(3, 1301));
-        rules.UpdateJudgement(1051);
-        Assert.Equal(NoteStatus.Missed, rules.JudgementManager.GetNoteRuntimeData(early.Id)!.Status);
-        Assert.Same(late, rules.FindNearestNoteForChip(3, 1000));
+        var resolved = new List<PlayerHitResolvedEventArgs>();
+        rules.JudgementManager!.PlayerHitResolved += (_, e) => resolved.Add(e);
+
+        input.TriggerLaneHit(3);
+        rules.UpdateJudgement(1010);
+        // Empty: the 1000 note is judged and the 1400 note is outside the Poor window.
+        input.TriggerLaneHit(3);
+        rules.UpdateJudgement(1020);
+        input.TriggerLaneHit(5);
+        rules.UpdateJudgement(1030);
+
+        Assert.Equal(3, resolved.Count);
+        Assert.Same(hit, resolved[0].JudgedNote);
+        Assert.Same(hit, rules.FindChipNoteForHit(resolved[0]));
+        Assert.Null(resolved[1].JudgedNote);
+        Assert.Equal(1020, resolved[1].JudgementTimeMs);
+        Assert.Same(hit, rules.FindChipNoteForHit(resolved[1]));
+        Assert.Equal(5, resolved[2].Lane);
+        Assert.Null(rules.FindChipNoteForHit(resolved[2]));
+        Assert.Same(late, rules.FindChipNoteForHit(new PlayerHitResolvedEventArgs(3, null, 1250)));
+        Assert.Same(otherLane, rules.FindChipNoteForHit(new PlayerHitResolvedEventArgs(4, null, 0)));
+
         rules.ClearJudgement();
-        Assert.Null(rules.FindNearestNoteForChip(3, 1000));
         rules.ClearChart();
-        Assert.Null(rules.FindNearestNoteForChip(3, 1000));
+        Assert.Null(rules.FindChipNoteForHit(new PlayerHitResolvedEventArgs(3, null, 1000)));
+        rules.ClearScoreAndCombo();
+        rules.ClearGaugeAndSkill();
+    }
+
+    [Fact]
+    public void SharedCymbalChord_ShouldGiveEachQueuedHitItsOwnNoteAndSound()
+    {
+        using var input = new MockInputManagerCompat();
+        var chart = new ParsedChart("cymbal-chord.dtx");
+        var crash = new Note { LaneIndex = 8, TimeMs = 1000 };
+        var ride = new Note { LaneIndex = 9, TimeMs = 1000 };
+        chart.Notes.AddRange(new[] { crash, ride });
+        var rules = CreatePlayingRules(new ConfigData { ShareCymbalLanes = true }, chart, input);
+        var chips = new List<Note?>();
+        rules.JudgementManager!.PlayerHitResolved += (_, e) => chips.Add(rules.FindChipNoteForHit(e));
+
+        // Both hits wait in the queue until the frame's judgement update.
+        input.TriggerLaneHit(8);
+        input.TriggerLaneHit(9);
+        rules.UpdateJudgement(1000);
+
+        Assert.Equal(2, chips.Count);
+        Assert.Contains(crash, chips);
+        Assert.Contains(ride, chips);
+        rules.ClearJudgement();
         rules.ClearScoreAndCombo();
         rules.ClearGaugeAndSkill();
     }
@@ -777,12 +814,14 @@ public class GameplayRulesTests
         chart.Notes.Add(ride);
         var rules = CreatePlayingRules(new ConfigData { ShareCymbalLanes = share }, chart, input);
         var judgements = new List<JudgementEvent>();
+        var resolved = new List<PlayerHitResolvedEventArgs>();
         rules.JudgementManager!.JudgementMade += (_, e) => judgements.Add(e);
+        rules.JudgementManager.PlayerHitResolved += (_, e) => resolved.Add(e);
 
         Assert.Equal(share, rules.ShareCymbalLanes);
-        Assert.Equal(share ? ride : null, rules.FindNearestNoteForChip(8, 1000));
         input.TriggerLaneHit(8);
         rules.JudgementManager.Update(1000);
+        Assert.Equal(share ? ride : null, Assert.Single(resolved).JudgedNote);
 
         if (expectedType is { } type)
         {
@@ -812,7 +851,6 @@ public class GameplayRulesTests
         chart.Notes.AddRange(new[] { autoRide, leftCymbal, crash });
         var rules = CreatePlayingRules(config, chart, input);
 
-        Assert.Same(crash, rules.FindNearestNoteForChip(8, 1000));
         input.TriggerLaneHit(8);
         rules.JudgementManager!.Update(1000);
 
