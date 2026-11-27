@@ -293,6 +293,7 @@ namespace DTXMania.Test.Config
             manager.SetEnableLaneFlush(true);
             manager.SetShowCombo(false);
             manager.SetShowHitTimingFeedback(true);
+            manager.SetShareCymbalLanes(true);
             manager.FlushPendingSave();
 
             var rows = ReadRows();
@@ -303,6 +304,7 @@ namespace DTXMania.Test.Config
             Assert.Equal("True", rows["EnableLaneFlush"]);
             Assert.Equal("False", rows["ShowCombo"]);
             Assert.Equal("True", rows["ShowHitTimingFeedback"]);
+            Assert.Equal("True", rows["ShareCymbalLanes"]);
 
             var reloaded = CreateManager();
             reloaded.LoadConfig();
@@ -312,6 +314,7 @@ namespace DTXMania.Test.Config
             Assert.True(reloaded.Config.EnableLaneFlush);
             Assert.False(reloaded.Config.ShowCombo);
             Assert.True(reloaded.Config.ShowHitTimingFeedback);
+            Assert.True(reloaded.Config.ShareCymbalLanes);
         }
 
         [Fact]

@@ -659,6 +659,20 @@ ScreenHeight=720
             changedValue: true);
     }
 
+    [Fact]
+    public void SetShareCymbalLanes_ShouldChangeAndSkipNoOps()
+    {
+        var manager = CreateManager(NewTestDir());
+        manager.LoadConfig();
+
+        AssertVisualBooleanSetter(
+            manager,
+            manager.SetShareCymbalLanes,
+            () => manager.Config.ShareCymbalLanes,
+            defaultValue: false,
+            changedValue: true);
+    }
+
     [Theory]
     [InlineData("ShowHitTimingFeedback=true", true)]
     [InlineData("ShowHitTimingFeedback=1", true)]

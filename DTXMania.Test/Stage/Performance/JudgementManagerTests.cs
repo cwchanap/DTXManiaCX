@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Components;
@@ -146,7 +147,7 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            // Act - Time passes beyond hit window (>200ms, HitDetectionWindowMs)
+            // Act - Time passes beyond the miss timeout (>200ms, MissTimeoutMs)
             judgementManager.Update(1250.0); // 250ms late (note at 1000ms)
 
             // Assert
@@ -536,28 +537,27 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void LateManualMiss_CountsInSkillButNotTimedOutMisses()
+        public void EarlyStrayHit_ShouldNotUseUpNoteBeforeOnTimeHit()
         {
             using var input = CreateMockInput();
             var chart = CreateTestChart(1000.0);
             using var manager = new JudgementManager(input, chart);
-            using var combo = new ComboManager();
-            using var skill = new SkillManager(chart.TotalNotes, combo);
-            manager.JudgementMade += (_, judgement) =>
-            {
-                combo.ProcessJudgement(judgement);
-                skill.ProcessJudgement(judgement);
-            };
+            var judgements = new List<JudgementEvent>();
+            manager.JudgementMade += (_, judgement) => judgements.Add(judgement);
             input.ModularInputManager.KeyBindings.BindButton("Test.Lane0", 0);
+
+            // A crosstalk/flam hit 170 ms early used to eat the note as a Miss.
             Assert.True(input.ModularInputManager.InjectButton("Test.Lane0", true));
             input.ModularInputManager.Update();
+            manager.Update(830.0);
+            Assert.Empty(judgements);
 
-            manager.Update(1160.0);
+            Assert.True(input.ModularInputManager.InjectButton("Test.Lane0", true));
+            input.ModularInputManager.Update();
+            manager.Update(1000.0);
 
-            Assert.Equal(JudgementType.Miss, manager.GetNoteRuntimeData(0)!.JudgementEvent!.Type);
-            Assert.Equal(NoteStatus.Hit, manager.GetNoteRuntimeData(0)!.Status);
-            Assert.Equal(1, skill.MissCount);
-            Assert.Equal(0, manager.GetJudgementCount(JudgementType.Miss));
+            Assert.Equal(JudgementType.Perfect, Assert.Single(judgements).Type);
+            Assert.Equal(1, manager.GetJudgementCount(JudgementType.Perfect));
         }
 
         [Fact]

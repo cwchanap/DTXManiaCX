@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -14,7 +15,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Subscribes to lane hit events from the modular input system.
     /// Each Update tick:
     /// 1. Process any pending lane hit events from the input system.
-    /// 2. For each lane hit, query ChartManager for the nearest *unhit* note within ±150 ms and decide judgement by abs Δ.
+    /// 2. For each lane hit, find the nearest pending note the lane may judge within the Poor
+    ///    window (±150 ms) and decide judgement by abs Δ. A hit outside the Poor window is an
+    ///    empty hit: like DTXManiaNX, it judges nothing and leaves the note for a later hit.
     /// 3. Mark note as Hit, emit JudgementEvent via C# event or IEventBus.
     /// Maintain per-note state (enum: Pending/Hit/Missed) inside a NoteRuntimeData dictionary keyed by Note.Id to avoid double hits.
     /// </summary>
@@ -33,8 +36,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // Miss detection optimization: Track the next note index to check for misses
         private int _missDetectionIndex = 0;
 
-        // Timing window for hit detection (±200ms to cover Miss threshold range)
-        public const double HitDetectionWindowMs = 200.0;
+        /// <summary>
+        /// A pending note is judged Miss once the judgement clock passes it by this much.
+        /// </summary>
+        public const double MissTimeoutMs = TimingConstants.MissThresholdMs;
 
         #endregion
 
@@ -54,6 +59,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Note: Miss detection always runs regardless of this setting to ensure notes don't get stuck.
         /// </summary>
         public bool IsActive { get; set; } = true;
+
+        /// <summary>
+        /// When true, a hit on the CY or RD lane may judge a note on either lane
+        /// (DTXManiaNX CYGroup "shared"). Frozen per run by <see cref="GameplayRules"/>.
+        /// </summary>
+        internal bool ShareCymbalLanes { get; set; }
 
         internal void SetIgnoredPlayerInputLanes(IEnumerable<int> lanes)
         {
@@ -236,7 +247,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Directly resolves a specific note as Hit with Perfect timing, bypassing
         /// the hit detection window entirely. Used exclusively by AutoPlay to ensure
         /// notes are always resolved regardless of frame timing, GC pauses, or hitches.
-        /// Unlike EnqueueLaneHit which goes through FindNearestUnhitNote (window-limited),
+        /// Unlike EnqueueLaneHit which goes through FindNearestPendingNote (window-limited),
         /// this resolves by note ID directly and deterministically.
         /// </summary>
         /// <param name="noteId">The ID of the note to resolve</param>
@@ -340,85 +351,65 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         private void ProcessLaneInput(LaneHitEventArgs laneHitEvent, double currentSongTimeMs)
         {
-            var laneIndex = laneHitEvent.Lane;
-            var buttonVelocity = laneHitEvent.Button.Velocity;
-            var eventTimestamp = laneHitEvent.Timestamp;
-            
-            // Find the nearest unhit note in this lane within the hit detection window
-            var nearestNote = FindNearestUnhitNote(laneIndex, currentSongTimeMs);
-            
-            if (nearestNote != null)
+            var nearestNote = FindNearestPendingNote(laneHitEvent.Lane, currentSongTimeMs);
+            if (nearestNote == null)
+                return;
+
+            var deltaMs = currentSongTimeMs - nearestNote.Note.TimeMs;
+            var judgementType = TimingConstants.GetJudgementType(deltaMs);
+
+            // Report the judged note's lane: with shared cymbal lanes a CY hit can judge an RD note.
+            var judgementEvent = new JudgementEvent(
+                nearestNote.NoteId,
+                nearestNote.Note.LaneIndex,
+                deltaMs,
+                judgementType
+            )
             {
-                var deltaMs = currentSongTimeMs - nearestNote.Note.TimeMs;
-                var judgementType = TimingConstants.GetJudgementType(deltaMs);
+                Timestamp = laneHitEvent.Timestamp
+            };
 
-                // Create judgement event with enhanced data
-                var judgementEvent = new JudgementEvent(
-                    nearestNote.NoteId,
-                    laneIndex,
-                    deltaMs,
-                    judgementType
-                )
-                {
-                    Timestamp = eventTimestamp
-                };
+            nearestNote.Status = NoteStatus.Hit;
+            nearestNote.JudgementEvent = judgementEvent;
+            _statusCounts[(int)judgementType]++;
 
-                // Mark note as hit and store judgement
-                nearestNote.Status = NoteStatus.Hit;
-                nearestNote.JudgementEvent = judgementEvent;
-                // A late manual Miss is a Hit status, not a missed note.
-                if (judgementType != JudgementType.Miss)
-                    _statusCounts[(int)judgementType]++;
-
-                // Raise judgement event
-                JudgementMade?.Invoke(this, judgementEvent);
-            }
+            JudgementMade?.Invoke(this, judgementEvent);
         }
-        
+
         /// <summary>
-        /// Finds the nearest unhit note in a specific lane within the hit detection window
+        /// Finds the nearest pending note that a hit on <paramref name="hitLane"/> may judge
+        /// within the Poor window. Also used for the hit's chip sound so the sound always
+        /// matches the note the hit will judge.
         /// </summary>
-        /// <param name="laneIndex">Lane index to search</param>
-        /// <param name="currentSongTimeMs">Current song time</param>
-        /// <returns>Nearest unhit note state, or null if none found</returns>
-        private NoteRuntimeData? FindNearestUnhitNote(int laneIndex, double currentSongTimeMs)
+        /// <param name="hitLane">Lane the player hit</param>
+        /// <param name="currentSongTimeMs">Judgement clock time of the hit</param>
+        /// <returns>Nearest pending note, or null for an empty hit</returns>
+        internal NoteRuntimeData? FindNearestPendingNote(int hitLane, double currentSongTimeMs)
         {
+            const double windowMs = TimingConstants.PoorWindowMs;
             NoteRuntimeData? nearestNote = null;
             double nearestDistance = double.MaxValue;
 
-            // Use BinarySearch to find start index
-            var searchTime = currentSongTimeMs - HitDetectionWindowMs;
-            var startIndex = _chartManager.BinarySearchStartIndex(searchTime);
+            var allNotes = _chartManager.AllNotes;
+            var startIndex = _chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
 
-            // Search forward from the start index for the nearest unhit note in this lane
-            for (int i = startIndex; i < _chartManager.AllNotes.Count; i++)
+            for (int i = startIndex; i < allNotes.Count; i++)
             {
-                var note = _chartManager.AllNotes[i];
-                
-                // Early break: if note is too far in future, stop scanning since notes are time-sorted
-                if (note.TimeMs - currentSongTimeMs > HitDetectionWindowMs)
-                {
+                var note = allNotes[i];
+
+                // Notes are time-sorted, so nothing later can be closer.
+                if (note.TimeMs - currentSongTimeMs > windowMs)
                     break;
-                }
-                
-                if (note.LaneIndex != laneIndex)
+
+                if (!CanJudge(hitLane, note.LaneIndex))
                     continue;
 
-                var noteData = _noteRuntimeData[note.Id];
-
-                if (noteData.Status != NoteStatus.Pending)
-                {
+                if (!_noteRuntimeData.TryGetValue(note.Id, out var noteData) ||
+                    noteData.Status != NoteStatus.Pending)
                     continue;
-                }
 
                 var timeDifference = Math.Abs(currentSongTimeMs - note.TimeMs);
-
-                if (timeDifference > HitDetectionWindowMs)
-                {
-                    continue;
-                }
-
-                if (timeDifference < nearestDistance)
+                if (timeDifference <= windowMs && timeDifference < nearestDistance)
                 {
                     nearestDistance = timeDifference;
                     nearestNote = noteData;
@@ -427,6 +418,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             return nearestNote;
         }
+
+        private bool CanJudge(int hitLane, int noteLane)
+        {
+            if (noteLane == hitLane)
+                return true;
+
+            // A shared cymbal hit never takes a note from a lane the player handed to autoplay.
+            return ShareCymbalLanes
+                && IsCymbalLane(hitLane)
+                && IsCymbalLane(noteLane)
+                && !_ignoredPlayerInputLanes.Contains(noteLane);
+        }
+
+        private static bool IsCymbalLane(int lane) =>
+            lane == (int)PerformanceUILayout.LaneType.CY || lane == (int)PerformanceUILayout.LaneType.RD;
 
         /// <summary>
         /// Processes missed notes (timeout scanner) using time-indexed optimization.
@@ -477,7 +483,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 // Check if note has passed the miss threshold
                 // Only mark as missed if we're past the note time AND beyond the hit window
-                if (timeSinceNote > HitDetectionWindowMs)
+                if (timeSinceNote > MissTimeoutMs)
                 {
                     // Mark as missed and create miss judgement event
                     var missEvent = new JudgementEvent(

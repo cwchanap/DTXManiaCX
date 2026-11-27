@@ -28,6 +28,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             DamageLevel = config?.DamageLevel ?? GaugeDamageLevel.Normal;
             Risky = RiskyRange.Clamp(config?.Risky ?? RiskyRange.Default);
             FailureEnabled = !(config?.NoFail ?? false);
+            ShareCymbalLanes = config?.ShareCymbalLanes ?? false;
         }
 
         internal IReadOnlySet<int> AutoPlayLanes { get; }
@@ -35,6 +36,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal GaugeDamageLevel DamageLevel { get; }
         internal int Risky { get; }
         internal bool FailureEnabled { get; }
+        internal bool ShareCymbalLanes { get; }
 
         internal ChartManager? ChartManager { get; private set; }
         internal JudgementManager? JudgementManager { get; private set; }
@@ -137,7 +139,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 GreatCount = JudgementManager?.GetStatusCount(JudgementType.Great) ?? 0,
                 GoodCount = JudgementManager?.GetStatusCount(JudgementType.Good) ?? 0,
                 PoorCount = JudgementManager?.GetStatusCount(JudgementType.Poor) ?? 0,
-                // Late manual Miss events have Hit status, so Result intentionally excludes them.
                 MissCount = JudgementManager?.GetStatusCount(JudgementType.Miss) ?? 0,
                 TotalNotes = ChartManager?.TotalNotes ?? 0,
                 FinalLife = GaugeManager?.CurrentLife ?? 0.0f,
@@ -192,44 +193,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return Math.Max(0.0, currentAudioClockMs - offsetMs * speed);
         }
 
-        internal Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs)
-        {
-            var chartManager = ChartManager;
-            var judgementManager = JudgementManager;
-            if (chartManager == null || judgementManager == null)
-                return null;
-
-            // The Poor window excludes the Miss range of the wider judgement window.
-            double windowMs = TimingConstants.PoorWindowMs;
-            var allNotes = chartManager.AllNotes;
-            int startIndex = chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
-            Note? nearest = null;
-            double nearestDistance = double.MaxValue;
-
-            for (int i = startIndex; i < allNotes.Count; i++)
-            {
-                var note = allNotes[i];
-                if (note.TimeMs - currentSongTimeMs > windowMs)
-                    break;
-                if (note.LaneIndex != laneIndex)
-                    continue;
-
-                var data = judgementManager.GetNoteRuntimeData(note.Id);
-                if (data == null || data.Status != NoteStatus.Pending)
-                    continue;
-
-                var distance = Math.Abs(currentSongTimeMs - note.TimeMs);
-                if (distance > windowMs)
-                    continue;
-                if (distance < nearestDistance)
-                {
-                    nearestDistance = distance;
-                    nearest = note;
-                }
-            }
-
-            return nearest;
-        }
+        /// <summary>
+        /// The note whose chip sound a player hit plays: the same note the hit will judge.
+        /// </summary>
+        internal Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs) =>
+            JudgementManager?.FindNearestPendingNote(laneIndex, currentSongTimeMs)?.Note;
 
         internal void InitializeJudgement(IInputManagerCompat inputManager)
         {
@@ -237,6 +205,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             manager.IsActive = false;
             // Automated lanes ignore physical input but remain available to autoplay.
             manager.SetIgnoredPlayerInputLanes(AutoPlayLanes);
+            manager.ShareCymbalLanes = ShareCymbalLanes;
             manager.JudgementMade += OnJudgementMade;
             JudgementManager = manager;
         }

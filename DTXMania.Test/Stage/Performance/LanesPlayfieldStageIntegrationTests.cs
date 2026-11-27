@@ -198,13 +198,13 @@ public class LanesPlayfieldStageIntegrationTests
         Assert.Equal(1, rules.BuildFrameState(1040).SlowCount);
         Assert.Equal(1, rules.BuildFrameState(1040).MaxCombo);
 
+        // A hit 160 ms late is outside the Poor window: an empty hit with no judgement or feedback.
         judgement.EnqueueLaneHit(3, "manual");
         judgement.Update(3160, 1040);
-        Assert.Equal(1, rules.BuildFrameState(3160).MissCount);
-        Assert.Equal(1, skill.MissCount);
-        Assert.Equal(0, judgement.GetJudgementCount(JudgementType.Miss));
-        Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
-        Assert.Equal(JudgementType.Miss, visuals.SpritePopups.ActivePopupsForTesting.Last().JudgementType);
+        Assert.Equal(0, rules.BuildFrameState(3160).MissCount);
+        Assert.Equal(0, skill.MissCount);
+        Assert.Equal(NoteStatus.Pending, judgement.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
+        Assert.Equal(JudgementType.Great, Assert.Single(visuals.SpritePopups.ActivePopupsForTesting).JudgementType);
         Assert.Equal(new[] { 2 }, visuals.Notes.Flashes);
         Assert.Equal(new[] { (2, true) }, visuals.Pads.Presses);
 
@@ -228,7 +228,7 @@ public class LanesPlayfieldStageIntegrationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Miss_ShouldDrawSpriteWithoutHitFeedbackOrScore(bool manualMiss)
+    public void Miss_ShouldDrawSpriteWithoutHitFeedbackOrScore(bool strayHitFirst)
     {
         var config = new ConfigData { EnableLaneFlush = true, NoFail = true };
         using var input = new MockInputManagerCompat();
@@ -242,8 +242,13 @@ public class LanesPlayfieldStageIntegrationTests
         UpdateUntil(stage, () => stage.AudioSession != null);
         var judgement = stage.Rules!.JudgementManager!;
         judgement.IsActive = true;
-        if (manualMiss) judgement.EnqueueLaneHit(4, "manual");
-        judgement.Update(manualMiss ? 1160 : 1201);
+        if (strayHitFirst)
+        {
+            // Outside the Poor window: judges nothing, so the note still times out as a Miss.
+            judgement.EnqueueLaneHit(4, "manual");
+            judgement.Update(1160);
+        }
+        judgement.Update(1201);
 
         Assert.Equal(0, stage.Rules.ScoreManager!.CurrentScore);
         Assert.Equal(0, stage.Rules.ComboManager!.CurrentCombo);

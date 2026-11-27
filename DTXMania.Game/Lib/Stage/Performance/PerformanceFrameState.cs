@@ -20,7 +20,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public int GoodCount { get; init; }
         public int PoorCount { get; init; }
         public int MissCount { get; init; }
-        // Runtime note statuses differ from HUD events during failure and late manual misses.
+        // Runtime note statuses differ from HUD events during a synchronous failure.
         public int StatusPerfectCount { get; init; }
         public int StatusGreatCount { get; init; }
         public int StatusGoodCount { get; init; }

@@ -2022,7 +2022,6 @@ public class PerformanceStageDeterministicTests
     [Theory]
     [InlineData(0)] // Poor hit
     [InlineData(1)] // timeout Miss
-    [InlineData(2)] // late manual Miss (Hit status)
     public async Task TelemetryFailure_ShouldPublishStatusBeforeReentrantTransitionAndReactivation(int failureKind)
     {
         using var input = new MockInputManagerCompat();
@@ -2070,12 +2069,7 @@ public class PerformanceStageDeterministicTests
             Assert.True(input.ModularInputManager.InjectButton("Test.Fail", true));
             input.ModularInputManager.Update();
         }
-        var update = Task.Run(() => stage.Update(failureKind switch
-        {
-            0 => 1.02,
-            1 => 1.101,
-            _ => 1.06
-        }));
+        var update = Task.Run(() => stage.Update(failureKind == 0 ? 1.02 : 1.101));
         try
         {
             Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
@@ -2273,7 +2267,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TelemetryStatusCounts_ShouldMatchChartScansAndExcludeLateManualMiss()
+    public void TelemetryStatusCounts_ShouldMatchChartScansAfterEmptyHit()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -2322,11 +2316,12 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, telemetry.GreatCount);
         Assert.Equal(1, telemetry.GoodCount);
         Assert.Equal(1, telemetry.PoorCount);
-        Assert.Equal(1, telemetry.MissCount);
+        Assert.Equal(2, telemetry.MissCount);
         Assert.Equal(2, stage.Rules.BuildFrameState(6201).MissCount);
         Assert.Equal(2, stage.CurrentFrame.MissCount);
-        Assert.Equal(1, stage.CurrentFrame.StatusMissCount);
-        Assert.Equal(NoteStatus.Hit, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
+        Assert.Equal(2, stage.CurrentFrame.StatusMissCount);
+        // The +160 ms hit is an empty hit, so its note times out instead of being used up.
+        Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[4].Id)!.Status);
         Assert.Equal(NoteStatus.Missed, judgement.GetNoteRuntimeData(chart.Notes[5].Id)!.Status);
         stage.Deactivate();
     }
@@ -3931,14 +3926,16 @@ public class PerformanceStageDeterministicTests
         UpdateUntil(stage, () => stage.AudioSession != null);
         var manager = stage.Rules!.JudgementManager!;
         manager.IsActive = true;
-        manager.EnqueueLaneHit(lane, "Test.Manual");
+        // Only a timeout produces Miss: a hit outside the Poor window judges nothing.
+        if (judgementType != JudgementType.Miss)
+            manager.EnqueueLaneHit(lane, "Test.Manual");
         var deltaMs = judgementType switch
         {
             JudgementType.Perfect => 0,
             JudgementType.Great => 40,
             JudgementType.Good => 80,
             JudgementType.Poor => 120,
-            _ => 160
+            _ => 201
         };
         manager.Update(1000 + deltaMs);
 
@@ -4005,12 +4002,12 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, stage.Rules.BuildFrameState(1040).MaxCombo);
         skillManager.SkillChanged -= skillObserver;
 
+        // A hit 160 ms late is outside the Poor window: an empty hit that judges nothing.
         judgementManager.EnqueueLaneHit(3, "Test.Manual");
         judgementManager.Update(3160, 1040);
-        Assert.Equal(1, stage.Rules.BuildFrameState(3160).MissCount);
-        Assert.Equal(1, skillManager.MissCount);
-        Assert.Equal(0, judgementManager.GetJudgementCount(JudgementType.Miss));
-        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
+        Assert.Equal(0, stage.Rules.BuildFrameState(3160).MissCount);
+        Assert.Equal(0, skillManager.MissCount);
+        Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(chart.Notes[1].Id)!.Status);
 
         chart.Notes[2].Value = "07";
         bool feedbackWhenChipPlayed = false;
@@ -5961,7 +5958,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void RiskyFailureLateManualMiss_ShouldBeAbsentFromResultAndTelemetryMissCounts()
+    public void RiskyLateStrayHit_ShouldNotFailUntilTheNoteTimesOut()
     {
         using var input = new MockInputManagerCompat();
         using var stage = new HeadlessPerformanceStage(
@@ -5971,7 +5968,7 @@ public class PerformanceStageDeterministicTests
         manager.Setup(m => m.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
             .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => result = (PerformanceResult)payload);
         stage.StageManager = manager.Object;
-        var chart = new ParsedChart("late-manual-miss.dtx") { DurationMs = 10000 };
+        var chart = new ParsedChart("late-stray-hit.dtx") { DurationMs = 10000 };
         chart.Notes.Add(new Note { Id = 0, LaneIndex = 0, TimeMs = 1000 });
 
         stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0, chart));
@@ -5982,15 +5979,20 @@ public class PerformanceStageDeterministicTests
         input.ModularInputManager.Update();
         stage.Update(1.16);
 
+        // 160 ms late is outside the Poor window, so the hit judges nothing and Risky holds.
+        Assert.Null(result);
+        Assert.Equal(NoteStatus.Pending, stage.Rules!.JudgementManager!.GetNoteRuntimeData(0)!.Status);
+
+        stage.Update(0.05);
+
         Assert.NotNull(result);
         Assert.Equal(CompletionReason.PlayerFailed, result.Summary.CompletionReason);
-        Assert.Equal(0, result.Summary.MissCount);
+        Assert.Equal(1, result.Summary.MissCount);
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
         Assert.True(telemetry.StageCompleted);
         Assert.True(telemetry.HasFailed);
-        Assert.Equal(0, telemetry.MissCount);
-        Assert.Equal(1, stage.Rules!.BuildFrameState(1160).MissCount);
+        Assert.Equal(1, telemetry.MissCount);
         stage.Deactivate();
     }
 

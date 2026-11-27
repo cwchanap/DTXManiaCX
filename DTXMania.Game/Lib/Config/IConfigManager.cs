@@ -137,6 +137,9 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets hit timing feedback visibility and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetShowHitTimingFeedback(bool value);
 
+        /// <summary>Sets CY/RD lane sharing and marks a deferred save pending when the value changes. No event raised.</summary>
+        void SetShareCymbalLanes(bool value);
+
         /// <summary>Sets Metronome and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetMetronome(bool value);
 

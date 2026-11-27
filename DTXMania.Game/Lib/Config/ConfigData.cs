@@ -62,10 +62,17 @@ namespace DTXMania.Game.Lib.Config
         public bool ShowHitTimingFeedback { get; set; } = false;
 
         /// <summary>
+        /// When true, CY and RD pads may hit each other's notes (DTXManiaNX CYGroup "shared"),
+        /// so a kit with one right cymbal can play both lanes. Off keeps the lanes separate.
+        /// </summary>
+        public bool ShareCymbalLanes { get; set; } = false;
+
+        /// <summary>
         /// Optional manual audio output latency compensation in milliseconds. This value is
         /// subtracted from the raw song clock when evaluating player input timing, so that
         /// judgement windows are aligned with what the player actually hears rather than when
-        /// audio was submitted for playback. <c>0</c> means no compensation.
+        /// audio was submitted for playback. <c>0</c> means no compensation. It does not move
+        /// audio: a hit on the visual note is judged this many milliseconds early.
         /// <para>
         /// This offset only affects player judgement timing. Autoplay, note visuals, BGM
         /// events, song progress, and stage completion all use the raw song clock to stay

@@ -33,10 +33,6 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(-100.1, JudgementType.Poor)]        // Just over Good boundary early
         [InlineData(150.0, JudgementType.Poor)]         // Poor boundary (±150ms)
         [InlineData(-150.0, JudgementType.Poor)]        // Poor boundary early
-        [InlineData(150.1, JudgementType.Miss)]         // Just over Poor boundary
-        [InlineData(-150.1, JudgementType.Miss)]        // Just over Poor boundary early
-        [InlineData(200.0, JudgementType.Miss)]         // Miss threshold
-        [InlineData(-200.0, JudgementType.Miss)]        // Miss threshold early
         public void HitWindowBoundaries_VariousTimings_ReturnsCorrectJudgement(double deltaMs, JudgementType expectedJudgement)
         {
             // Arrange
@@ -195,7 +191,6 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(99.9, JudgementType.Good)]          // Just under Good boundary
         [InlineData(100.1, JudgementType.Poor)]         // Just over Good boundary
         [InlineData(149.9, JudgementType.Poor)]         // Just under Poor boundary
-        [InlineData(150.1, JudgementType.Miss)]         // Just over Poor boundary
         public void HitWindowBoundaries_EdgeCases_CorrectJudgements(double deltaMs, JudgementType expectedJudgement)
         {
             // Arrange
@@ -214,6 +209,28 @@ namespace DTXMania.Test.Stage.Performance
             Assert.NotNull(capturedEvent);
             Assert.Equal(expectedJudgement, capturedEvent.Type);
             Assert.Equal(deltaMs, capturedEvent.DeltaMs, 0.1);
+        }
+
+        [Theory]
+        [InlineData(150.1)]
+        [InlineData(-150.1)]
+        [InlineData(199.9)]
+        [InlineData(-200.0)]
+        public void HitOutsidePoorWindow_ShouldJudgeNothingAndKeepNotePending(double deltaMs)
+        {
+            // Like DTXManiaNX, a hit that would judge Miss is an empty hit, not a used-up note.
+            var mockInputManager = new MockInputManagerCompat();
+            var chartManager = CreateSingleNoteChartManager(1000.0);
+            var judgementManager = new JudgementManager(mockInputManager, chartManager);
+
+            JudgementEvent? capturedEvent = null;
+            judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
+
+            judgementManager.EnqueueLaneHit(0);
+            judgementManager.Update(1000.0 + deltaMs, 0.0);
+
+            Assert.Null(capturedEvent);
+            Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(0)!.Status);
         }
 
         #region Helper Methods
