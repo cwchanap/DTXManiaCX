@@ -55,6 +55,7 @@ namespace DTXMania.Test.Stage
             private readonly object _gate = new();
             private readonly List<ControlledLoad> _loads = new();
             private int _invoked;
+            private bool _releasedAll;
 
             public int InvokedCount => Volatile.Read(ref _invoked);
 
@@ -80,12 +81,34 @@ namespace DTXMania.Test.Stage
             public Func<Task<List<SongListNode>>> Loader() => () =>
             {
                 var load = new ControlledLoad();
+                bool released;
                 lock (_gate)
+                {
                     _loads.Add(load);
+                    released = _releasedAll;
+                }
                 Interlocked.Increment(ref _invoked);
                 load.Started.TrySetResult(true);
+                if (released)
+                    load.Result.TrySetResult(new List<SongListNode>());
                 return load.Result.Task;
             };
+
+            // Failure-path cleanup: settle every registered load (and every later one)
+            // so a worker blocked in RunTabLoad can finish when an assertion fails
+            // before the test drives its loaders. The empty result is irrelevant: the
+            // test already failed and scope retirement drops the terminal.
+            public void ReleaseAll()
+            {
+                ControlledLoad[] loads;
+                lock (_gate)
+                {
+                    _releasedAll = true;
+                    loads = _loads.ToArray();
+                }
+                foreach (var load in loads)
+                    load.Result.TrySetResult(new List<SongListNode>());
+            }
         }
 
         // One controlled bookmark write through the writer seam. When a real library is
@@ -176,16 +199,19 @@ namespace DTXMania.Test.Stage
 
         private static readonly ILogger NoLogger = NullLogger.Instance;
 
-        // Counts production warnings (thread-safe). The fault-rollback continuation
-        // performs its handoff — scope.Post for a live origin scope, the retired-scope
-        // drop otherwise — STRICTLY BEFORE it logs its warning (program order inside
-        // the continuation), so the warning count is the post-handoff signal the
-        // rollback tests await before draining/asserting. No new production telemetry.
+        // Counts the fault-rollback continuation's warnings (thread-safe). The
+        // continuation performs its handoff — scope.Post for a live origin scope, the
+        // retired-scope drop otherwise — STRICTLY BEFORE it logs its warning (program
+        // order inside the continuation), so this count is the post-handoff signal the
+        // rollback tests await before draining/asserting. It deliberately excludes the
+        // disposal drain's own warning for the same faulted write, which would
+        // otherwise satisfy the wait before the rollback continuation ran. No new
+        // production telemetry.
         private sealed class CapturingLogger : ILogger
         {
-            private int _warnings;
+            private int _rollbackWarnings;
 
-            public int Warnings => Volatile.Read(ref _warnings);
+            public int RollbackWarnings => Volatile.Read(ref _rollbackWarnings);
 
             public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -198,8 +224,12 @@ namespace DTXMania.Test.Stage
                 Exception? exception,
                 Func<TState, Exception?, string> formatter)
             {
-                if (logLevel >= LogLevel.Warning)
-                    Interlocked.Increment(ref _warnings);
+                if (logLevel >= LogLevel.Warning
+                    && formatter(state, exception).StartsWith(
+                        "Bookmark save failed", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref _rollbackWarnings);
+                }
             }
         }
 
@@ -251,7 +281,7 @@ namespace DTXMania.Test.Stage
                 tabs.WaitForPendingWritesAtDisposal();
 
                 if (Volatile.Read(ref _releasedRealWrite) != 0 && writeTask is { IsFaulted: true } or { IsCanceled: true })
-                    SpinWait.SpinUntil(() => logger.Warnings >= 1, TimeSpan.FromSeconds(5));
+                    SpinWait.SpinUntil(() => logger.RollbackWarnings >= 1, TimeSpan.FromSeconds(5));
 
                 foreach (var scope in scopes)
                     scope?.Retire();
@@ -403,7 +433,7 @@ namespace DTXMania.Test.Stage
             string because)
         {
             Assert.True(
-                SpinWait.SpinUntil(() => logger.Warnings >= expectedWarnings, TimeSpan.FromSeconds(10)),
+                SpinWait.SpinUntil(() => logger.RollbackWarnings >= expectedWarnings, TimeSpan.FromSeconds(10)),
                 because);
         }
 
@@ -3247,6 +3277,7 @@ namespace DTXMania.Test.Stage
                 }
                 finally
                 {
+                    bookmarkLoader.ReleaseAll();
                     writerHarness.Cleanup(tabs, logger, currentScope, scopeA, scopeB);
                     RestoreLibraryRoots(manager, savedRoots);
                 }
