@@ -22,8 +22,13 @@ namespace DTXMania.Game.Lib.Utilities
         /// <param name="text">Text to truncate.</param>
         /// <param name="maxWidth">Maximum rendered width in pixels.</param>
         /// <param name="font">MonoGame SpriteFont used to measure the text.</param>
-        /// <returns>The original text if it fits, otherwise the longest prefix + "..." that fits.</returns>
-        public static string TruncateToWidth(string text, float maxWidth, SpriteFont font)
+        /// <param name="truncateStart">True to keep the longest suffix with a leading ellipsis; false to keep the longest prefix.</param>
+        /// <returns>The original text if it fits, otherwise the longest fitting prefix or suffix with an ellipsis.</returns>
+        public static string TruncateToWidth(
+            string text,
+            float maxWidth,
+            SpriteFont font,
+            bool truncateStart = false)
         {
             if (string.IsNullOrEmpty(text) || font == null)
                 return text;
@@ -31,30 +36,7 @@ namespace DTXMania.Game.Lib.Utilities
             if (font.MeasureString(text).X <= maxWidth)
                 return text;
 
-            int[] elementStarts = StringInfo.ParseCombiningCharacters(text);
-            int elementCount = elementStarts.Length;
-            int left = 0;
-            int right = elementCount;
-            string bestFit = string.Empty;
-
-            while (left <= right)
-            {
-                int mid = left + (right - left) / 2;
-                int charIndex = mid < elementCount ? elementStarts[mid] : text.Length;
-                string candidate = text.Substring(0, charIndex) + "...";
-
-                if (font.MeasureString(candidate).X <= maxWidth)
-                {
-                    bestFit = candidate;
-                    left = mid + 1;
-                }
-                else
-                {
-                    right = mid - 1;
-                }
-            }
-
-            return bestFit;
+            return TruncateToWidthCore(text, maxWidth, font.MeasureString, truncateStart);
         }
 
         /// <summary>
@@ -65,8 +47,13 @@ namespace DTXMania.Game.Lib.Utilities
         /// <param name="text">Text to truncate.</param>
         /// <param name="maxWidth">Maximum rendered width in pixels.</param>
         /// <param name="font">IFont used to measure the text.</param>
-        /// <returns>The original text if it fits, otherwise the longest prefix + "..." that fits.</returns>
-        public static string TruncateToWidth(string text, float maxWidth, IFont font)
+        /// <param name="truncateStart">True to keep the longest suffix with a leading ellipsis; false to keep the longest prefix.</param>
+        /// <returns>The original text if it fits, otherwise the longest fitting prefix or suffix with an ellipsis.</returns>
+        public static string TruncateToWidth(
+            string text,
+            float maxWidth,
+            IFont font,
+            bool truncateStart = false)
         {
             if (string.IsNullOrEmpty(text) || font == null)
                 return text;
@@ -74,6 +61,15 @@ namespace DTXMania.Game.Lib.Utilities
             if (font.MeasureString(text).X <= maxWidth)
                 return text;
 
+            return TruncateToWidthCore(text, maxWidth, font.MeasureString, truncateStart);
+        }
+
+        private static string TruncateToWidthCore(
+            string text,
+            float maxWidth,
+            Func<string, Vector2> measureString,
+            bool truncateStart)
+        {
             int[] elementStarts = StringInfo.ParseCombiningCharacters(text);
             int elementCount = elementStarts.Length;
             int left = 0;
@@ -83,10 +79,21 @@ namespace DTXMania.Game.Lib.Utilities
             while (left <= right)
             {
                 int mid = left + (right - left) / 2;
-                int charIndex = mid < elementCount ? elementStarts[mid] : text.Length;
-                string candidate = text.Substring(0, charIndex) + "...";
+                string candidate;
+                if (truncateStart)
+                {
+                    int charIndex = mid == 0
+                        ? text.Length
+                        : mid >= elementCount ? 0 : elementStarts[elementCount - mid];
+                    candidate = "..." + text.Substring(charIndex);
+                }
+                else
+                {
+                    int charIndex = mid < elementCount ? elementStarts[mid] : text.Length;
+                    candidate = text.Substring(0, charIndex) + "...";
+                }
 
-                if (font.MeasureString(candidate).X <= maxWidth)
+                if (measureString(candidate).X <= maxWidth)
                 {
                     bestFit = candidate;
                     left = mid + 1;

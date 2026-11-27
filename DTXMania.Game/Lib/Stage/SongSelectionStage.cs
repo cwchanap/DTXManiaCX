@@ -202,6 +202,14 @@ namespace DTXMania.Game.Lib.Stage
             Func<Task<List<SongListNode>>>? loadBookmarkedNodesAsync = null,
             Func<SongLibrary, int, bool, Task>? setBookmarkAsync = null) : base(game)
         {
+            if (createTabs != null
+                && (loadRecentPlaysAsync != null || loadBookmarkedNodesAsync != null || setBookmarkAsync != null))
+            {
+                throw new ArgumentException(
+                    "createTabs cannot be combined with the tab load/write seams; pass those seams to the factory instead.",
+                    nameof(createTabs));
+            }
+
             _navigationStack = new Stack<SongListNode>();
             // HPA-802: the preview controller resolves the resource manager lazily,
             // only when a preview loads — construction does no filesystem work.
@@ -244,6 +252,7 @@ namespace DTXMania.Game.Lib.Stage
             // initializer/publication/tab callback can write into this activation.
             _intake.Reset();
             _libraryInitializationCompleted = false;
+            _libraryPublicationReconcileFailed = false;
 
             // The handler is bound to this activation's fresh scope, so a retained delegate
             // from an earlier activation can never write into this one.
@@ -930,8 +939,8 @@ namespace DTXMania.Game.Lib.Stage
                 _libraryPublicationReconcileFailed = true;
                 // A failed reconciliation must not leave the failed snapshot installed:
                 // restore the last valid snapshot — or, when none was ever applied, the
-                // pending-library placeholder — so readiness falls back and the next
-                // drain retries from intact state (HPA-802). The triggering exception
+                // pending-library placeholder — so readiness falls back and the one
+                // immediate retry starts from intact state (HPA-802). The triggering exception
                 // is never masked.
                 try
                 {
@@ -951,6 +960,7 @@ namespace DTXMania.Game.Lib.Stage
                     else
                     {
                         ShowPendingLibraryPlaceholder();
+                        RefreshSongListForActiveTab();
                     }
                 }
                 catch (Exception restoreFailure)
@@ -1345,7 +1355,7 @@ namespace DTXMania.Game.Lib.Stage
             // Stable exits only: when the body throws, its exception must surface
             // unmasked; every normal return is a stable boundary.
             var result = PrepareVideoChartCore(chartPath);
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
             return result;
         }
 
@@ -1408,7 +1418,7 @@ namespace DTXMania.Game.Lib.Stage
                 ? _previewController.StartPrepared()
                 : PreparedFailure("No prepared chart preview is available.");
 
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
             return result;
         }
 
@@ -1416,7 +1426,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             ClearPreparedPreviewStateIfOwned();
 
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
             return PreparedSuccess();
         }
 
@@ -1424,7 +1434,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             var result = ActivatePreparedChartCore();
 
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
             return result;
         }
 
@@ -1463,25 +1473,29 @@ namespace DTXMania.Game.Lib.Stage
             // with a stale prepared state (HPA-802).
             _previewController.Stop();
             _preparedChartSelection = null;
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
         }
 
         // HPA-802 review: two-way invariant between the stage-owned prepared record
         // and the controller's playback state — a record exists exactly when the
         // controller state is not None (an unexpected stop keeps the pair as
         // record + Failed, explicit cleanup keeps null + None). Checked at stable
-        // stage operation boundaries so a mismatch fails fast instead of surfacing
-        // as stale playback or a lost identity.
-        private void AssertPreparedSelectionStatePairing()
+        // stage operation boundaries; a mismatch is logged and both sides are cleared
+        // instead of crashing every frame from OnUpdate.
+        private void RepairPreparedSelectionStatePairing()
         {
             bool hasRecord = _preparedChartSelection != null;
             bool hasPlaybackState = _previewController.PreparedState != SongSelectionPreviewState.None;
             if (hasRecord == hasPlaybackState)
                 return;
 
-            throw new InvalidOperationException(
-                $"Prepared chart identity and preview playback state are inconsistent: " +
-                $"record={(hasRecord ? "set" : "null")}, playback={_previewController.PreparedState}.");
+            Logger.LogWarning(
+                "Prepared chart identity and preview playback state are inconsistent: " +
+                "record={RecordState}, playback={PlaybackState}; clearing the prepared preview state",
+                hasRecord ? "set" : "null",
+                _previewController.PreparedState);
+            _preparedChartSelection = null;
+            _previewController.Stop();
         }
 
         private void ClearPreparedPreviewStateIfOwned()
@@ -1732,7 +1746,7 @@ namespace DTXMania.Game.Lib.Stage
                 
                 // Every exit of this handler is a stable boundary, including the
                 // scroll-incomplete early return.
-                AssertPreparedSelectionStatePairing();
+                RepairPreparedSelectionStatePairing();
                 return; // Skip other heavy updates during scrolling
             }
 
@@ -1751,7 +1765,7 @@ namespace DTXMania.Game.Lib.Stage
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
 
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
@@ -1772,7 +1786,7 @@ namespace DTXMania.Game.Lib.Stage
             // Update status panel
             _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
             _playHistoryPanel?.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
         }
 
         // HPA-802 review: shared cleanup for every difficulty-change entry point —
@@ -2081,7 +2095,8 @@ namespace DTXMania.Game.Lib.Stage
             _breadcrumbLabel.Text = TextHelper.TruncateToWidth(
                 caption,
                 SongSelectionUILayout.UILabels.Breadcrumb.MaxTextWidth,
-                _breadcrumbLabel.Font);
+                _breadcrumbLabel.Font,
+                truncateStart: _filterCriteria.IsEmpty);
         }
 
         private void UpdateStatusPanelFolderHint()
@@ -2141,7 +2156,7 @@ namespace DTXMania.Game.Lib.Stage
             // Update UI (PreviewImagePanel will handle its own timing)
             _uiManager?.Update(deltaTime);
 
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
         }
 
         /// <summary>True while Search &amp; Filter or Quick Settings covers the stage.</summary>
@@ -2656,7 +2671,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            AssertPreparedSelectionStatePairing();
+            RepairPreparedSelectionStatePairing();
         }
 
         /// <summary>

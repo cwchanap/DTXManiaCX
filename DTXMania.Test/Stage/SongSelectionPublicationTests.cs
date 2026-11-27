@@ -1019,6 +1019,38 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ReconcileLibrarySnapshot_WhenTheFirstSnapshotFailsOnRecentTab_ShouldRestoreRecentRows()
+        {
+            var row = Score("Recent", 42, "/library/recent/recent.dtx");
+            var (stage, tabs) = CreateStageWithTabs(
+                loadRecentPlaysAsync: () => Task.FromResult(new List<SongListNode> { row }));
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display: display);
+            var scope = stage.InstallTestBackgroundScope();
+
+            InvokePrivateMethod(stage, "SwitchToTab", SongSelectionTab.RecentPlays);
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => { scope.Drain(); return tabs.RecentPlayNodes is { Count: 1 }; },
+                    TimeSpan.FromSeconds(5)),
+                "the Recent load was never applied");
+            int refreshVersion = tabs.BeginTabListRefreshConsumption();
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+            tabs.CompleteTabListRefreshConsumption(refreshVersion);
+            Assert.Same(row, display.CurrentList[0]);
+
+            display.SelectionChanged += (_, _) =>
+                throw new InvalidOperationException("selection callback failed");
+            var failedSnapshot = Snapshot(12, new[] { Score("New", 2, "/library/new/new.dtx") }, new[] { "/library/new" });
+
+            Assert.Throws<TargetInvocationException>(() =>
+                InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", failedSnapshot));
+
+            Assert.Same(row, display.CurrentList[0]);
+            scope.Retire();
+        }
+
+        [Fact]
         public void OnFilterApplied_WhenTheFirstPublicationRollsBack_ShouldKeepDraftAndEmptyPlaceholder()
         {
             var stage = CreateStage();
